@@ -1,0 +1,6 @@
+{
+  "name": "Maestro Quântico",
+  "description": "Plataforma clínica de radiestesia terapêutica, algoritmo anti-catarse, motor de ressonância harmônica e central documental.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
