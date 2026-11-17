@@ -122,7 +122,8 @@ export default function App() {
       setIsGenerating(true);
       setGenerationError(null);
       try {
-        const res = await fetch('/api/quantum/generate', {
+        const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+        const res = await fetch(`${apiBase}/api/quantum/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -132,7 +133,10 @@ export default function App() {
           }),
         });
 
-        const payload = await res.json();
+        const contentType = res.headers.get('content-type') || '';
+        const payload = contentType.includes('application/json')
+          ? await res.json()
+          : { error: `Servidor não respondeu em JSON (HTTP ${res.status}). Verifique se o backend Node está ativo.` };
         if (!res.ok) {
           throw new Error(payload?.error || `Erro HTTP ${res.status}`);
         }

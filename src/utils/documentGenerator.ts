@@ -24,7 +24,7 @@ const MUTED_HEX = '64748B';
 const BORDER_HEX = 'CBD5E1';
 const LIGHT_BG_HEX = 'FAF8F5';
 const MAESTRO_LOGO_URL =
-  '/assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png';
+  './assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png';
 
 interface MaestroLogoAssets {
   bytes: Uint8Array;

@@ -195,7 +195,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
         {/* Cabeçalho Oficial Obrigatório */}
         <header className="text-center space-y-1.5 pb-6 border-b-2 border-[#B45309]">
           <img
-            src="/assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png"
+            src="./assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png"
             alt="Logo Maestro Terapias Vibracionais"
             referrerPolicy="no-referrer"
             className="w-24 h-24 mx-auto object-contain mb-2"

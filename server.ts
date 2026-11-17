@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
@@ -29,6 +30,18 @@ function getGeminiClient(): GoogleGenAI {
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
+
+  // Allow cross-origin API requests when frontend is wrapped in Median.co or GitHub Pages
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
 
   // Healthcheck
   app.get('/api/health', (_req: Request, res: Response) => {
@@ -268,6 +281,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
   });
 
   // Vite middleware in development, static dist in production
+  const distPath = path.resolve(__dirname, 'dist');
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -276,10 +290,14 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexFile = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexFile)) {
+        res.sendFile(indexFile);
+      } else {
+        res.status(500).send('Build ausente. Execute npm run build antes de iniciar em produção.');
+      }
     });
   }
 

@@ -30,7 +30,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           className="flex items-center gap-2.5 font-serif text-lg sm:text-xl font-bold tracking-tight text-[#0F172A] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded cursor-pointer"
         >
           <img
-            src="/assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png"
+            src="./assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png"
             alt="Logo Maestro Terapias Vibracionais"
             referrerPolicy="no-referrer"
             className="w-10 h-10 object-contain shrink-0"
