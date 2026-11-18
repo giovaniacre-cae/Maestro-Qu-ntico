@@ -1,9 +1,16 @@
-import { ClinicalAnsaeRhenSheet } from '../types/clinical';
+import {
+  ClinicalAnsaeRhenSheet,
+  getHawkinsEntryByHz,
+  getHawkinsLabelByHz,
+} from '../types/clinical';
+
+export { getHawkinsLabelByHz };
 import {
   AntiCatharsisProtocol,
   ChakraReading,
   OrganicSystemStatus,
   PatientAnamnesis,
+  QuantumGenerationResult,
   QuantumGeometry,
   SensitivityReading,
 } from '../types/quantum';
@@ -48,26 +55,20 @@ export const INTERFERENCE_OPTIONS: string[] = [
 ];
 
 export function getHawkinsLevelInfo(score: number): {
+  hz: number;
   label: string;
+  fullLabel: string;
   emotion: string;
   zone: 'Contração' | 'Neutralidade' | 'Expansão';
 } {
-  if (score < 30) return { label: 'Vergonha', emotion: 'Humilhação e retração profunda', zone: 'Contração' };
-  if (score < 50) return { label: 'Culpa', emotion: 'Autopunição e remorso', zone: 'Contração' };
-  if (score < 75) return { label: 'Apatia', emotion: 'Desesperança e paralisia', zone: 'Contração' };
-  if (score < 100) return { label: 'Tristeza', emotion: 'Luto e perda energética', zone: 'Contração' };
-  if (score < 125) return { label: 'Medo', emotion: 'Ansiedade e hipervigilância', zone: 'Contração' };
-  if (score < 150) return { label: 'Desejo', emotion: 'Carência e compulsão', zone: 'Contração' };
-  if (score < 175) return { label: 'Raiva', emotion: 'Irritação e conflito inflamatório', zone: 'Contração' };
-  if (score < 200) return { label: 'Orgulho', emotion: 'Rigidez defensiva', zone: 'Contração' };
-  if (score < 250) return { label: 'Coragem', emotion: 'Limiar da integridade e empoderamento', zone: 'Neutralidade' };
-  if (score < 310) return { label: 'Neutralidade', emotion: 'Desapego e flexibilidade clínica', zone: 'Neutralidade' };
-  if (score < 350) return { label: 'Disposição', emotion: 'Abertura e otimismo regenerativo', zone: 'Neutralidade' };
-  if (score < 400) return { label: 'Aceitação', emotion: 'Transcendência e responsabilidade serena', zone: 'Expansão' };
-  if (score < 500) return { label: 'Razão', emotion: 'Clareza mental e coerência científica', zone: 'Expansão' };
-  if (score < 540) return { label: 'Amor', emotion: 'Compaixão incondicional e cura profunda', zone: 'Expansão' };
-  if (score < 600) return { label: 'Alegria', emotion: 'Serenidade luminosa e sincronicidade', zone: 'Expansão' };
-  return { label: 'Paz', emotion: 'Silêncio pleno e não-dualidade', zone: 'Expansão' };
+  const entry = getHawkinsEntryByHz(score);
+  return {
+    hz: entry.hz,
+    label: entry.shortLabel,
+    fullLabel: entry.label,
+    emotion: entry.emotion,
+    zone: entry.zone,
+  };
 }
 
 export function formatBirthDateBR(birthDate: string): string {
@@ -88,6 +89,417 @@ export function formatTestemunho(
   const nasc = formatBirthDateBR(anamnesis.birthDate) || 'Data não informada';
   const foco = (customFocus || anamnesis.therapeuticFocus || 'Equilíbrio Vibracional Integral').trim();
   return `${nome} - ${nasc} | ${foco}`;
+}
+
+export function normalizeStageTag(stageOrLabel: string): 'stage1' | 'stage2' | 'single' {
+  const lower = (stageOrLabel || '').toLowerCase();
+  if (lower.includes('stage1') || lower.includes('etapa 1') || lower.includes('limpeza')) {
+    return 'stage1';
+  }
+  if (lower.includes('stage2') || lower.includes('etapa 2') || lower.includes('regenera')) {
+    return 'stage2';
+  }
+  return 'single';
+}
+
+export function getChartCrystalKey(stageOrLabel: string, geometryName: string): string {
+  return `${normalizeStageTag(stageOrLabel)}::${geometryName.trim()}`;
+}
+
+export function resolveCrystalForChart(
+  chartCrystals: Record<string, string> | undefined,
+  stageOrLabel: string,
+  geometryName: string
+): string {
+  if (!chartCrystals) return '';
+  const key = getChartCrystalKey(stageOrLabel, geometryName);
+  const raw = chartCrystals[key] || chartCrystals[geometryName] || '';
+  if (!raw || raw.trim().toLowerCase() === 'nenhum') return '';
+  return raw.trim();
+}
+
+export function applyCrystalToTestemunho(
+  baseTestemunho: string,
+  crystalName: string | undefined,
+  anamnesis: PatientAnamnesis
+): string {
+  const cleanBase = (baseTestemunho || '')
+    .replace(/\s*•\s*Frequência Cristalina:[^|\n]*$/i, '')
+    .trim();
+  const base = cleanBase || formatTestemunho(anamnesis);
+  const cleanCrystal = (crystalName || '').trim();
+  if (!cleanCrystal || cleanCrystal.toLowerCase() === 'nenhum') {
+    return base;
+  }
+  return `${base} • Frequência Cristalina: ${cleanCrystal}`;
+}
+
+export function buildPendulatedGraphicCommand(
+  geometry: QuantumGeometry,
+  stageLabel: string,
+  crystalName: string | undefined,
+  anamnesis: PatientAnamnesis
+): string {
+  const nome = anamnesis.fullName.trim() || 'Paciente';
+  const targetFocus =
+    geometry.customFocus?.trim() ||
+    anamnesis.therapeuticFocus?.trim() ||
+    'Equilíbrio Vibracional Integral';
+  const cleanCrystal =
+    crystalName && crystalName.trim().toLowerCase() !== 'nenhum'
+      ? crystalName.trim()
+      : '';
+  const purposeClause = geometry.role
+    ? ` direcionada para ${geometry.role.charAt(0).toLowerCase()}${geometry.role.slice(1).replace(/\.$/, '')}`
+    : '';
+
+  if (cleanCrystal) {
+    return `Eu ativo a geometria de ${geometry.name} (${stageLabel}) potencializada pela frequência vibracional informacional de ${cleanCrystal} sobre ${nome}${purposeClause}, colapsando no campo de ponto zero a restauração harmônica para ${targetFocus} e elevando sua coerência na Escala de Hawkins. Está ativado, colapsado e manifestado na ordem cósmica.`;
+  }
+
+  return `Eu ativo a geometria de ${geometry.name} (${stageLabel}) sobre ${nome}${purposeClause}, colapsando no campo de ponto zero a transferência arquetípica pura em Ressonância Harmônica para ${targetFocus}. Está ativado, colapsado e manifestado na ordem cósmica.`;
+}
+
+export function applyCrystalToComando(
+  existingCommand: string | undefined,
+  geometryName: string,
+  stageLabel: string,
+  crystalName: string | undefined,
+  anamnesis: PatientAnamnesis,
+  geometry?: QuantumGeometry
+): string {
+  const nome = anamnesis.fullName.trim() || 'Paciente';
+  const foco =
+    geometry?.customFocus?.trim() ||
+    anamnesis.therapeuticFocus.trim() ||
+    'Equilíbrio Vibracional Integral';
+  const cleanCrystal = (crystalName || '').trim();
+
+  const strippedExisting = (existingCommand || '')
+    .replace(
+      /^(?:Eu\s+)?[Aa]tivo a geometria (?:pura )?de\s+[\s\S]*?potencializada pela frequência vibracional informacional de\s+[\s\S]*?(?:sobre\s+[\s\S]*?)(?:\.\s+|,\s+colapsando[\s\S]*?ordem cósmica\.\s*)/i,
+      ''
+    )
+    .trim();
+
+  if (cleanCrystal && cleanCrystal.toLowerCase() !== 'nenhum') {
+    const isBaselinePure =
+      !strippedExisting ||
+      /^Eu ativo a geometria (?:pura )?de /i.test(strippedExisting);
+    if (!isBaselinePure) {
+      return `Ativo a geometria de ${geometryName} potencializada pela frequência vibracional informacional de ${cleanCrystal} sobre ${nome}. ${strippedExisting}`;
+    }
+    if (geometry?.source === 'therapist') {
+      return buildPendulatedGraphicCommand(geometry, stageLabel, cleanCrystal, anamnesis);
+    }
+    return `Ativo a geometria de ${geometryName} (${stageLabel}) potencializada pela frequência vibracional informacional de ${cleanCrystal} sobre ${nome}, colapsando no campo de ponto zero a restauração harmônica para ${foco}. Está ativado, colapsado e manifestado na ordem cósmica.`;
+  }
+
+  if (strippedExisting) {
+    return strippedExisting;
+  }
+
+  if (geometry?.source === 'therapist') {
+    return buildPendulatedGraphicCommand(geometry, stageLabel, undefined, anamnesis);
+  }
+
+  return `Eu ativo a geometria pura de ${geometryName} (${stageLabel}) sobre ${nome}, colapsando no campo de ponto zero o equilíbrio integral para ${foco}. Está ativado, colapsado e manifestado na ordem cósmica.`;
+}
+
+export function applyChartCrystalsToResult(
+  existingResult: QuantumGenerationResult | null,
+  protocol: AntiCatharsisProtocol,
+  anamnesis: PatientAnamnesis,
+  sensitivity: SensitivityReading,
+  chartCrystals: Record<string, string>
+): QuantumGenerationResult {
+  const activeCharts: Array<{
+    stageTag: 'stage1' | 'stage2' | 'single';
+    stageLabel: string;
+    geo: QuantumGeometry;
+  }> = [
+    ...(protocol.stage1?.geometries.map((geo) => ({
+      stageTag: 'stage1' as const,
+      stageLabel: 'Etapa 1 — Limpeza & Blindagem',
+      geo,
+    })) || []),
+    ...(protocol.stage2?.geometries.map((geo) => ({
+      stageTag: 'stage2' as const,
+      stageLabel: 'Etapa 2 — Regeneração & Vitalidade',
+      geo,
+    })) || []),
+    ...(protocol.singleStage?.geometries.map((geo) => ({
+      stageTag: 'single' as const,
+      stageLabel: 'Etapa Única — Harmonização Direta',
+      geo,
+    })) || []),
+  ];
+
+  const existingTestemunhos = existingResult?.testemunhos || [];
+  const existingComandos = existingResult?.comandosQuanticos || [];
+
+  const nextTestemunhos = activeCharts.map((item) => {
+    const crystal = resolveCrystalForChart(chartCrystals, item.stageTag, item.geo.name);
+    const matched =
+      existingTestemunhos.find(
+        (t) => t.geometria === item.geo.name && normalizeStageTag(t.etapa) === item.stageTag
+      ) || existingTestemunhos.find((t) => t.geometria === item.geo.name);
+
+    const focusStr = item.geo.customFocus?.trim()
+      ? `${item.geo.customFocus.trim()} (${item.geo.name})`
+      : `${anamnesis.therapeuticFocus || 'Equilíbrio Integral'} (${item.geo.name})`;
+
+    return {
+      geometria: item.geo.name,
+      etapa: matched?.etapa || item.stageLabel,
+      testemunhoFormatado: applyCrystalToTestemunho(
+        matched?.testemunhoFormatado || formatTestemunho(anamnesis, focusStr),
+        crystal,
+        anamnesis
+      ),
+      ...(crystal ? { cristalAncorado: crystal } : {}),
+      origem: item.geo.source || matched?.origem || 'motor',
+      ...(item.geo.customFocus ? { focoEspecifico: item.geo.customFocus } : {}),
+    };
+  });
+
+  const nextComandos = activeCharts.map((item) => {
+    const crystal = resolveCrystalForChart(chartCrystals, item.stageTag, item.geo.name);
+    const matched =
+      existingComandos.find(
+        (c) => c.geometria === item.geo.name && normalizeStageTag(c.etapa) === item.stageTag
+      ) || existingComandos.find((c) => c.geometria === item.geo.name);
+
+    return {
+      geometria: item.geo.name,
+      etapa: matched?.etapa || item.stageLabel,
+      tituloComando:
+        matched?.tituloComando ||
+        `Ativação ${item.geo.name}${crystal ? ` com ${crystal}` : ''}`,
+      comandoTexto: applyCrystalToComando(
+        matched?.comandoTexto,
+        item.geo.name,
+        matched?.etapa || item.stageLabel,
+        crystal,
+        anamnesis,
+        item.geo
+      ),
+      ...(crystal ? { cristalAncorado: crystal } : {}),
+      origem: item.geo.source || matched?.origem || 'motor',
+      ...(item.geo.customFocus ? { focoEspecifico: item.geo.customFocus } : {}),
+    };
+  });
+
+  const anchoredCrystalNames = Array.from(
+    new Set(
+      activeCharts
+        .map((c) => resolveCrystalForChart(chartCrystals, c.stageTag, c.geo.name))
+        .filter(Boolean)
+    )
+  );
+
+  if (existingResult) {
+    const mergedCrystals = Array.from(
+      new Set([
+        ...anchoredCrystalNames,
+        ...(existingResult.prescricoes?.cristais || []).filter(
+          (c) => !c.startsWith('Cristal Ancorado na Mesa:')
+        ),
+      ])
+    );
+    return {
+      ...existingResult,
+      testemunhos: nextTestemunhos,
+      comandosQuanticos: nextComandos,
+      prescricoes: {
+        ...existingResult.prescricoes,
+        cristais: mergedCrystals,
+      },
+    };
+  }
+
+  const hawkins = getHawkinsLevelInfo(sensitivity.hawkins);
+  return {
+    welcomeMessage: `Receba este atendimento integrativo com serenidade, ${anamnesis.fullName || 'paciente'}. A leitura vibracional registrada na Mesa Radiônica acolhe suas necessidades atuais com respeito ao ritmo do seu organismo e confiança no processo de reequilíbrio.`,
+    testemunhos: nextTestemunhos,
+    comandosQuanticos: nextComandos,
+    analisePsicossomatica: `Leitura aferida em ${sensitivity.bovis.toLocaleString('pt-BR')} Å na escala de Bovis e ${hawkins.fullLabel} na escala de Hawkins, com proteção áurica em ${sensitivity.auricProtection}%. Protocolo configurado em ${protocol.mode === 'escalonado' ? '2 etapas anti-catarse' : 'etapa única direta'} com seleção radiestésica de cristais informacionais.`,
+    orientacaoPacienteResumo: `Seu atendimento foi estruturado para promover acolhimento energético gradual, respeitando sua vitalidade atual (${sensitivity.bovis.toLocaleString('pt-BR')} Å) e fortalecendo seu equilíbrio emocional e físico ao longo do ciclo.`,
+    prescricoes: {
+      floraisBach: ['Rescue Remedy (estabilização emocional e conforto)'],
+      cristais:
+        anchoredCrystalNames.length > 0
+          ? anchoredCrystalNames
+          : ['Quartzo Transparente (amplificação harmônica geral)'],
+      fitoterapiaChas: ['Camomila ou Melissa (infusão suave noturna)'],
+      bonsHabitos: [
+        'Hidratação consciente de 2L de água pura ao longo do dia',
+        'Respiração lenta por 5 minutos antes do sono',
+      ],
+      frequenciasSolfeggio: [
+        {
+          hz: 432,
+          nome: '432 Hz — Coerência Natural',
+          indicacao: 'Estabilização do campo e relaxamento',
+        },
+      ],
+      pilaresAutocuidado: {
+        hidratacaoFitoterapia: 'Beber água pura em pequenas porções ao longo do dia e optar por chás suaves à noite.',
+        higieneMentalOracao: 'Praticar 10 minutos diários de respiração calma, silêncio ou oração.',
+        ambiente: 'Manter o quarto arejado, limpo e com iluminação suave antes de dormir.',
+        acompanhamentoMedico: 'Manter normalmente todas as consultas, exames e prescrições médicas convencionais.',
+      },
+    },
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+export function addGeometryToProtocol(
+  protocol: AntiCatharsisProtocol,
+  requestedStage: 'stage1' | 'stage2' | 'single',
+  geometry: QuantumGeometry
+): {
+  protocol: AntiCatharsisProtocol;
+  resolvedStage: 'stage1' | 'stage2' | 'single';
+} {
+  if (protocol.mode === 'escalonado' && protocol.stage1 && protocol.stage2) {
+    const targetStage: 'stage1' | 'stage2' =
+      requestedStage === 'stage1'
+        ? 'stage1'
+        : requestedStage === 'stage2'
+        ? 'stage2'
+        : geometry.category === 'assepsia' || geometry.category === 'protecao'
+        ? 'stage1'
+        : 'stage2';
+
+    if (targetStage === 'stage1') {
+      const exists = protocol.stage1.geometries.some(
+        (g) => g.name.toLowerCase() === geometry.name.toLowerCase()
+      );
+      const nextGeos = exists
+        ? protocol.stage1.geometries.map((g) =>
+            g.name.toLowerCase() === geometry.name.toLowerCase() ? { ...g, ...geometry } : g
+          )
+        : [...protocol.stage1.geometries, geometry];
+      return {
+        protocol: {
+          ...protocol,
+          stage1: {
+            ...protocol.stage1,
+            geometries: nextGeos,
+          },
+        },
+        resolvedStage: 'stage1',
+      };
+    }
+
+    const exists = protocol.stage2.geometries.some(
+      (g) => g.name.toLowerCase() === geometry.name.toLowerCase()
+    );
+    const nextGeos = exists
+      ? protocol.stage2.geometries.map((g) =>
+          g.name.toLowerCase() === geometry.name.toLowerCase() ? { ...g, ...geometry } : g
+        )
+      : [...protocol.stage2.geometries, geometry];
+    return {
+      protocol: {
+        ...protocol,
+        stage2: {
+          ...protocol.stage2,
+          geometries: nextGeos,
+        },
+      },
+      resolvedStage: 'stage2',
+    };
+  }
+
+  if (protocol.singleStage) {
+    const exists = protocol.singleStage.geometries.some(
+      (g) => g.name.toLowerCase() === geometry.name.toLowerCase()
+    );
+    const nextGeos = exists
+      ? protocol.singleStage.geometries.map((g) =>
+          g.name.toLowerCase() === geometry.name.toLowerCase() ? { ...g, ...geometry } : g
+        )
+      : [...protocol.singleStage.geometries, geometry];
+    return {
+      protocol: {
+        ...protocol,
+        singleStage: {
+          ...protocol.singleStage,
+          geometries: nextGeos,
+        },
+      },
+      resolvedStage: 'single',
+    };
+  }
+
+  return { protocol, resolvedStage: requestedStage };
+}
+
+export function removeGeometryFromProtocol(
+  protocol: AntiCatharsisProtocol,
+  stageTag: 'stage1' | 'stage2' | 'single',
+  geometryName: string
+): AntiCatharsisProtocol {
+  const matches = (g: QuantumGeometry) => g.name !== geometryName;
+  if (stageTag === 'stage1' && protocol.stage1) {
+    return {
+      ...protocol,
+      stage1: {
+        ...protocol.stage1,
+        geometries: protocol.stage1.geometries.filter(matches),
+      },
+    };
+  }
+  if (stageTag === 'stage2' && protocol.stage2) {
+    return {
+      ...protocol,
+      stage2: {
+        ...protocol.stage2,
+        geometries: protocol.stage2.geometries.filter(matches),
+      },
+    };
+  }
+  if (stageTag === 'single' && protocol.singleStage) {
+    return {
+      ...protocol,
+      singleStage: {
+        ...protocol.singleStage,
+        geometries: protocol.singleStage.geometries.filter(matches),
+      },
+    };
+  }
+  return protocol;
+}
+
+export function preserveTherapistChartsInProtocol(
+  freshProtocol: AntiCatharsisProtocol,
+  previousProtocol?: AntiCatharsisProtocol | null
+): AntiCatharsisProtocol {
+  if (!previousProtocol) return freshProtocol;
+
+  const manualStage1 = (previousProtocol.stage1?.geometries || []).filter(
+    (g) => g.source === 'therapist'
+  );
+  const manualStage2 = (previousProtocol.stage2?.geometries || []).filter(
+    (g) => g.source === 'therapist'
+  );
+  const manualSingle = (previousProtocol.singleStage?.geometries || []).filter(
+    (g) => g.source === 'therapist'
+  );
+
+  let merged = freshProtocol;
+  manualStage1.forEach((g) => {
+    merged = addGeometryToProtocol(merged, 'stage1', g).protocol;
+  });
+  manualStage2.forEach((g) => {
+    merged = addGeometryToProtocol(merged, 'stage2', g).protocol;
+  });
+  manualSingle.forEach((g) => {
+    merged = addGeometryToProtocol(merged, 'single', g).protocol;
+  });
+  return merged;
 }
 
 function includesProsperityFocus(anamnesis: PatientAnamnesis): boolean {

@@ -3,6 +3,7 @@ import { AnamneseForm } from './components/AnamneseForm';
 import { CentralDocumental } from './components/CentralDocumental';
 import { Dashboard } from './components/Dashboard';
 import { MesaQuantica, SelectedTherapeutics } from './components/MesaQuantica';
+import { AddPendulatedChartPayload } from './components/AddPendulatedChartPanel';
 import { SintoniaSensitiva } from './components/SintoniaSensitiva';
 import { TopNav } from './components/TopNav';
 import { loadSessions, resetToDemoSeeds, saveSessions } from './data/seedSessions';
@@ -11,9 +12,11 @@ import {
   ClinicalSessionRecord,
   MasterPatient,
   SessionMilestoneType,
+  getHawkinsLabelByHz,
 } from './types/clinical';
 import {
   AntiCatharsisProtocol,
+  EnergeticRemedyEmission,
   PatientAnamnesis,
   QuantumGenerationResult,
   QuantumRoomSession,
@@ -24,13 +27,19 @@ import {
 import {
   DEFAULT_CHAKRAS,
   DEFAULT_ORGANIC_SYSTEMS,
+  addGeometryToProtocol,
+  applyChartCrystalsToResult,
   evaluateAntiCatharsis,
+  getChartCrystalKey,
+  preserveTherapistChartsInProtocol,
+  removeGeometryFromProtocol,
 } from './utils/antiCatharsis';
 import {
   createDefaultAnsaeRhenSheet,
   getAnsaeDraftForSession,
   getPreviousSessionForPatient,
   loadClinicalDatabase,
+  normalizeAnsaeSheet,
   saveAnsaeDraftForSession,
   saveClinicalDatabase,
 } from './utils/storage';
@@ -53,6 +62,7 @@ function createDefaultSensitivity(): SensitivityReading {
   return {
     bovis: 6200,
     hawkins: 200,
+    hawkinsLevel: getHawkinsLabelByHz(200),
     auricProtection: 55,
     stressLevel: 3,
     subtleInterferences: 0,
@@ -95,6 +105,12 @@ export default function App() {
   const [draftTherapeutics, setDraftTherapeutics] = useState<SelectedTherapeutics>(() =>
     createEmptyTherapeutics()
   );
+  const [draftChartCrystals, setDraftChartCrystals] = useState<Record<string, string>>(
+    () => loadSessions()[0]?.chartCrystals || {}
+  );
+  const [draftEnergeticRemedies, setDraftEnergeticRemedies] = useState<EnergeticRemedyEmission[]>(
+    () => loadSessions()[0]?.energeticRemedies || []
+  );
   const [draftProtocol, setDraftProtocol] = useState<AntiCatharsisProtocol>(() => {
     const first = loadSessions()[0];
     return first
@@ -122,7 +138,10 @@ export default function App() {
     setDraftSessionId(session.id);
     setDraftSessionType(session.sessionType || 'Avaliação Inicial');
     setDraftAnamnesis(session.anamnesis);
-    setDraftSensitivity(session.sensitivity);
+    setDraftSensitivity({
+      ...session.sensitivity,
+      hawkinsLevel: getHawkinsLabelByHz(session.sensitivity.hawkins),
+    });
     setDraftAnsaeSheet(getAnsaeDraftForSession(session));
     setDraftPreviousSession(getPreviousSessionForPatient(session.anamnesis.id, session.id));
     setDraftProtocol(session.protocol);
@@ -130,6 +149,8 @@ export default function App() {
     setDraftIsAnchored(session.isAnchored);
     setDraftSelectedHz(session.selectedSolfeggioHz || 432);
     setDraftTherapeutics(createEmptyTherapeutics());
+    setDraftChartCrystals(session.chartCrystals || {});
+    setDraftEnergeticRemedies(session.energeticRemedies || []);
     setGenerationError(null);
   }, []);
 
@@ -144,6 +165,8 @@ export default function App() {
     setDraftAnsaeSheet(defaultSheet);
     setDraftPreviousSession(null);
     setDraftTherapeutics(createEmptyTherapeutics());
+    setDraftChartCrystals({});
+    setDraftEnergeticRemedies([]);
     setDraftProtocol(evaluateAntiCatharsis(emptyA, defaultS));
     setDraftAiResult(null);
     setDraftIsAnchored(false);
@@ -175,9 +198,11 @@ export default function App() {
         medicalTreatments: baseRecord.medicalTreatments,
         clinicalNotes: baseRecord.clinicalNotes,
       };
+      const clonedHawkinsHz = baseRecord.ansaeRhen.spiritualPsycho.hawkinsAgathaHz;
       const clonedSensitivity: SensitivityReading = {
         bovis: baseRecord.ansaeRhen.spiritualPsycho.bovis,
-        hawkins: baseRecord.ansaeRhen.spiritualPsycho.hawkinsAgathaHz,
+        hawkins: clonedHawkinsHz,
+        hawkinsLevel: getHawkinsLabelByHz(clonedHawkinsHz),
         auricProtection: baseRecord.ansaeRhen.auricField.protectionPercent,
         stressLevel: baseRecord.ansaeRhen.spiritualPsycho.stressLevel,
         subtleInterferences: baseRecord.ansaeRhen.spiritualPsycho.spiritualDisturbances.length,
@@ -185,9 +210,9 @@ export default function App() {
         chakras: DEFAULT_CHAKRAS.map((c) => ({ ...c })),
         organicSystems: DEFAULT_ORGANIC_SYSTEMS.map((s) => ({ ...s })),
       };
-      const clonedSheet: ClinicalAnsaeRhenSheet = JSON.parse(
-        JSON.stringify(baseRecord.ansaeRhen)
-      ) as ClinicalAnsaeRhenSheet;
+      const clonedSheet: ClinicalAnsaeRhenSheet = normalizeAnsaeSheet(
+        JSON.parse(JSON.stringify(baseRecord.ansaeRhen)) as ClinicalAnsaeRhenSheet
+      );
 
       saveAnsaeDraftForSession(patient.id, clonedSheet);
 
@@ -198,6 +223,8 @@ export default function App() {
       setDraftAnsaeSheet(clonedSheet);
       setDraftPreviousSession(baseRecord);
       setDraftTherapeutics(createEmptyTherapeutics());
+      setDraftChartCrystals({});
+      setDraftEnergeticRemedies([]);
       setDraftProtocol(evaluateAntiCatharsis(clonedAnamnesis, clonedSensitivity, clonedSheet));
       setDraftAiResult(null);
       setDraftIsAnchored(false);
@@ -249,6 +276,7 @@ export default function App() {
         sensitivity: {
           bovis: record.ansaeRhen.spiritualPsycho.bovis,
           hawkins: record.ansaeRhen.spiritualPsycho.hawkinsAgathaHz,
+          hawkinsLevel: getHawkinsLabelByHz(record.ansaeRhen.spiritualPsycho.hawkinsAgathaHz),
           auricProtection: record.ansaeRhen.auricField.protectionPercent,
           stressLevel: record.ansaeRhen.spiritualPsycho.stressLevel,
           subtleInterferences: record.ansaeRhen.spiritualPsycho.spiritualDisturbances.length,
@@ -262,9 +290,11 @@ export default function App() {
         isAnchored: true,
         activatedAt: nowIso,
         selectedSolfeggioHz: record.selectedSolfeggioHz || 432,
+        chartCrystals: record.chartCrystals || {},
+        energeticRemedies: record.energeticRemedies || [],
         updatedAt: nowIso,
       };
-      saveAnsaeDraftForSession(record.patientId, record.ansaeRhen);
+      saveAnsaeDraftForSession(record.patientId, normalizeAnsaeSheet(record.ansaeRhen));
       setSessions((prev) => [restoredRoom, ...prev]);
       loadSessionIntoDraft(restoredRoom);
       setActiveScreen('quantum-table');
@@ -295,6 +325,8 @@ export default function App() {
     setDraftAnsaeSheet(defaultSheet);
     setDraftPreviousSession(getPreviousSessionForPatient(patient.id));
     setDraftTherapeutics(createEmptyTherapeutics());
+    setDraftChartCrystals({});
+    setDraftEnergeticRemedies([]);
     setDraftProtocol(evaluateAntiCatharsis(emptyA, defaultS));
     setDraftAiResult(null);
     setDraftIsAnchored(false);
@@ -311,7 +343,9 @@ export default function App() {
       sheetInput: ClinicalAnsaeRhenSheet,
       sessionTypeInput: SessionMilestoneType,
       prevSessionInput: ClinicalSessionRecord | null,
-      therapeuticsInput: SelectedTherapeutics
+      therapeuticsInput: SelectedTherapeutics,
+      chartCrystalsInput: Record<string, string> = draftChartCrystals,
+      remediesInput: EnergeticRemedyEmission[] = draftEnergeticRemedies
     ) => {
       setIsGenerating(true);
       setGenerationError(null);
@@ -322,6 +356,9 @@ export default function App() {
               sessionType: prevSessionInput.sessionType,
               bovis: prevSessionInput.ansaeRhen.spiritualPsycho.bovis,
               hawkins: prevSessionInput.ansaeRhen.spiritualPsycho.hawkinsAgathaHz,
+              hawkinsLevel: getHawkinsLabelByHz(
+                prevSessionInput.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+              ),
               auricProtection: prevSessionInput.ansaeRhen.auricField.protectionPercent,
               stressLevel: prevSessionInput.ansaeRhen.spiritualPsycho.stressLevel,
               alertOrgans: prevSessionInput.ansaeRhen.organs
@@ -341,17 +378,24 @@ export default function App() {
             }
           : null;
 
+        const enrichedSensitivity: SensitivityReading = {
+          ...sensitivityInput,
+          hawkinsLevel: getHawkinsLabelByHz(sensitivityInput.hawkins),
+        };
+
         const res = await fetch(`${apiBase}/api/quantum/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             anamnesis: anamnesisInput,
-            sensitivity: sensitivityInput,
+            sensitivity: enrichedSensitivity,
             protocol: protocolInput,
             ansaeRhen: sheetInput,
             sessionType: sessionTypeInput,
             previousSession: previousSummary,
             selectedTherapeutics: therapeuticsInput,
+            chartCrystals: chartCrystalsInput,
+            energeticRemedies: remediesInput,
           }),
         });
 
@@ -365,7 +409,14 @@ export default function App() {
           throw new Error(payload?.error || `Erro HTTP ${res.status}`);
         }
 
-        const result = payload as QuantumGenerationResult;
+        const rawResult = payload as QuantumGenerationResult;
+        const result = applyChartCrystalsToResult(
+          rawResult,
+          protocolInput,
+          anamnesisInput,
+          enrichedSensitivity,
+          chartCrystalsInput
+        );
         setDraftAiResult(result);
 
         const recommendedHz = result.prescricoes?.frequenciasSolfeggio?.[0]?.hz;
@@ -384,6 +435,8 @@ export default function App() {
                   sensitivity: sensitivityInput,
                   protocol: protocolInput,
                   aiResult: result,
+                  chartCrystals: chartCrystalsInput,
+                  energeticRemedies: remediesInput,
                   updatedAt: new Date().toISOString(),
                 }
               : s
@@ -397,7 +450,240 @@ export default function App() {
         setIsGenerating(false);
       }
     },
+    [draftChartCrystals, draftEnergeticRemedies, draftSessionId]
+  );
+
+  const handleConfirmChartCrystal = useCallback(
+    (
+      stageTag: 'stage1' | 'stage2' | 'single',
+      geometryName: string,
+      crystalName: string
+    ) => {
+      const key = getChartCrystalKey(stageTag, geometryName);
+      const nextChartCrystals: Record<string, string> = { ...draftChartCrystals };
+      if (!crystalName || crystalName.trim().toLowerCase() === 'nenhum') {
+        delete nextChartCrystals[key];
+      } else {
+        nextChartCrystals[key] = crystalName.trim();
+      }
+
+      const nextAiResult = applyChartCrystalsToResult(
+        draftAiResult,
+        draftProtocol,
+        draftAnamnesis,
+        draftSensitivity,
+        nextChartCrystals
+      );
+      const nowIso = new Date().toISOString();
+
+      setDraftChartCrystals(nextChartCrystals);
+      setDraftAiResult(nextAiResult);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === draftSessionId
+            ? {
+                ...s,
+                chartCrystals: nextChartCrystals,
+                aiResult: nextAiResult,
+                updatedAt: nowIso,
+              }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          chartCrystals: nextChartCrystals,
+          aiResult: nextAiResult,
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+    },
+    [
+      draftAiResult,
+      draftAnamnesis,
+      draftChartCrystals,
+      draftProtocol,
+      draftSensitivity,
+      draftSessionId,
+    ]
+  );
+
+  const handleAddPendulatedChart = useCallback(
+    (payload: AddPendulatedChartPayload): 'stage1' | 'stage2' | 'single' => {
+      const { protocol: nextProtocol, resolvedStage } = addGeometryToProtocol(
+        draftProtocol,
+        payload.stageTag,
+        payload.geometry
+      );
+
+      const nextChartCrystals: Record<string, string> = { ...draftChartCrystals };
+      const crystalKey = getChartCrystalKey(resolvedStage, payload.geometry.name);
+      if (payload.crystalName && payload.crystalName.toLowerCase() !== 'nenhum') {
+        nextChartCrystals[crystalKey] = payload.crystalName;
+      }
+
+      const nextAiResult = applyChartCrystalsToResult(
+        draftAiResult,
+        nextProtocol,
+        draftAnamnesis,
+        draftSensitivity,
+        nextChartCrystals
+      );
+      const nowIso = new Date().toISOString();
+
+      setDraftProtocol(nextProtocol);
+      setDraftChartCrystals(nextChartCrystals);
+      setDraftAiResult(nextAiResult);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === draftSessionId
+            ? {
+                ...s,
+                protocol: nextProtocol,
+                chartCrystals: nextChartCrystals,
+                aiResult: nextAiResult,
+                updatedAt: nowIso,
+              }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          protocol: nextProtocol,
+          chartCrystals: nextChartCrystals,
+          aiResult: nextAiResult,
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+
+      return resolvedStage;
+    },
+    [
+      draftAiResult,
+      draftAnamnesis,
+      draftChartCrystals,
+      draftProtocol,
+      draftSensitivity,
+      draftSessionId,
+    ]
+  );
+
+  const handleRemovePendulatedChart = useCallback(
+    (stageTag: 'stage1' | 'stage2' | 'single', geometryName: string) => {
+      const nextProtocol = removeGeometryFromProtocol(draftProtocol, stageTag, geometryName);
+      const nextChartCrystals: Record<string, string> = { ...draftChartCrystals };
+      delete nextChartCrystals[getChartCrystalKey(stageTag, geometryName)];
+
+      const nextAiResult = applyChartCrystalsToResult(
+        draftAiResult,
+        nextProtocol,
+        draftAnamnesis,
+        draftSensitivity,
+        nextChartCrystals
+      );
+      const nowIso = new Date().toISOString();
+
+      setDraftProtocol(nextProtocol);
+      setDraftChartCrystals(nextChartCrystals);
+      setDraftAiResult(nextAiResult);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === draftSessionId
+            ? {
+                ...s,
+                protocol: nextProtocol,
+                chartCrystals: nextChartCrystals,
+                aiResult: nextAiResult,
+                updatedAt: nowIso,
+              }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          protocol: nextProtocol,
+          chartCrystals: nextChartCrystals,
+          aiResult: nextAiResult,
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+    },
+    [
+      draftAiResult,
+      draftAnamnesis,
+      draftChartCrystals,
+      draftProtocol,
+      draftSensitivity,
+      draftSessionId,
+    ]
+  );
+
+  const persistRemediesUpdate = useCallback(
+    (nextRemedies: EnergeticRemedyEmission[]) => {
+      const nowIso = new Date().toISOString();
+      setDraftEnergeticRemedies(nextRemedies);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === draftSessionId
+            ? { ...s, energeticRemedies: nextRemedies, updatedAt: nowIso }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          energeticRemedies: nextRemedies,
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+    },
     [draftSessionId]
+  );
+
+  const handleAddEnergeticRemedy = useCallback(
+    (remedy: EnergeticRemedyEmission) => {
+      persistRemediesUpdate([remedy, ...draftEnergeticRemedies]);
+    },
+    [draftEnergeticRemedies, persistRemediesUpdate]
+  );
+
+  const handleUpdateEnergeticRemedy = useCallback(
+    (id: string, patch: Partial<EnergeticRemedyEmission>) => {
+      persistRemediesUpdate(
+        draftEnergeticRemedies.map((r) => (r.id === id ? { ...r, ...patch } : r))
+      );
+    },
+    [draftEnergeticRemedies, persistRemediesUpdate]
+  );
+
+  const handleRemoveEnergeticRemedy = useCallback(
+    (id: string) => {
+      persistRemediesUpdate(draftEnergeticRemedies.filter((r) => r.id !== id));
+    },
+    [draftEnergeticRemedies, persistRemediesUpdate]
   );
 
   const handleProcessProtocol = useCallback(() => {
@@ -411,10 +697,14 @@ export default function App() {
       isAnchored: draftIsAnchored,
       activatedAt: new Date().toISOString(),
       selectedSolfeggioHz: draftSelectedHz,
+      chartCrystals: draftChartCrystals,
       updatedAt: new Date().toISOString(),
     });
     setDraftAnsaeSheet(latestSheet);
-    const nextProtocol = evaluateAntiCatharsis(draftAnamnesis, draftSensitivity, latestSheet);
+    const nextProtocol = preserveTherapistChartsInProtocol(
+      evaluateAntiCatharsis(draftAnamnesis, draftSensitivity, latestSheet),
+      draftProtocol
+    );
     setDraftProtocol(nextProtocol);
     setActiveScreen('quantum-table');
     void generateWithGemini(
@@ -424,11 +714,13 @@ export default function App() {
       latestSheet,
       draftSessionType,
       draftPreviousSession,
-      draftTherapeutics
+      draftTherapeutics,
+      draftChartCrystals
     );
   }, [
     draftAiResult,
     draftAnamnesis,
+    draftChartCrystals,
     draftIsAnchored,
     draftPreviousSession,
     draftProtocol,
@@ -494,6 +786,8 @@ export default function App() {
       isAnchored: true,
       activatedAt: nowIso,
       selectedSolfeggioHz: draftSelectedHz,
+      chartCrystals: draftChartCrystals,
+      energeticRemedies: draftEnergeticRemedies,
       updatedAt: nowIso,
     };
     if (existingRecIdx >= 0) {
@@ -517,6 +811,8 @@ export default function App() {
                 aiResult: draftAiResult,
                 isAnchored: true,
                 selectedSolfeggioHz: draftSelectedHz,
+                chartCrystals: draftChartCrystals,
+                energeticRemedies: draftEnergeticRemedies,
                 updatedAt: nowIso,
               }
             : s
@@ -535,6 +831,8 @@ export default function App() {
         activatedAt: nowIso,
         stage1StartedAt: initialPhase === 'stage1' ? nowIso : undefined,
         selectedSolfeggioHz: draftSelectedHz,
+        chartCrystals: draftChartCrystals,
+        energeticRemedies: draftEnergeticRemedies,
         updatedAt: nowIso,
       };
       return [newRoom, ...prev];
@@ -542,6 +840,8 @@ export default function App() {
   }, [
     draftAiResult,
     draftAnamnesis,
+    draftChartCrystals,
+    draftEnergeticRemedies,
     draftProtocol,
     draftSelectedHz,
     draftSensitivity,
@@ -599,6 +899,8 @@ export default function App() {
       isAnchored: draftIsAnchored,
       activatedAt: new Date().toISOString(),
       selectedSolfeggioHz: draftSelectedHz,
+      chartCrystals: draftChartCrystals,
+      energeticRemedies: draftEnergeticRemedies,
       updatedAt: new Date().toISOString(),
     };
 
@@ -646,7 +948,12 @@ export default function App() {
             existingSessions={sessions}
             onChange={(updated) => {
               setDraftAnamnesis(updated);
-              setDraftProtocol(evaluateAntiCatharsis(updated, draftSensitivity, draftAnsaeSheet));
+              setDraftProtocol(
+                preserveTherapistChartsInProtocol(
+                  evaluateAntiCatharsis(updated, draftSensitivity, draftAnsaeSheet),
+                  draftProtocol
+                )
+              );
             }}
             onSelectExistingSession={(id) => {
               const found = sessions.find((s) => s.id === id);
@@ -676,7 +983,12 @@ export default function App() {
               });
               setDraftSensitivity(updated);
               setDraftAnsaeSheet(latestSheet);
-              setDraftProtocol(evaluateAntiCatharsis(draftAnamnesis, updated, latestSheet));
+              setDraftProtocol(
+                preserveTherapistChartsInProtocol(
+                  evaluateAntiCatharsis(draftAnamnesis, updated, latestSheet),
+                  draftProtocol
+                )
+              );
             }}
             onProcessProtocol={handleProcessProtocol}
             onBackToAnamnesis={() => setActiveScreen('anamnesis')}
@@ -697,7 +1009,15 @@ export default function App() {
             sessionType={draftSessionType}
             previousSession={draftPreviousSession}
             selectedTherapeutics={draftTherapeutics}
+            chartCrystals={draftChartCrystals}
             onUpdateTherapeutics={setDraftTherapeutics}
+            onConfirmChartCrystal={handleConfirmChartCrystal}
+            onAddPendulatedChart={handleAddPendulatedChart}
+            onRemovePendulatedChart={handleRemovePendulatedChart}
+            energeticRemedies={draftEnergeticRemedies}
+            onAddEnergeticRemedy={handleAddEnergeticRemedy}
+            onUpdateEnergeticRemedy={handleUpdateEnergeticRemedy}
+            onRemoveEnergeticRemedy={handleRemoveEnergeticRemedy}
             onRegenerateAI={() =>
               void generateWithGemini(
                 draftAnamnesis,
@@ -706,7 +1026,9 @@ export default function App() {
                 draftAnsaeSheet,
                 draftSessionType,
                 draftPreviousSession,
-                draftTherapeutics
+                draftTherapeutics,
+                draftChartCrystals,
+                draftEnergeticRemedies
               )
             }
             onSelectHz={(hz) => {

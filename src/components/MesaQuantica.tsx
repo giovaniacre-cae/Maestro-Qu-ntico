@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  Trash2,
   TrendingUp,
   Volume2,
 } from 'lucide-react';
@@ -26,12 +27,25 @@ import {
 } from '../types/clinical';
 import {
   AntiCatharsisProtocol,
+  EnergeticRemedyEmission,
   PatientAnamnesis,
   QuantumGenerationResult,
   SensitivityReading,
 } from '../types/quantum';
-import { formatAngstromsBR, formatTestemunho, getHawkinsLevelInfo } from '../utils/antiCatharsis';
+import {
+  formatAngstromsBR,
+  formatTestemunho,
+  getHawkinsLevelInfo,
+  resolveCrystalForChart,
+} from '../utils/antiCatharsis';
 import { solfeggioSynth } from '../utils/audioSynth';
+import {
+  AddPendulatedChartPanel,
+  AddPendulatedChartPayload,
+  PendulumIcon,
+} from './AddPendulatedChartPanel';
+import { CrystalChartSelector } from './CrystalChartSelector';
+import { EnergeticRemedyEmitterPanel } from './EnergeticRemedyEmitterPanel';
 
 export interface SelectedTherapeutics {
   florals: string[];
@@ -53,7 +67,24 @@ interface MesaQuanticaProps {
   sessionType?: SessionMilestoneType;
   previousSession?: ClinicalSessionRecord | null;
   selectedTherapeutics?: SelectedTherapeutics;
+  chartCrystals?: Record<string, string>;
   onUpdateTherapeutics?: (updated: SelectedTherapeutics) => void;
+  onConfirmChartCrystal?: (
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string,
+    crystalName: string
+  ) => void;
+  onAddPendulatedChart?: (
+    payload: AddPendulatedChartPayload
+  ) => 'stage1' | 'stage2' | 'single' | void;
+  onRemovePendulatedChart?: (
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string
+  ) => void;
+  energeticRemedies?: EnergeticRemedyEmission[];
+  onAddEnergeticRemedy?: (remedy: EnergeticRemedyEmission) => void;
+  onUpdateEnergeticRemedy?: (id: string, patch: Partial<EnergeticRemedyEmission>) => void;
+  onRemoveEnergeticRemedy?: (id: string) => void;
   onRegenerateAI: () => void;
   onSelectHz: (hz: number) => void;
   onAnchorAndCollapse: () => void;
@@ -107,7 +138,15 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   sessionType = 'Avaliação Inicial',
   previousSession,
   selectedTherapeutics,
+  chartCrystals = {},
   onUpdateTherapeutics,
+  onConfirmChartCrystal,
+  onAddPendulatedChart,
+  onRemovePendulatedChart,
+  energeticRemedies = [],
+  onAddEnergeticRemedy,
+  onUpdateEnergeticRemedy,
+  onRemoveEnergeticRemedy,
   onRegenerateAI,
   onSelectHz,
   onAnchorAndCollapse,
@@ -282,7 +321,11 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             </span>
             <span aria-hidden="true">·</span>
             <span>
-              Hawkins {sensitivity.hawkins} Hz ({hawkinsInfo.label})
+              Hawkins:{' '}
+              {sensitivity.hawkins !== hawkinsInfo.hz
+                ? `${sensitivity.hawkins} Hz → `
+                : ''}
+              {hawkinsInfo.fullLabel}
             </span>
             <span aria-hidden="true">·</span>
             <span>Aura {sensitivity.auricProtection}%</span>
@@ -482,8 +525,8 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
               <p className="text-xs text-[#45464D] mt-1 font-mono">
                 Bovis: {previousSession.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å →{' '}
                 <strong>{sensitivity.bovis.toLocaleString('pt-BR')} Å</strong> · Hawkins:{' '}
-                {previousSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz →{' '}
-                <strong>{sensitivity.hawkins} Hz</strong> · Aura:{' '}
+                {getHawkinsLevelInfo(previousSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz).fullLabel}{' '}
+                → <strong>{hawkinsInfo.fullLabel}</strong> · Aura:{' '}
                 {previousSession.ansaeRhen.auricField.protectionPercent}% →{' '}
                 <strong>{sensitivity.auricProtection}%</strong>
               </p>
@@ -585,6 +628,16 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
           )}
         </div>
 
+        <AddPendulatedChartPanel
+          protocolMode={protocol.mode}
+          onAddChart={(payload) => {
+            const target = onAddPendulatedChart?.(payload);
+            if (target === 'stage1' || target === 'stage2') {
+              setActiveStageTab(target);
+            }
+          }}
+        />
+
         {/* Conteúdo da Aba Selecionada */}
         {protocol.mode === 'escalonado' && activeStageTab === 'stage1' && protocol.stage1 && (
           <div className="space-y-5">
@@ -603,18 +656,66 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {protocol.stage1.geometries.map((geo) => (
-                <div
-                  key={geo.name}
-                  className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-serif text-sm font-bold text-[#0F172A]">{geo.name}</span>
-                    <span className="text-[11px] font-mono text-[#B45309]">{geo.durationHint}</span>
+              {protocol.stage1.geometries.map((geo) => {
+                const isTherapist = geo.source === 'therapist';
+                return (
+                  <div
+                    key={geo.id || geo.name}
+                    className={`p-4 rounded-lg bg-[#FAF8F5] border space-y-1.5 ${
+                      isTherapist ? 'border-[#0F172A]/40 shadow-sm' : 'border-[#E2E8F0]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-serif text-sm font-bold text-[#0F172A]">
+                            {geo.name}
+                          </span>
+                          {isTherapist ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                              <PendulumIcon className="w-3 h-3 text-[#F59E0B]" />
+                              Pendulado pelo Terapeuta
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-[#64748B] text-[10px] font-medium">
+                              Sugestão do Motor
+                            </span>
+                          )}
+                        </div>
+                        {geo.customFocus && (
+                          <p className="text-[11px] font-semibold text-[#B45309]">
+                            Foco específico: {geo.customFocus}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[11px] font-mono text-[#B45309]">
+                          {geo.durationHint}
+                        </span>
+                        {isTherapist && onRemovePendulatedChart && (
+                          <button
+                            type="button"
+                            onClick={() => onRemovePendulatedChart('stage1', geo.name)}
+                            aria-label={`Remover gráfico ${geo.name}`}
+                            title="Remover gráfico adicionado manualmente"
+                            className="p-1 text-[#64748B] hover:text-[#BA1A1A] hover:bg-white rounded cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
+                    <CrystalChartSelector
+                      geometryName={geo.name}
+                      anchoredCrystal={resolveCrystalForChart(chartCrystals, 'stage1', geo.name)}
+                      onConfirmCrystal={(crystal) =>
+                        onConfirmChartCrystal?.('stage1', geo.name, crystal)
+                      }
+                    />
                   </div>
-                  <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="p-4 rounded-lg bg-[#BA1A1A]/5 border border-[#BA1A1A]/25 space-y-2">
@@ -673,22 +774,71 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {stageObj.geometries.map((geo) => (
-                      <div
-                        key={geo.name}
-                        className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-serif text-sm font-bold text-[#0F172A]">
-                            {geo.name}
-                          </span>
-                          <span className="text-[11px] font-mono text-[#B45309]">
-                            {geo.durationHint}
-                          </span>
+                    {stageObj.geometries.map((geo) => {
+                      const stageTag = protocol.mode === 'escalonado' ? 'stage2' : 'single';
+                      const isTherapist = geo.source === 'therapist';
+                      return (
+                        <div
+                          key={geo.id || geo.name}
+                          className={`p-4 rounded-lg bg-[#FAF8F5] border space-y-1.5 ${
+                            isTherapist ? 'border-[#0F172A]/40 shadow-sm' : 'border-[#E2E8F0]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-serif text-sm font-bold text-[#0F172A]">
+                                  {geo.name}
+                                </span>
+                                {isTherapist ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                                    <PendulumIcon className="w-3 h-3 text-[#F59E0B]" />
+                                    Pendulado pelo Terapeuta
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-[#64748B] text-[10px] font-medium">
+                                    Sugestão do Motor
+                                  </span>
+                                )}
+                              </div>
+                              {geo.customFocus && (
+                                <p className="text-[11px] font-semibold text-[#B45309]">
+                                  Foco específico: {geo.customFocus}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[11px] font-mono text-[#B45309]">
+                                {geo.durationHint}
+                              </span>
+                              {isTherapist && onRemovePendulatedChart && (
+                                <button
+                                  type="button"
+                                  onClick={() => onRemovePendulatedChart(stageTag, geo.name)}
+                                  aria-label={`Remover gráfico ${geo.name}`}
+                                  title="Remover gráfico adicionado manualmente"
+                                  className="p-1 text-[#64748B] hover:text-[#BA1A1A] hover:bg-white rounded cursor-pointer transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
+                          <CrystalChartSelector
+                            geometryName={geo.name}
+                            anchoredCrystal={resolveCrystalForChart(
+                              chartCrystals,
+                              stageTag,
+                              geo.name
+                            )}
+                            onConfirmCrystal={(crystal) =>
+                              onConfirmChartCrystal?.(stageTag, geo.name, crystal)
+                            }
+                          />
                         </div>
-                        <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </>
               );
@@ -696,6 +846,21 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
           </div>
         )}
       </section>
+
+      {/* Emissor de Medicamentos Energéticos & Remédios Sutis (Radionics) */}
+      {onAddEnergeticRemedy && onUpdateEnergeticRemedy && onRemoveEnergeticRemedy && (
+        <EnergeticRemedyEmitterPanel
+          anamnesis={anamnesis}
+          ansaeSheet={ansaeSheet}
+          aiResult={aiResult}
+          selectedFlorals={localTherapeutics.florals}
+          selectedHerbs={localTherapeutics.herbs}
+          remedies={energeticRemedies}
+          onAddRemedy={onAddEnergeticRemedy}
+          onUpdateRemedy={onUpdateEnergeticRemedy}
+          onRemoveRemedy={onRemoveEnergeticRemedy}
+        />
+      )}
 
       {/* Motor de Ressonância Harmônica */}
       <section className="space-y-6">
@@ -755,10 +920,24 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                   {aiResult.testemunhos.map((item, idx) => (
                     <div
                       key={`${item.geometria}-${idx}`}
-                      className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1"
+                      className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1.5"
                     >
-                      <div className="flex items-center justify-between text-[11px] text-[#64748B]">
-                        <span className="font-semibold text-[#B45309]">{item.geometria}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#64748B]">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-semibold text-[#B45309]">{item.geometria}</span>
+                          {item.origem === 'therapist' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                              <PendulumIcon className="w-2.5 h-2.5 text-[#F59E0B]" />
+                              Pendulado pelo Terapeuta
+                            </span>
+                          )}
+                          {item.cristalAncorado && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#FEFCE8] border border-[#D97706]/40 text-[10px] font-semibold text-[#92400E]">
+                              <Gem className="w-2.5 h-2.5 text-[#B45309]" />
+                              {item.cristalAncorado}
+                            </span>
+                          )}
+                        </div>
                         <span>{item.etapa}</span>
                       </div>
                       <p className="font-mono text-xs text-[#0F172A] break-words">
@@ -781,9 +960,23 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs font-semibold text-[#B45309]">
-                            {cmd.geometria} · {cmd.etapa}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="text-xs font-semibold text-[#B45309]">
+                              {cmd.geometria} · {cmd.etapa}
+                            </p>
+                            {cmd.origem === 'therapist' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                                <PendulumIcon className="w-2.5 h-2.5 text-[#F59E0B]" />
+                                Pendulado pelo Terapeuta
+                              </span>
+                            )}
+                            {cmd.cristalAncorado && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#FEFCE8] border border-[#D97706]/40 text-[10px] font-semibold text-[#92400E]">
+                                <Gem className="w-2.5 h-2.5 text-[#B45309]" />
+                                Cristal: {cmd.cristalAncorado}
+                              </span>
+                            )}
+                          </div>
                           <h4 className="font-serif text-sm font-bold text-[#0F172A] mt-0.5">
                             {cmd.tituloComando}
                           </h4>

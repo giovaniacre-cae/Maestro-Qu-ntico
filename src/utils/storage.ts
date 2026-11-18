@@ -9,6 +9,8 @@ import {
   ElectromagneticFieldReading,
   MasterClinicalDatabase,
   MasterPatient,
+  getAuraSizeLabelFromPercent,
+  getHawkinsLabelByHz,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
 import { loadSessions, saveSessions } from '../data/seedSessions';
@@ -193,8 +195,27 @@ export function normalizeAnsaeSheet(sheet: ClinicalAnsaeRhenSheet): ClinicalAnsa
     };
   });
 
+  const resolvedHawkinsHz =
+    sheet.spiritualPsycho?.hawkinsAgathaHz ??
+    sheet.spiritualPsycho?.hawkinsHz ??
+    200;
+
+  const rawSizePercent = sheet.auricField?.sizePercent ?? 50;
+  const clampedSizePercent = Math.max(0, Math.min(100, rawSizePercent));
+
   return {
     ...sheet,
+    auricField: {
+      ...sheet.auricField,
+      sizePercent: clampedSizePercent,
+      sizeLabel: getAuraSizeLabelFromPercent(clampedSizePercent),
+    },
+    spiritualPsycho: {
+      ...sheet.spiritualPsycho,
+      hawkinsAgathaHz: resolvedHawkinsHz,
+      hawkinsHz: resolvedHawkinsHz,
+      hawkinsLevel: getHawkinsLabelByHz(resolvedHawkinsHz),
+    },
     systems: normalizedSystems,
     organs: Array.isArray(sheet.organs) ? sheet.organs : [],
   };
@@ -325,15 +346,18 @@ export function createDefaultAnsaeRhenSheet(
         affectsPhysicalBody: legacy.percentage < 55,
       };
     }),
-    auricField: {
-      protectionLabel:
-        auraPct < 35 ? 'Aberta 0%' : auraPct < 75 ? 'Média 50%' : 'Fechada 100%',
-      protectionPercent: auraPct,
-      sizeLabel: auraPct < 45 ? 'Encolhida' : auraPct > 80 ? 'Expandida' : 'Regular',
-      sizePercent: auraPct < 45 ? 65 : 100,
-      missingColors: ['Dourado', 'Violeta', 'Verde Esmeralda'],
-      excessColors: ['Vermelho Denso', 'Cinza', 'Laranja Escuro'],
-    },
+    auricField: (() => {
+      const defaultSizePercent = auraPct < 45 ? 30 : auraPct > 75 ? 85 : 55;
+      return {
+        protectionLabel:
+          auraPct < 35 ? 'Aberta 0%' : auraPct < 75 ? 'Média 50%' : 'Fechada 100%',
+        protectionPercent: auraPct,
+        sizeLabel: getAuraSizeLabelFromPercent(defaultSizePercent),
+        sizePercent: defaultSizePercent,
+        missingColors: ['Dourado', 'Violeta', 'Verde Esmeralda'],
+        excessColors: ['Vermelho Denso', 'Cinza', 'Laranja Escuro'],
+      };
+    })(),
     lifeAreas: {
       familiar: 'Bom',
       relacionamentoAfetivo: 'Bom',
@@ -344,6 +368,8 @@ export function createDefaultAnsaeRhenSheet(
     spiritualPsycho: {
       bovis,
       hawkinsAgathaHz: hawkins,
+      hawkinsHz: hawkins,
+      hawkinsLevel: getHawkinsLabelByHz(hawkins),
       stressLevel: stress,
       yinPercent: 50,
       yangPercent: 50,
@@ -380,6 +406,8 @@ export function roomToClinicalRecord(room: QuantumRoomSession): ClinicalSessionR
     activatedAt: room.activatedAt,
     completedAt: room.phase === 'completed' ? room.updatedAt : undefined,
     selectedSolfeggioHz: room.selectedSolfeggioHz,
+    chartCrystals: room.chartCrystals,
+    energeticRemedies: room.energeticRemedies || [],
     updatedAt: room.updatedAt,
   };
 }
@@ -394,7 +422,10 @@ export function loadClinicalDatabase(): MasterClinicalDatabase {
         return {
           version: 2,
           patients: parsed.patients,
-          sessions: parsed.sessions,
+          sessions: parsed.sessions.map((s) => ({
+            ...s,
+            ansaeRhen: normalizeAnsaeSheet(s.ansaeRhen),
+          })),
           customBiometers,
         };
       }
@@ -420,6 +451,8 @@ export function loadClinicalDatabase(): MasterClinicalDatabase {
     const joseInitialAnsae = createDefaultAnsaeRhenSheet();
     joseInitialAnsae.spiritualPsycho.bovis = 5800;
     joseInitialAnsae.spiritualPsycho.hawkinsAgathaHz = 175;
+    joseInitialAnsae.spiritualPsycho.hawkinsHz = 175;
+    joseInitialAnsae.spiritualPsycho.hawkinsLevel = getHawkinsLabelByHz(175);
     joseInitialAnsae.spiritualPsycho.stressLevel = 6;
     joseInitialAnsae.auricField.protectionPercent = 44;
     joseInitialAnsae.auricField.protectionLabel = 'Média 50%';

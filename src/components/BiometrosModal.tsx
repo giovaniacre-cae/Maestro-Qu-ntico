@@ -1,6 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Compass, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
-import { BiometerDefinition } from '../types/clinical';
+import {
+  BiometerDefinition,
+  HAWKINS_SCALE_TABLE,
+  getHawkinsEntryByHz,
+} from '../types/clinical';
 import { BUILTIN_22_BIOMETERS } from '../data/biometrosData';
 import { formatBirthDateBR } from '../utils/antiCatharsis';
 
@@ -13,6 +17,8 @@ interface BiometrosModalProps {
   onSaveCustomBiometer: (biometer: BiometerDefinition) => void;
   onDeleteCustomBiometer: (id: string) => void;
   onRecordReading?: (biometer: BiometerDefinition, selectedItem: string) => void;
+  currentHawkinsHz?: number;
+  onSelectHawkinsHz?: (hz: number) => void;
 }
 
 const CATEGORY_FILTERS: Array<'Todos' | BiometerDefinition['category']> = [
@@ -34,6 +40,8 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   onSaveCustomBiometer,
   onDeleteCustomBiometer,
   onRecordReading,
+  currentHawkinsHz,
+  onSelectHawkinsHz,
 }) => {
   const allBiometers = useMemo(
     () => [...BUILTIN_22_BIOMETERS, ...customBiometers],
@@ -50,6 +58,16 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   const [customName, setCustomName] = useState<string>('');
   const [customItemsText, setCustomItemsText] = useState<string>('');
   const [recordedNotice, setRecordedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && selectedId === 'bio-10' && typeof currentHawkinsHz === 'number') {
+      const entry = getHawkinsEntryByHz(currentHawkinsHz);
+      const idx = HAWKINS_SCALE_TABLE.findIndex((item) => item.hz === entry.hz);
+      if (idx >= 0) {
+        setSelectedSectorIndex(idx);
+      }
+    }
+  }, [isOpen, selectedId, currentHawkinsHz]);
 
   if (!isOpen) return null;
 
@@ -100,11 +118,35 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
     return `M ${p1.x} ${p1.y} A ${outerR} ${outerR} 0 0 1 ${p2.x} ${p2.y} L ${p3.x} ${p3.y} A ${innerR} ${innerR} 0 0 0 ${p4.x} ${p4.y} Z`;
   };
 
+  const extractHawkinsHz = (item: string, idx: number): number | null => {
+    if (HAWKINS_SCALE_TABLE[idx] && HAWKINS_SCALE_TABLE[idx].label === item) {
+      return HAWKINS_SCALE_TABLE[idx].hz;
+    }
+    const match = item.match(/(\d+)\s*Hz/i);
+    return match ? Number(match[1]) : null;
+  };
+
   const handleSelectBiometer = (bio: BiometerDefinition) => {
     setSelectedId(bio.id);
-    setSelectedSectorIndex(0);
+    if (bio.id === 'bio-10' && typeof currentHawkinsHz === 'number') {
+      const entry = getHawkinsEntryByHz(currentHawkinsHz);
+      const idx = HAWKINS_SCALE_TABLE.findIndex((item) => item.hz === entry.hz);
+      setSelectedSectorIndex(idx >= 0 ? idx : 0);
+    } else {
+      setSelectedSectorIndex(0);
+    }
     setShowCustomCreator(false);
     setRecordedNotice(null);
+  };
+
+  const handlePickSector = (idx: number) => {
+    setSelectedSectorIndex(idx);
+    if (activeBiometer.id === 'bio-10' && onSelectHawkinsHz) {
+      const hz = extractHawkinsHz(items[idx] || '', idx);
+      if (hz !== null) {
+        onSelectHawkinsHz(hz);
+      }
+    }
   };
 
   const handleCreateCustom = (e: React.FormEvent) => {
@@ -134,6 +176,12 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   };
 
   const handleConfirmReading = () => {
+    if (activeBiometer.id === 'bio-10' && onSelectHawkinsHz) {
+      const hz = extractHawkinsHz(selectedItem, safeIdx);
+      if (hz !== null) {
+        onSelectHawkinsHz(hz);
+      }
+    }
     if (onRecordReading && selectedItem) {
       onRecordReading(activeBiometer, selectedItem);
       setRecordedNotice(`Registrado: ${activeBiometer.name} → ${selectedItem}`);
@@ -378,7 +426,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                         return (
                           <g
                             key={`${item}-${idx}`}
-                            onClick={() => setSelectedSectorIndex(idx)}
+                            onClick={() => handlePickSector(idx)}
                             className="cursor-pointer"
                           >
                             <path
@@ -509,7 +557,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                         <button
                           key={`${item}-btn-${idx}`}
                           type="button"
-                          onClick={() => setSelectedSectorIndex(idx)}
+                          onClick={() => handlePickSector(idx)}
                           className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                             active
                               ? 'bg-[#0F172A] text-white border-[#0F172A]'

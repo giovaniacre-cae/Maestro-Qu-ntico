@@ -6,6 +6,7 @@ import {
   Clock,
   Download,
   FileText,
+  FlaskConical,
   FolderOpen,
   History,
   Play,
@@ -156,6 +157,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             protocol: room.protocol,
             aiResult: room.aiResult,
             selectedSolfeggioHz: room.selectedSolfeggioHz,
+            chartCrystals: room.chartCrystals,
+            energeticRemedies: room.energeticRemedies || [],
             updatedAt: room.updatedAt,
             completedAt: room.phase === 'completed' ? room.updatedAt : currentRec.completedAt,
           };
@@ -602,6 +605,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     : session.phase === 'stage2'
                     ? session.protocol.stage2?.geometries || []
                     : session.protocol.singleStage?.geometries || [];
+                const activeRemedies = (session.energeticRemedies || []).filter((r) => r.isActive);
 
                 return (
                   <article
@@ -693,8 +697,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </div>
                         <div>
                           <p className="text-[11px] text-[#64748B]">Hawkins</p>
-                          <p className="mt-0.5 font-mono tabular-nums text-sm font-semibold text-[#0F172A]">
-                            {session.sensitivity.hawkins} · {hawkinsInfo.label}
+                          <p className="mt-0.5 font-mono tabular-nums text-xs sm:text-sm font-semibold text-[#0F172A]">
+                            {hawkinsInfo.fullLabel}
                           </p>
                         </div>
                         <div>
@@ -711,6 +715,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           ? activeGeometries.map((g) => g.name).join(' · ')
                           : 'Repouso fisiológico (sem emissão ativa)'}
                       </div>
+
+                      {activeRemedies.length > 0 && (
+                        <div className="flex items-start gap-2.5 p-3 rounded-lg bg-[#0F172A]/[0.03] border border-[#B45309]/30 text-xs">
+                          <FlaskConical className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-[#0F172A] tabular-nums">
+                              {activeRemedies.length} Medicamento{activeRemedies.length === 1 ? '' : 's'}{' '}
+                              Energético{activeRemedies.length === 1 ? '' : 's'} em transmissão paralela
+                            </p>
+                            <p className="text-[11px] text-[#64748B] truncate">
+                              {activeRemedies
+                                .map((r) => `${r.items.join(' + ')} (${r.emitterGraph})`)
+                                .join(' · ')}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Action Footer */}
@@ -904,9 +925,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           <div className="bg-white border border-[#E2E8F0] rounded-lg p-3">
                             <p className="text-[11px] text-[#64748B]">Hawkins / Ágatha</p>
                             <p className="mt-1 font-mono tabular-nums text-xs text-[#45464D]">
-                              {firstSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} →{' '}
-                              <strong className="text-sm text-[#0F172A]">
-                                {latestSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz
+                              {
+                                getHawkinsLevelInfo(
+                                  firstSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+                                ).label
+                              }{' '}
+                              ({firstSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz) →{' '}
+                              <strong className="text-xs sm:text-sm text-[#0F172A]">
+                                {
+                                  getHawkinsLevelInfo(
+                                    latestSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+                                  ).fullLabel
+                                }
                               </strong>
                             </p>
                             <p
@@ -985,9 +1015,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 <p className="text-xs text-[#45464D]">{rec.therapeuticFocus}</p>
                                 <p className="text-[11px] font-mono text-[#64748B]">
                                   Bovis {rec.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å ·{' '}
-                                  Hawkins {rec.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz ·{' '}
-                                  Aura {rec.ansaeRhen.auricField.protectionPercent}% ·{' '}
-                                  Estresse {rec.ansaeRhen.spiritualPsycho.stressLevel}/9
+                                  Hawkins{' '}
+                                  {
+                                    getHawkinsLevelInfo(
+                                      rec.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+                                    ).fullLabel
+                                  }{' '}
+                                  · Aura {rec.ansaeRhen.auricField.protectionPercent}% · Estresse{' '}
+                                  {rec.ansaeRhen.spiritualPsycho.stressLevel}/9
                                 </p>
                               </div>
 

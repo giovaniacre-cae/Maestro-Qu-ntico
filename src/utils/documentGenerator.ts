@@ -20,7 +20,14 @@ import {
   SessionMilestoneType,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
-import { formatAngstromsBR, formatBirthDateBR, getHawkinsLevelInfo } from './antiCatharsis';
+import {
+  applyChartCrystalsToResult,
+  formatAngstromsBR,
+  formatBirthDateBR,
+  getHawkinsLevelInfo,
+  resolveCrystalForChart,
+} from './antiCatharsis';
+import { formatRemedyDurationLabel } from './energeticRemedies';
 import {
   getAnsaeDraftForSession,
   getOrganPsychosomaticMeaning,
@@ -421,7 +428,11 @@ export async function downloadTherapistDocx(
   const { anamnesis, sensitivity, protocol, aiResult } = session;
   const { sheet, prev, sessionType } = resolveDocContext(session, ctx);
   const logo = await loadMaestroLogo();
-  const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
+  const hawkinsHz =
+    sheet.spiritualPsycho.hawkinsHz ??
+    sheet.spiritualPsycho.hawkinsAgathaHz ??
+    sensitivity.hawkins;
+  const hawkinsInfo = getHawkinsLevelInfo(hawkinsHz);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
   const imbalancedOrgans = sheet.organs.filter(
     (o) =>
@@ -565,7 +576,11 @@ export async function downloadTherapistDocx(
       new TableRow({
         children: [
           buildTableCell('Escala de Hawkins / Ágatha', true),
-          buildTableCell(`${sheet.spiritualPsycho.hawkinsAgathaHz} Hz (${hawkinsInfo.label})`),
+          buildTableCell(
+            hawkinsHz !== hawkinsInfo.hz
+              ? `${hawkinsHz} Hz → ${hawkinsInfo.fullLabel}`
+              : hawkinsInfo.fullLabel
+          ),
           buildTableCell(`${hawkinsInfo.zone} — ${hawkinsInfo.emotion}`),
         ],
       }),
@@ -709,6 +724,23 @@ export async function downloadTherapistDocx(
         })
       : null;
 
+  const formatGeometriesWithCrystals = (
+    geometries: Array<{ name: string; role?: string; source?: 'motor' | 'therapist'; customFocus?: string }>,
+    stageTag: string,
+    withRole = false
+  ) =>
+    geometries
+      .map((g) => {
+        const cr = resolveCrystalForChart(session.chartCrystals, stageTag, g.name);
+        const tags: string[] = [];
+        if (g.source === 'therapist') tags.push('Pendulado pelo Terapeuta');
+        if (cr) tags.push(`Cristal: ${cr}`);
+        if (g.customFocus) tags.push(`Foco: ${g.customFocus}`);
+        const label = tags.length > 0 ? `${g.name} (${tags.join(' · ')})` : g.name;
+        return withRole && g.role ? `${label} — ${g.role}` : label;
+      })
+      .join(withRole ? ' | ' : ', ');
+
   // Chronogram Stage Paragraphs
   const stageParagraphs: Paragraph[] = [];
   if (protocol.mode === 'escalonado' && protocol.stage1 && protocol.stage2) {
@@ -718,9 +750,10 @@ export async function downloadTherapistDocx(
         'Classificação Clínica: '
       ),
       buildBodyParagraph(
-        `${protocol.stage1.durationLabel} — ${protocol.stage1.objective} Geometrias permitidas: ${protocol.stage1.geometries
-          .map((g) => g.name)
-          .join(', ')}. Geometrias bloqueadas nesta fase: ${protocol.stage1.blockedGeometries.join('; ')}.`,
+        `${protocol.stage1.durationLabel} — ${protocol.stage1.objective} Geometrias permitidas: ${formatGeometriesWithCrystals(
+          protocol.stage1.geometries,
+          'stage1'
+        )}. Geometrias bloqueadas nesta fase: ${protocol.stage1.blockedGeometries.join('; ')}.`,
         `${protocol.stage1.title}: `
       ),
       buildBodyParagraph(
@@ -728,9 +761,10 @@ export async function downloadTherapistDocx(
         'Intervalo de Repouso: '
       ),
       buildBodyParagraph(
-        `${protocol.stage2.durationLabel} — ${protocol.stage2.objective} Geometrias aplicadas: ${protocol.stage2.geometries
-          .map((g) => g.name)
-          .join(', ')}.`,
+        `${protocol.stage2.durationLabel} — ${protocol.stage2.objective} Geometrias aplicadas: ${formatGeometriesWithCrystals(
+          protocol.stage2.geometries,
+          'stage2'
+        )}.`,
         `${protocol.stage2.title}: `
       )
     );
@@ -741,24 +775,56 @@ export async function downloadTherapistDocx(
         'Classificação Clínica: '
       ),
       buildBodyParagraph(
-        protocol.singleStage.geometries.map((g) => `${g.name} (${g.role})`).join(' | '),
+        formatGeometriesWithCrystals(protocol.singleStage.geometries, 'single', true),
         'Geometrias Aplicadas: '
       )
     );
   }
 
-  const testemunhoParagraphs: Paragraph[] = (aiResult?.testemunhos || []).map((t) =>
-    buildBodyParagraph(`${t.testemunhoFormatado} [${t.etapa}]`, `${t.geometria}: `)
-  );
+  const hasTherapistChartsDocx = [
+    ...(protocol.stage1?.geometries || []),
+    ...(protocol.stage2?.geometries || []),
+    ...(protocol.singleStage?.geometries || []),
+  ].some((g) => g.source === 'therapist');
+
+  const effectiveResult =
+    (session.chartCrystals && Object.keys(session.chartCrystals).length > 0) ||
+    hasTherapistChartsDocx
+      ? applyChartCrystalsToResult(
+          aiResult,
+          protocol,
+          anamnesis,
+          session.sensitivity,
+          session.chartCrystals || {}
+        )
+      : aiResult;
+
+  const testemunhoParagraphs: Paragraph[] = (effectiveResult?.testemunhos || []).map((t) => {
+    const cr =
+      t.cristalAncorado || resolveCrystalForChart(session.chartCrystals, t.etapa, t.geometria);
+    const metaTags: string[] = [t.etapa];
+    if (t.origem === 'therapist') metaTags.push('Pendulado pelo Terapeuta');
+    if (cr) metaTags.push(`Cristal: ${cr}`);
+    return buildBodyParagraph(
+      `${t.testemunhoFormatado} (${metaTags.join(' · ')})`,
+      `${t.geometria}: `
+    );
+  });
 
   const comandoParagraphs: Paragraph[] = [];
-  (aiResult?.comandosQuanticos || []).forEach((cmd) => {
+  (effectiveResult?.comandosQuanticos || []).forEach((cmd) => {
+    const cr =
+      cmd.cristalAncorado ||
+      resolveCrystalForChart(session.chartCrystals, cmd.etapa, cmd.geometria);
+    const headerTags: string[] = [cmd.geometria, cmd.etapa];
+    if (cmd.origem === 'therapist') headerTags.push('Pendulado pelo Terapeuta');
+    if (cr) headerTags.push(`Cristal: ${cr}`);
     comandoParagraphs.push(
       new Paragraph({
         spacing: { before: 120, after: 40 },
         children: [
           new TextRun({
-            text: `${cmd.tituloComando} (${cmd.geometria} • ${cmd.etapa})`,
+            text: `${cmd.tituloComando} (${headerTags.join(' • ')})`,
             bold: true,
             size: 21,
             color: AMBER_HEX,
@@ -781,39 +847,84 @@ export async function downloadTherapistDocx(
     );
   });
 
+  const energeticRemediesList = session.energeticRemedies || [];
+  const energeticRemedyParagraphs: Paragraph[] = [];
+  if (energeticRemediesList.length > 0) {
+    energeticRemediesList.forEach((rem) => {
+      energeticRemedyParagraphs.push(
+        new Paragraph({
+          spacing: { before: 120, after: 40 },
+          children: [
+            new TextRun({
+              text: `${rem.items.join(' + ')} (${rem.category} • Emissor: ${
+                rem.emitterGraph
+              } • ${formatRemedyDurationLabel(rem.durationHours)} • ${
+                rem.isActive ? 'Ativo' : 'Pausado'
+              })`,
+              bold: true,
+              size: 21,
+              color: NAVY_HEX,
+              font: 'Calibri',
+            }),
+          ],
+        }),
+        buildBodyParagraph(rem.dosageInstruction, 'Posologia Sutil: '),
+        buildBodyParagraph(rem.testimonyText, 'Testemunho Informacional: '),
+        new Paragraph({
+          spacing: { after: 120, line: 276 },
+          children: [
+            new TextRun({
+              text: `"${rem.activationCommand}"`,
+              italics: true,
+              size: 21,
+              color: AMBER_HEX,
+              font: 'Georgia',
+            }),
+          ],
+        })
+      );
+    });
+  } else {
+    energeticRemedyParagraphs.push(
+      buildBodyParagraph(
+        'Nenhum medicamento energético ativado na Estação Radionics para este atendimento.'
+      )
+    );
+  }
+
   const prescricaoParagraphs: Paragraph[] = [];
-  if (aiResult?.prescricoes) {
+  if (effectiveResult?.prescricoes) {
     prescricaoParagraphs.push(
       buildBodyParagraph(
-        aiResult.prescricoes.floraisBach.join(' • '),
+        effectiveResult.prescricoes.floraisBach.join(' • '),
         'Florais de Bach Recomendados: '
       )
     );
-    if (aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0) {
+    if (effectiveResult.prescricoes.cristais && effectiveResult.prescricoes.cristais.length > 0) {
       prescricaoParagraphs.push(
         buildBodyParagraph(
-          aiResult.prescricoes.cristais.join(' • '),
+          effectiveResult.prescricoes.cristais.join(' • '),
           'Cristais Terapêuticos: '
         )
       );
     }
     prescricaoParagraphs.push(
       buildBodyParagraph(
-        aiResult.prescricoes.fitoterapiaChas.join(' • '),
+        effectiveResult.prescricoes.fitoterapiaChas.join(' • '),
         'Fitoterapia e Infusões: '
       )
     );
-    if (aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0) {
+    if (effectiveResult.prescricoes.bonsHabitos && effectiveResult.prescricoes.bonsHabitos.length > 0) {
       prescricaoParagraphs.push(
         buildBodyParagraph(
-          aiResult.prescricoes.bonsHabitos.join(' • '),
+          effectiveResult.prescricoes.bonsHabitos.join(' • '),
           'Bons Hábitos Aferidos: '
         )
       );
     }
     prescricaoParagraphs.push(
       buildBodyParagraph(
-        aiResult.prescricoes.frequenciasSolfeggio
+        effectiveResult.prescricoes.frequenciasSolfeggio
           .map((f) => `${f.nome} (${f.indicacao})`)
           .join(' | '),
         'Frequências Solfeggio de Apoio: '
@@ -828,9 +939,12 @@ export async function downloadTherapistDocx(
       sheet.spiritualPsycho.hawkinsAgathaHz - prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz;
     const auraDelta =
       sheet.auricField.protectionPercent - prev.ansaeRhen.auricField.protectionPercent;
+    const prevHawkinsLabel = getHawkinsLevelInfo(
+      prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+    ).fullLabel;
     comparisonParagraphs.push(
       buildBodyParagraph(
-        `Bovis: ${prev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å → ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å (${bovisDelta >= 0 ? `+${bovisDelta}` : bovisDelta} Å) | Hawkins: ${prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz → ${sheet.spiritualPsycho.hawkinsAgathaHz} Hz (${hawkinsDelta >= 0 ? `+${hawkinsDelta}` : hawkinsDelta} Hz) | Proteção Áurica: ${prev.ansaeRhen.auricField.protectionPercent}% → ${sheet.auricField.protectionPercent}% (${auraDelta >= 0 ? `+${auraDelta}` : auraDelta}%).`,
+        `Bovis: ${prev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å → ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å (${bovisDelta >= 0 ? `+${bovisDelta}` : bovisDelta} Å) | Hawkins: ${prevHawkinsLabel} → ${hawkinsInfo.fullLabel} (${hawkinsDelta >= 0 ? `+${hawkinsDelta}` : hawkinsDelta} Hz) | Proteção Áurica: ${prev.ansaeRhen.auricField.protectionPercent}% → ${sheet.auricField.protectionPercent}% (${auraDelta >= 0 ? `+${auraDelta}` : auraDelta}%).`,
         `Evolução (${prev.sessionType} × ${sessionType}): `
       )
     );
@@ -944,8 +1058,15 @@ export async function downloadTherapistDocx(
 
           buildSectionHeading(
             comparisonParagraphs.length > 0
-              ? '11. Prescrições Integrativas & Hábitos'
-              : '10. Prescrições Integrativas & Hábitos'
+              ? '11. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)'
+              : '10. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)'
+          ),
+          ...energeticRemedyParagraphs,
+
+          buildSectionHeading(
+            comparisonParagraphs.length > 0
+              ? '12. Prescrições Integrativas & Hábitos'
+              : '11. Prescrições Integrativas & Hábitos'
           ),
           ...(prescricaoParagraphs.length > 0
             ? prescricaoParagraphs
@@ -953,8 +1074,8 @@ export async function downloadTherapistDocx(
 
           buildSectionHeading(
             comparisonParagraphs.length > 0
-              ? '12. Ressalva Ética e Responsabilidade Terapêutica'
-              : '11. Ressalva Ética e Responsabilidade Terapêutica'
+              ? '13. Ressalva Ética e Responsabilidade Terapêutica'
+              : '12. Ressalva Ética e Responsabilidade Terapêutica'
           ),
           buildBodyParagraph(
             'Este relatório documenta procedimentos de Radiestesia Terapêutica (ANSAE/RHEN), Ressonância Harmônica e Terapias Vibracionais Integrativas. Os atendimentos têm caráter estritamente complementar, educativo e harmonizador do campo bioenergético, não substituindo consultas médicas, exames diagnósticos, prescrições farmacológicas ou acompanhamentos psicoterápicos convencionais.'
@@ -1102,6 +1223,30 @@ export async function downloadPatientGuideDocx(
                     .map((f) => `${f.nome} — ${f.indicacao}`)
                     .join(' | '),
                   'Músicas / Frequências Solfeggio para ouvir em repouso: '
+                ),
+              ]
+            : []),
+
+          ...(session.energeticRemedies &&
+          session.energeticRemedies.some((r) => r.isActive)
+            ? [
+                buildSectionHeading('Remédios Sutis em Emissão Vibracional à Distância'),
+                buildBodyParagraph(
+                  'Para apoiar sua recuperação e conforto energético ao longo deste ciclo, estamos enviando vibracionalmente à distância os seguintes remédios sutis:'
+                ),
+                ...session.energeticRemedies
+                  .filter((r) => r.isActive)
+                  .map((r) =>
+                    buildBodyParagraph(
+                      `${r.category} · ${formatRemedyDurationLabel(r.durationHours)} — ${
+                        r.dosageInstruction
+                      }`,
+                      `• ${r.items.join(' + ')}: `
+                    )
+                  ),
+                buildBodyParagraph(
+                  'Este apoio vibracional atua exclusivamente em nível sutil e integrativo. Nunca suspenda nem altere medicações prescritas pelo seu médico.',
+                  'Aviso Ético Importante: '
                 ),
               ]
             : []),
@@ -1380,7 +1525,11 @@ export async function downloadTherapistPdf(
   const { anamnesis, sensitivity, protocol, aiResult } = session;
   const { sheet, prev, sessionType } = resolveDocContext(session, ctx);
   const logo = await loadMaestroLogo();
-  const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
+  const hawkinsHz =
+    sheet.spiritualPsycho.hawkinsHz ??
+    sheet.spiritualPsycho.hawkinsAgathaHz ??
+    sensitivity.hawkins;
+  const hawkinsInfo = getHawkinsLevelInfo(hawkinsHz);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
   const ansaeSystems = sheet.systems || [];
   const imbalancedOrgans = sheet.organs.filter(
@@ -1438,7 +1587,7 @@ export async function downloadTherapistPdf(
     ],
     [
       'Hawkins / Ágatha',
-      `${sheet.spiritualPsycho.hawkinsAgathaHz} Hz — ${hawkinsInfo.label} (${hawkinsInfo.zone})`,
+      `${hawkinsHz !== hawkinsInfo.hz ? `${hawkinsHz} Hz → ` : ''}${hawkinsInfo.fullLabel} (${hawkinsInfo.zone})`,
     ],
     [
       'Estresse & Yin/Yang',
@@ -1524,8 +1673,11 @@ export async function downloadTherapistPdf(
   if (prev || aiResult?.comparativoEvolutivo) {
     pdf.addSectionTitle('5. Comparativo Evolutivo (Antes × Depois)');
     if (prev) {
+      const prevHawkinsLabel = getHawkinsLevelInfo(
+        prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+      ).fullLabel;
       pdf.addParagraph(
-        `Bovis: ${prev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å → ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å | Hawkins: ${prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz → ${sheet.spiritualPsycho.hawkinsAgathaHz} Hz | Proteção Áurica: ${prev.ansaeRhen.auricField.protectionPercent}% → ${sheet.auricField.protectionPercent}%.`,
+        `Bovis: ${prev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å → ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å | Hawkins: ${prevHawkinsLabel} → ${hawkinsInfo.fullLabel} | Proteção Áurica: ${prev.ansaeRhen.auricField.protectionPercent}% → ${sheet.auricField.protectionPercent}%.`,
         `${prev.sessionType} × ${sessionType}: `
       );
     }
@@ -1543,6 +1695,21 @@ export async function downloadTherapistPdf(
       'Processe o Motor de Ressonância Harmônica na Tela 4 para preencher este diagnóstico.'
   );
 
+  const formatPdfGeometries = (
+    geometries: Array<{ name: string; source?: 'motor' | 'therapist'; customFocus?: string }>,
+    stageTag: string
+  ) =>
+    geometries
+      .map((g) => {
+        const cr = resolveCrystalForChart(session.chartCrystals, stageTag, g.name);
+        const tags: string[] = [];
+        if (g.source === 'therapist') tags.push('Pendulado pelo Terapeuta');
+        if (cr) tags.push(`Cristal: ${cr}`);
+        if (g.customFocus) tags.push(`Foco: ${g.customFocus}`);
+        return tags.length > 0 ? `${g.name} (${tags.join(' · ')})` : g.name;
+      })
+      .join(', ');
+
   pdf.addSectionTitle('7. Cronograma Anti-Catarse em Etapas');
   if (protocol.mode === 'escalonado' && protocol.stage1 && protocol.stage2) {
     pdf.addParagraph(
@@ -1550,9 +1717,10 @@ export async function downloadTherapistPdf(
       'Modo Escalonado em 2 Etapas Ativado: '
     );
     pdf.addParagraph(
-      `${protocol.stage1.durationLabel} — ${protocol.stage1.objective} Geometrias: ${protocol.stage1.geometries
-        .map((g) => g.name)
-        .join(', ')}. Bloqueadas: ${protocol.stage1.blockedGeometries.join('; ')}.`,
+      `${protocol.stage1.durationLabel} — ${protocol.stage1.objective} Geometrias: ${formatPdfGeometries(
+        protocol.stage1.geometries,
+        'stage1'
+      )}. Bloqueadas: ${protocol.stage1.blockedGeometries.join('; ')}.`,
       `${protocol.stage1.title}: `
     );
     pdf.addParagraph(
@@ -1560,47 +1728,120 @@ export async function downloadTherapistPdf(
       'Intervalo de Repouso: '
     );
     pdf.addParagraph(
-      `${protocol.stage2.durationLabel} — ${protocol.stage2.objective} Geometrias: ${protocol.stage2.geometries
-        .map((g) => g.name)
-        .join(', ')}.`,
+      `${protocol.stage2.durationLabel} — ${protocol.stage2.objective} Geometrias: ${formatPdfGeometries(
+        protocol.stage2.geometries,
+        'stage2'
+      )}.`,
       `${protocol.stage2.title}: `
     );
   } else if (protocol.singleStage) {
     pdf.addParagraph(
-      `${protocol.singleStage.durationLabel} — ${protocol.singleStage.objective} Geometrias: ${protocol.singleStage.geometries
-        .map((g) => g.name)
-        .join(', ')}.`,
+      `${protocol.singleStage.durationLabel} — ${protocol.singleStage.objective} Geometrias: ${formatPdfGeometries(
+        protocol.singleStage.geometries,
+        'single'
+      )}.`,
       'Protocolo Direto em Etapa Única: '
     );
   }
 
+  const hasTherapistChartsPdf = [
+    ...(protocol.stage1?.geometries || []),
+    ...(protocol.stage2?.geometries || []),
+    ...(protocol.singleStage?.geometries || []),
+  ].some((g) => g.source === 'therapist');
+
+  const effectivePdfResult =
+    (session.chartCrystals && Object.keys(session.chartCrystals).length > 0) ||
+    hasTherapistChartsPdf
+      ? applyChartCrystalsToResult(
+          aiResult,
+          protocol,
+          anamnesis,
+          session.sensitivity,
+          session.chartCrystals || {}
+        )
+      : aiResult;
+
   pdf.addSectionTitle('8. Testemunhos e Comandos Quânticos');
-  (aiResult?.testemunhos || []).forEach((t) => {
-    pdf.addParagraph(`${t.testemunhoFormatado} (${t.etapa})`, `${t.geometria}: `);
+  (effectivePdfResult?.testemunhos || []).forEach((t) => {
+    const cr =
+      t.cristalAncorado || resolveCrystalForChart(session.chartCrystals, t.etapa, t.geometria);
+    const metaTags: string[] = [t.etapa];
+    if (t.origem === 'therapist') metaTags.push('Pendulado pelo Terapeuta');
+    if (cr) metaTags.push(`Cristal: ${cr}`);
+    pdf.addParagraph(
+      `${t.testemunhoFormatado} (${metaTags.join(' · ')})`,
+      `${t.geometria}: `
+    );
   });
-  (aiResult?.comandosQuanticos || []).forEach((cmd) => {
-    pdf.addParagraph(`"${cmd.comandoTexto}"`, `${cmd.tituloComando} (${cmd.etapa}): `, true);
+  (effectivePdfResult?.comandosQuanticos || []).forEach((cmd) => {
+    const cr =
+      cmd.cristalAncorado ||
+      resolveCrystalForChart(session.chartCrystals, cmd.etapa, cmd.geometria);
+    const headerTags: string[] = [cmd.etapa];
+    if (cmd.origem === 'therapist') headerTags.push('Pendulado pelo Terapeuta');
+    if (cr) headerTags.push(`Cristal: ${cr}`);
+    pdf.addParagraph(
+      `"${cmd.comandoTexto}"`,
+      `${cmd.tituloComando} (${headerTags.join(' · ')}): `,
+      true
+    );
   });
 
-  if (aiResult?.prescricoes) {
-    pdf.addSectionTitle('9. Prescrições Integrativas, Cristais & Bons Hábitos');
-    pdf.addParagraph(aiResult.prescricoes.floraisBach.join(' • '), 'Florais de Bach: ');
-    if (aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0) {
-      pdf.addParagraph(aiResult.prescricoes.cristais.join(' • '), 'Cristais Terapêuticos: ');
-    }
-    pdf.addParagraph(aiResult.prescricoes.fitoterapiaChas.join(' • '), 'Fitoterapia / Chás: ');
-    if (aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0) {
-      pdf.addParagraph(aiResult.prescricoes.bonsHabitos.join(' • '), 'Bons Hábitos: ');
+  pdf.addSectionTitle(
+    '9. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)'
+  );
+  if ((session.energeticRemedies || []).length > 0) {
+    (session.energeticRemedies || []).forEach((rem) => {
+      pdf.addParagraph(
+        `${rem.category} • Emissor: ${rem.emitterGraph} • Duração: ${formatRemedyDurationLabel(
+          rem.durationHours
+        )} • Status: ${rem.isActive ? 'Ativo' : 'Pausado'} — ${rem.dosageInstruction}`,
+        `${rem.items.join(' + ')}: `
+      );
+      pdf.addParagraph(rem.testimonyText, 'Testemunho Informacional: ');
+      pdf.addParagraph(`"${rem.activationCommand}"`, 'Comando de Ativação: ', true);
+    });
+  } else {
+    pdf.addParagraph(
+      'Nenhum medicamento energético ativado na Estação Radionics para este atendimento.'
+    );
+  }
+
+  if (effectivePdfResult?.prescricoes) {
+    pdf.addSectionTitle('10. Prescrições Integrativas, Cristais & Bons Hábitos');
+    pdf.addParagraph(effectivePdfResult.prescricoes.floraisBach.join(' • '), 'Florais de Bach: ');
+    if (
+      effectivePdfResult.prescricoes.cristais &&
+      effectivePdfResult.prescricoes.cristais.length > 0
+    ) {
+      pdf.addParagraph(
+        effectivePdfResult.prescricoes.cristais.join(' • '),
+        'Cristais Terapêuticos: '
+      );
     }
     pdf.addParagraph(
-      aiResult.prescricoes.frequenciasSolfeggio
+      effectivePdfResult.prescricoes.fitoterapiaChas.join(' • '),
+      'Fitoterapia / Chás: '
+    );
+    if (
+      effectivePdfResult.prescricoes.bonsHabitos &&
+      effectivePdfResult.prescricoes.bonsHabitos.length > 0
+    ) {
+      pdf.addParagraph(
+        effectivePdfResult.prescricoes.bonsHabitos.join(' • '),
+        'Bons Hábitos: '
+      );
+    }
+    pdf.addParagraph(
+      effectivePdfResult.prescricoes.frequenciasSolfeggio
         .map((f) => `${f.nome} (${f.indicacao})`)
         .join(' | '),
       'Frequências Solfeggio: '
     );
   }
 
-  pdf.addSectionTitle('10. Ressalva Ética');
+  pdf.addSectionTitle('11. Ressalva Ética');
   pdf.addParagraph(
     'Este protocolo integra Radiestesia Terapêutica (ANSAE/RHEN) e Ressonância Harmônica em caráter complementar e educativo, não substituindo diagnósticos, consultas ou tratamentos médicos e psicológicos convencionais.'
   );
@@ -1707,6 +1948,26 @@ export async function downloadPatientGuidePdf(
     );
   }
 
+  const activePatientRemediesPdf = (session.energeticRemedies || []).filter((r) => r.isActive);
+  if (activePatientRemediesPdf.length > 0) {
+    pdf.addSectionTitle('Remédios Sutis em Emissão Vibracional à Distância');
+    pdf.addParagraph(
+      'Para apoiar sua recuperação com suavidade, os seguintes remédios sutis estão sendo enviados vibracionalmente à distância para o seu campo:'
+    );
+    activePatientRemediesPdf.forEach((rem) => {
+      pdf.addParagraph(
+        `${rem.category} · ${formatRemedyDurationLabel(rem.durationHours)} — ${
+          rem.dosageInstruction
+        }`,
+        `• ${rem.items.join(' + ')}: `
+      );
+    });
+    pdf.addParagraph(
+      'Este suporte energético é estritamente complementar e nunca substitui nem autoriza suspender medicações prescritas pelo seu médico.',
+      'Aviso Ético Importante: '
+    );
+  }
+
   pdf.save(`guia_paciente_${sanitizeFileName(anamnesis.fullName)}.pdf`);
 }
 
@@ -1720,6 +1981,18 @@ export function buildWhatsAppShareUrl(
   const freqs =
     aiResult?.prescricoes.frequenciasSolfeggio.map((f) => `${f.hz} Hz`).join(', ') || '432 Hz';
   const missingColors = sheet.auricField.missingColors.join(', ');
+  const activeRemedies = (session.energeticRemedies || []).filter((r) => r.isActive);
+  const remediesSummary =
+    activeRemedies.length > 0
+      ? activeRemedies
+          .map(
+            (r) =>
+              `${r.items.join(' + ')} (${r.category}, ${formatRemedyDurationLabel(
+                r.durationHours
+              )})`
+          )
+          .join('; ')
+      : '';
   const welcomeText =
     ctx?.welcomeMessage?.trim() ||
     aiResult?.welcomeMessage?.trim() ||
@@ -1750,6 +2023,9 @@ export function buildWhatsAppShareUrl(
         : 'Harmonização Direta (7 a 10 dias)'
     }`,
     missingColors ? `*Cores da Aura para nutrir seu campo:* ${missingColors}` : '',
+    remediesSummary
+      ? `*Remédios Sutis em apoio vibracional à distância:* ${remediesSummary} _(apoio complementar — nunca suspenda medicações prescritas pelo seu médico)_`
+      : '',
     ``,
     `*4 Pilares Diários:*`,
     `1. Hidratação/Chás: ${pilares?.hidratacaoFitoterapia || 'Beber 2L de água pura e chás suaves.'}`,

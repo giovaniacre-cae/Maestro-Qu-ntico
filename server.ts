@@ -10,6 +10,44 @@ const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 
+const HAWKINS_CANONICAL_LEVELS: ReadonlyArray<{ hz: number; label: string }> = [
+  { hz: 20, label: 'Vergonha (20 Hz)' },
+  { hz: 30, label: 'Culpa (30 Hz)' },
+  { hz: 50, label: 'Apatia (50 Hz)' },
+  { hz: 75, label: 'Tristeza (75 Hz)' },
+  { hz: 100, label: 'Medo (100 Hz)' },
+  { hz: 125, label: 'Desejo (125 Hz)' },
+  { hz: 150, label: 'Raiva (150 Hz)' },
+  { hz: 175, label: 'Orgulho (175 Hz)' },
+  { hz: 200, label: 'Coragem (200 Hz)' },
+  { hz: 250, label: 'Neutralidade (250 Hz)' },
+  { hz: 310, label: 'Boa Vontade (310 Hz)' },
+  { hz: 350, label: 'Aceitação (350 Hz)' },
+  { hz: 400, label: 'Razão (400 Hz)' },
+  { hz: 500, label: 'Amor (500 Hz)' },
+  { hz: 520, label: 'Entrega (520 Hz)' },
+  { hz: 540, label: 'Alegria (540 Hz)' },
+  { hz: 580, label: 'Completude (580 Hz)' },
+  { hz: 600, label: 'Paz (600 Hz)' },
+  { hz: 700, label: 'Iluminação (700 Hz)' },
+  { hz: 800, label: 'Gratidão / Iluminação Plena (800 Hz)' },
+  { hz: 1000, label: 'Consciência Crística / Iluminação Suprema (1000 Hz)' },
+];
+
+function getHawkinsLabelServer(hz: number): string {
+  const safeHz = Number.isFinite(hz) ? Math.max(20, Math.min(1000, hz)) : 200;
+  let closest = HAWKINS_CANONICAL_LEVELS[0];
+  let bestDiff = Math.abs(safeHz - closest.hz);
+  for (let i = 1; i < HAWKINS_CANONICAL_LEVELS.length; i++) {
+    const diff = Math.abs(safeHz - HAWKINS_CANONICAL_LEVELS[i].hz);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      closest = HAWKINS_CANONICAL_LEVELS[i];
+    }
+  }
+  return closest.label;
+}
+
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -59,6 +97,8 @@ async function startServer() {
         sessionType,
         previousSession,
         selectedTherapeutics,
+        chartCrystals,
+        energeticRemedies,
       } = req.body;
 
       if (!anamnesis || !sensitivity || !protocol) {
@@ -79,22 +119,52 @@ async function startServer() {
         return raw || 'Data não informada';
       })();
 
+      const resolveChartCrystal = (stageKey: string, geoName: string): string => {
+        if (!chartCrystals || typeof chartCrystals !== 'object') return '';
+        const raw = chartCrystals[`${stageKey}::${geoName}`] || chartCrystals[geoName] || '';
+        return typeof raw === 'string' && raw.trim().toLowerCase() !== 'nenhum' ? raw.trim() : '';
+      };
+
       const geometriesList = [
-        ...(protocol.stage1?.geometries?.map((g: { name: string; role: string }) => ({
-          etapa: 'Etapa 1 — Limpeza & Blindagem',
-          nome: g.name,
-          funcao: g.role,
-        })) || []),
-        ...(protocol.stage2?.geometries?.map((g: { name: string; role: string }) => ({
-          etapa: 'Etapa 2 — Regeneração & Vitalidade',
-          nome: g.name,
-          funcao: g.role,
-        })) || []),
-        ...(protocol.singleStage?.geometries?.map((g: { name: string; role: string }) => ({
-          etapa: 'Etapa Única — Harmonização Direta',
-          nome: g.name,
-          funcao: g.role,
-        })) || []),
+        ...(protocol.stage1?.geometries?.map(
+          (g: { name: string; role: string; source?: string; customFocus?: string }) => {
+            const crystal = resolveChartCrystal('stage1', g.name);
+            return {
+              etapa: 'Etapa 1 — Limpeza & Blindagem',
+              nome: g.name,
+              funcao: g.role,
+              origem: g.source === 'therapist' ? 'Pendulado pelo Terapeuta' : 'Sugestão do Motor',
+              ...(g.customFocus ? { focoEspecifico: g.customFocus } : {}),
+              ...(crystal ? { cristalAncorado: crystal } : {}),
+            };
+          }
+        ) || []),
+        ...(protocol.stage2?.geometries?.map(
+          (g: { name: string; role: string; source?: string; customFocus?: string }) => {
+            const crystal = resolveChartCrystal('stage2', g.name);
+            return {
+              etapa: 'Etapa 2 — Regeneração & Vitalidade',
+              nome: g.name,
+              funcao: g.role,
+              origem: g.source === 'therapist' ? 'Pendulado pelo Terapeuta' : 'Sugestão do Motor',
+              ...(g.customFocus ? { focoEspecifico: g.customFocus } : {}),
+              ...(crystal ? { cristalAncorado: crystal } : {}),
+            };
+          }
+        ) || []),
+        ...(protocol.singleStage?.geometries?.map(
+          (g: { name: string; role: string; source?: string; customFocus?: string }) => {
+            const crystal = resolveChartCrystal('single', g.name);
+            return {
+              etapa: 'Etapa Única — Harmonização Direta',
+              nome: g.name,
+              funcao: g.role,
+              origem: g.source === 'therapist' ? 'Pendulado pelo Terapeuta' : 'Sugestão do Motor',
+              ...(g.customFocus ? { focoEspecifico: g.customFocus } : {}),
+              ...(crystal ? { cristalAncorado: crystal } : {}),
+            };
+          }
+        ) || []),
       ];
 
       const alertSystems = (sensitivity.organicSystems || [])
@@ -131,7 +201,7 @@ async function startServer() {
         : imbalancedChakras.join('; ') || 'Todos alinhados';
 
       const auricText = ansaeRhen?.auricField
-        ? `Proteção: ${ansaeRhen.auricField.protectionLabel} (${ansaeRhen.auricField.protectionPercent}%), Tamanho: ${ansaeRhen.auricField.sizeLabel} (${ansaeRhen.auricField.sizePercent}%), Cores em Falta: ${(ansaeRhen.auricField.missingColors || []).join(', ')}, Cores em Excesso: ${(ansaeRhen.auricField.excessColors || []).join(', ')}`
+        ? `Proteção: ${ansaeRhen.auricField.protectionLabel} (${ansaeRhen.auricField.protectionPercent}%), Tamanho: ${ansaeRhen.auricField.sizeLabel} (${Math.max(0, Math.min(100, Number(ansaeRhen.auricField.sizePercent ?? 50)))}%), Cores em Falta: ${(ansaeRhen.auricField.missingColors || []).join(', ')}, Cores em Excesso: ${(ansaeRhen.auricField.excessColors || []).join(', ')}`
         : `Proteção Áurica: ${sensitivity.auricProtection}%`;
 
       const lifeAreasText = ansaeRhen?.lifeAreas
@@ -208,14 +278,56 @@ async function startServer() {
         ? `Yin/Yang: ${ansaeRhen.spiritualPsycho.yinPercent}% Yin / ${ansaeRhen.spiritualPsycho.yangPercent}% Yang | Distúrbios: ${(ansaeRhen.spiritualPsycho.spiritualDisturbances || []).join(', ') || 'Nenhum'} | Implantes: ${(ansaeRhen.spiritualPsycho.implantsDetected || []).join(', ') || 'Nenhum'} | Carma: ${(ansaeRhen.spiritualPsycho.karmicCommitments || []).join(', ') || 'Nenhum'} | Virtudes a ancorar: ${(ansaeRhen.spiritualPsycho.virtuesToAnchor || []).join(', ') || 'Equilíbrio'} | Mesa Indicada: ${ansaeRhen.spiritualPsycho.recommendedRadionicBoard}`
         : '';
 
-      const therapeuticsContext = selectedTherapeutics
-        ? `TERAPÊUTICAS / CRISTAIS / HÁBITOS PRÉ-SELECIONADOS PELO TERAPEUTA:\n- Florais: ${(selectedTherapeutics.florals || []).join(', ') || 'A definir pela IA'}\n- Cristais: ${(selectedTherapeutics.crystals || []).join(', ') || 'A definir pela IA'}\n- Fitoterapia/Chás: ${(selectedTherapeutics.herbs || []).join(', ') || 'A definir pela IA'}\n- Bons Hábitos: ${(selectedTherapeutics.habits || []).join(', ') || 'A definir pela IA'}`
-        : '';
+      const anchoredChartCrystalsList = geometriesList
+        .filter((g: { cristalAncorado?: string }) => Boolean(g.cristalAncorado))
+        .map((g: { nome: string; etapa: string; cristalAncorado?: string }) => `${g.nome} (${g.etapa}): ${g.cristalAncorado}`);
+
+      const activeRemediesList = Array.isArray(energeticRemedies)
+        ? energeticRemedies
+            .filter((r: { isActive?: boolean; items?: string[] }) => r?.isActive !== false && Array.isArray(r?.items) && r.items.length > 0)
+            .map(
+              (r: {
+                category: string;
+                items: string[];
+                emitterGraph: string;
+                durationHours: number;
+                dosageInstruction: string;
+              }) =>
+                `${r.items.join(' + ')} (${r.category} | Emissor: ${r.emitterGraph} | ${r.durationHours}h — ${r.dosageInstruction})`
+            )
+        : [];
+
+      const therapeuticsContext = `${
+        selectedTherapeutics
+          ? `TERAPÊUTICAS / CRISTAIS / HÁBITOS PRÉ-SELECIONADOS PELO TERAPEUTA:\n- Florais: ${(selectedTherapeutics.florals || []).join(', ') || 'A definir pela IA'}\n- Cristais: ${(selectedTherapeutics.crystals || []).join(', ') || 'A definir pela IA'}\n- Fitoterapia/Chás: ${(selectedTherapeutics.herbs || []).join(', ') || 'A definir pela IA'}\n- Bons Hábitos: ${(selectedTherapeutics.habits || []).join(', ') || 'A definir pela IA'}`
+          : ''
+      }${
+        anchoredChartCrystalsList.length > 0
+          ? `\nCRISTAIS ANCORADOS DIRETAMENTE NOS GRÁFICOS DA MESA (RADIESTESIA SENSITIVA):\n- ${anchoredChartCrystalsList.join('\n- ')}`
+          : ''
+      }${
+        activeRemediesList.length > 0
+          ? `\nMEDICAMENTOS ENERGÉTICOS & REMÉDIOS SUTIS EM EMISSÃO RADIONICS (DECÁGONO DUPLO / SCAP):\n- ${activeRemediesList.join('\n- ')}`
+          : ''
+      }`;
+
+      const currentHawkinsHz = Number(
+        ansaeRhen?.spiritualPsycho?.hawkinsAgathaHz ?? sensitivity.hawkins ?? 200
+      );
+      const currentHawkinsLevel =
+        ansaeRhen?.spiritualPsycho?.hawkinsLevel ||
+        sensitivity.hawkinsLevel ||
+        getHawkinsLabelServer(currentHawkinsHz);
 
       const isPostTreatment = Boolean(previousSession) || String(sessionType || '').startsWith('Pós-Tratamento');
+      const prevHawkinsHz = previousSession ? Number(previousSession.hawkins ?? 200) : 200;
+      const prevHawkinsLevel = previousSession
+        ? previousSession.hawkinsLevel || getHawkinsLabelServer(prevHawkinsHz)
+        : '';
+
       const previousSessionContext = previousSession
         ? `HISTÓRICO DA SESSÃO ANTERIOR (COMPARATIVO ANTES × DEPOIS OBRIGATÓRIO):
-- Sessão Anterior (${previousSession.sessionType || 'Avaliação Inicial'}): Bovis ${previousSession.bovis} Å | Hawkins ${previousSession.hawkins} Hz | Proteção Áurica ${previousSession.auricProtection}% | Estresse ${previousSession.stressLevel}/9 | Órgãos/Sistemas antes em alerta: ${(previousSession.alertOrgans || []).join(', ') || 'N/A'}`
+- Sessão Anterior (${previousSession.sessionType || 'Avaliação Inicial'}): Bovis ${previousSession.bovis} Å | Hawkins ${prevHawkinsLevel} (${prevHawkinsHz} Hz) | Proteção Áurica ${previousSession.auricProtection}% | Estresse ${previousSession.stressLevel}/9 | Órgãos/Sistemas antes em alerta: ${(previousSession.alertOrgans || []).join(', ') || 'N/A'}`
         : isPostTreatment
         ? `Tipo de Sessão: ${sessionType} (Pós-Tratamento — gere análise evolutiva positiva coerente com o quadro atual)`
         : 'Sessão de Avaliação Inicial (não há sessão anterior).';
@@ -237,7 +349,7 @@ DADOS DO PACIENTE (ANAMNESE):
 FICHA COMPLETA ANSAE & RHEN:
 - Pergunta Raiz (Domínios Positivos): ${(ansaeRhen?.rootProblems || []).join(', ') || 'Geral'}
 - Biômetro de Bovis: ${sensitivity.bovis} Å
-- Escala de Hawkins / Ágatha: ${sensitivity.hawkins} Hz
+- Escala de Hawkins / Ágatha: ${currentHawkinsLevel} (${currentHawkinsHz} Hz aferidos)
 - Nível de Estresse/Sobrecarga Neural: ${sensitivity.stressLevel}/9
 - Campos Eletromagnéticos: ${emFieldsText}
 - 7 Chakras & Glândulas: ${ansaeChakrasText}
@@ -259,9 +371,9 @@ PROTOCOLO ANTI-CATARSE DEFINIDO:
 ${JSON.stringify(geometriesList, null, 2)}
 
 REGRAS OBRIGATÓRIAS DE REDAÇÃO:
-1. "testemunhos": Crie um item para CADA geometria listada acima. O campo "testemunhoFormatado" DEVE seguir rigorosamente o padrão:
-   "${anamnesis.fullName} - ${birthFormatted} | [Foco específico adaptado à função daquela geometria]"
-2. "comandosQuanticos": Crie comandos quânticos profundos e personalizados para CADA geometria/etapa ativa selecionada, integrando os chakras, órgãos/sistemas ANSAE (citando explicitamente os valores exatos em Ångströms aferidos quando disponíveis, comandando a elevação de órgãos/sistemas em 0.000 Å, 4.500 Å ou < 6.500 Å para acima de 9.500 Å de Energia de Saúde), cores em falta e virtudes detectadas. Cada "comandoTexto" DEVE:
+1. "testemunhos": Crie um item para CADA geometria listada acima (incluindo obrigatoriamente todas as marcadas como "Pendulado pelo Terapeuta"). O campo "testemunhoFormatado" DEVE seguir rigorosamente o padrão:
+   "${anamnesis.fullName} - ${birthFormatted} | [Foco específico (se houver focoEspecifico, priorize-o) adaptado à função daquela geometria]" — e caso a geometria possua "cristalAncorado", inclua ao final " • Frequência Cristalina: [cristalAncorado]" e preencha "cristalAncorado".
+2. "comandosQuanticos": Crie comandos quânticos profundos e personalizados para CADA geometria/etapa ativa selecionada (incluindo obrigatoriamente todas as marcadas como "Pendulado pelo Terapeuta" e respeitando seu "focoEspecifico"), integrando os chakras, órgãos/sistemas ANSAE (citando explicitamente os valores exatos em Ångströms aferidos quando disponíveis, comandando a elevação de órgãos/sistemas em 0.000 Å, 4.500 Å ou < 6.500 Å para acima de 9.500 Å de Energia de Saúde), cores em falta e virtudes detectadas. Se a geometria possuir "cristalAncorado", incorpore explicitamente a assinatura vibracional informacional desse cristal no comando (ex.: "Ativo a geometria de [Gráfico] potencializada pela frequência vibracional informacional de [Cristal] sobre ${anamnesis.fullName}...") e preencha "cristalAncorado". Cada "comandoTexto" DEVE:
    - Ser redigido na 1ª pessoa do presente do indicativo ("Eu colapso...", "Eu ativo...", "Eu ancoro...").
    - Integrar conceitos de física quântica (colapso de função de onda, campo de ponto zero, não-localidade).
    - Integrar Ressonância Harmônica (transferência de informação arquetípica pura, transmutação na Escala de Hawkins).
@@ -269,7 +381,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
 3. "analiseCausaRaiz": Análise técnica cruzando especificamente os sistemas e órgãos ANSAE em desequilíbrio (citando % e Energia de Saúde em Å), os chakras/glândulas afetados, os campos eletromagnéticos, as áreas da vida comprometidas e as emoções/causas raiz.
 4. "analisePsicossomatica": Texto técnico-clínico de 2 parágrafos para o Relatório do Terapeuta correlacionando Bovis, Hawkins/Ágatha, Yin/Yang, campo áurico (cores em falta/excesso) e somatização orgânica.
 5. "comparativoEvolutivo": ${isPostTreatment ? 'OBRIGATÓRIO: Compare numericamente e clinicamente os ganhos entre a sessão anterior e a leitura atual (Bovis, Hawkins, Aura, Estresse e órgãos), destacando a resposta do organismo ao protocolo.' : 'Retorne string vazia "" por ser Avaliação Inicial.'}
-6. "orientacaoPacienteResumo": Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual.
+6. "orientacaoPacienteResumo": Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual${activeRemediesList.length > 0 ? ', mencionando com suavidade o suporte vibracional à distância dos remédios sutis programados e reforçando que nunca substitui nem autoriza suspender medicações médicas prescritas' : ''}.
 7. "orientacaoChakrasAuraHabitos": Texto prático e acolhedor traduzindo para o paciente o significado dos chakras em atenção, das cores da aura em falta/excesso (como utilizá-las em roupas, visualização ou ambiente) e dos hábitos saudáveis aferidos.
 8. "welcomeMessage": Redija uma Mensagem Inicial de Acolhimento Humanizado (1 parágrafo acolhedor, empático, fraterno e encorajador, de 5 a 7 linhas) para abrir o Guia do Paciente. Valide com sensibilidade as queixas físicas ou emocionais relatadas pelo interagente na anamnese, desmistifique a leitura energética sem gerar medo ou alarme, e reforce o vínculo terapêutico e a confiança serena no processo de restauração e cura.
 9. "prescricoes":
@@ -302,6 +414,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
                       geometria: { type: Type.STRING },
                       etapa: { type: Type.STRING },
                       testemunhoFormatado: { type: Type.STRING },
+                      cristalAncorado: { type: Type.STRING },
                     },
                     required: ['geometria', 'etapa', 'testemunhoFormatado'],
                   },
@@ -315,6 +428,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
                       etapa: { type: Type.STRING },
                       tituloComando: { type: Type.STRING },
                       comandoTexto: { type: Type.STRING },
+                      cristalAncorado: { type: Type.STRING },
                     },
                     required: ['geometria', 'etapa', 'tituloComando', 'comandoTexto'],
                   },

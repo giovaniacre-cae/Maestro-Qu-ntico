@@ -1,4 +1,11 @@
-import { BiometerDefinition } from '../types/clinical';
+import {
+  BiometerDefinition,
+  HAWKINS_SCALE_TABLE,
+  getHawkinsEntryByHz,
+  getHawkinsLabelByHz,
+} from '../types/clinical';
+
+export { HAWKINS_SCALE_TABLE, getHawkinsEntryByHz, getHawkinsLabelByHz };
 
 export const BACH_38_ESSENCES: string[] = [
   'Agrimony',
@@ -218,28 +225,11 @@ export const BUILTIN_22_BIOMETERS: BiometerDefinition[] = [
   {
     id: 'bio-10',
     number: 10,
-    name: 'Escala de Ágatha',
+    name: 'Escala de Ágatha / Hawkins',
     category: 'Psicoemocional',
     description:
-      'Aferição frequencial de consciência (20 Hz a 800 Hz) correlacionada à Escala de Hawkins.',
-    items: [
-      '20 Hz — Vergonha',
-      '30 Hz — Culpa',
-      '50 Hz — Apatia',
-      '75 Hz — Tristeza',
-      '100 Hz — Medo',
-      '125 Hz — Desejo',
-      '150 Hz — Raiva',
-      '175 Hz — Orgulho',
-      '200 Hz — Coragem',
-      '250 Hz — Neutralidade',
-      '310 Hz — Disposição',
-      '350 Hz — Aceitação',
-      '400 Hz — Razão',
-      '500 Hz — Amor',
-      '540 Hz — Alegria',
-      '600+ Hz — Paz / Iluminação',
-    ],
+      'Aferição frequencial canônica de consciência (20 Hz a 1000 Hz) na Escala de Hawkins.',
+    items: HAWKINS_SCALE_TABLE.map((entry) => entry.label),
   },
   {
     id: 'bio-11',

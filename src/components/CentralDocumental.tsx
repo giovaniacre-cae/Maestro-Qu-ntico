@@ -6,7 +6,13 @@ import {
   SessionMilestoneType,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
-import { formatAngstromsBR, formatBirthDateBR, getHawkinsLevelInfo } from '../utils/antiCatharsis';
+import {
+  formatAngstromsBR,
+  formatBirthDateBR,
+  getHawkinsLevelInfo,
+  resolveCrystalForChart,
+} from '../utils/antiCatharsis';
+import { formatRemedyDurationLabel } from '../utils/energeticRemedies';
 import {
   DocumentExportContext,
   applyVocativeToWelcomeMessage,
@@ -94,7 +100,11 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
     welcomeMessage,
   };
 
-  const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
+  const resolvedHawkinsHz =
+    resolvedSheet.spiritualPsycho.hawkinsHz ??
+    resolvedSheet.spiritualPsycho.hawkinsAgathaHz ??
+    sensitivity.hawkins;
+  const hawkinsInfo = getHawkinsLevelInfo(resolvedHawkinsHz);
   const ansaeSystems = resolvedSheet.systems || [];
   const imbalancedOrgans = resolvedSheet.organs.filter(
     (o) =>
@@ -417,8 +427,8 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                         Hawkins / Ágatha
                       </td>
                       <td className="p-2.5 border border-[#E2E8F0]">
-                        {resolvedSheet.spiritualPsycho.hawkinsAgathaHz} Hz ({hawkinsInfo.label} ·{' '}
-                        {hawkinsInfo.zone})
+                        {resolvedHawkinsHz !== hawkinsInfo.hz ? `${resolvedHawkinsHz} Hz → ` : ''}
+                        {hawkinsInfo.fullLabel} · {hawkinsInfo.zone}
                       </td>
                     </tr>
                     <tr>
@@ -645,8 +655,12 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                     <p className="font-mono text-[#0F172A]">
                       Bovis: {resolvedPrev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å →{' '}
                       {resolvedSheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å · Hawkins:{' '}
-                      {resolvedPrev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz →{' '}
-                      {resolvedSheet.spiritualPsycho.hawkinsAgathaHz} Hz · Aura:{' '}
+                      {
+                        getHawkinsLevelInfo(
+                          resolvedPrev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz
+                        ).fullLabel
+                      }{' '}
+                      → {hawkinsInfo.fullLabel} · Aura:{' '}
                       {resolvedPrev.ansaeRhen.auricField.protectionPercent}% →{' '}
                       {resolvedSheet.auricField.protectionPercent}%
                     </p>
@@ -677,7 +691,16 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                 <div className="space-y-2 text-xs sm:text-sm">
                   <p>
                     <strong className="text-[#B45309]">{protocol.stage1.title} (48h–72h):</strong>{' '}
-                    {protocol.stage1.geometries.map((g) => g.name).join(', ')}.
+                    {protocol.stage1.geometries
+                      .map((g) => {
+                        const cr = resolveCrystalForChart(activeSession.chartCrystals, 'stage1', g.name);
+                        const tags: string[] = [];
+                        if (g.source === 'therapist') tags.push('Pendulado pelo Terapeuta');
+                        if (cr) tags.push(`Cristal: ${cr}`);
+                        return tags.length > 0 ? `${g.name} (${tags.join(' · ')})` : g.name;
+                      })
+                      .join(', ')}
+                    .
                   </p>
                   <p>
                     <strong className="text-[#0F172A]">Intervalo de Repouso:</strong> Pausa
@@ -685,13 +708,31 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                   </p>
                   <p>
                     <strong className="text-[#B45309]">{protocol.stage2.title} (7–10 dias):</strong>{' '}
-                    {protocol.stage2.geometries.map((g) => g.name).join(', ')}.
+                    {protocol.stage2.geometries
+                      .map((g) => {
+                        const cr = resolveCrystalForChart(activeSession.chartCrystals, 'stage2', g.name);
+                        const tags: string[] = [];
+                        if (g.source === 'therapist') tags.push('Pendulado pelo Terapeuta');
+                        if (cr) tags.push(`Cristal: ${cr}`);
+                        return tags.length > 0 ? `${g.name} (${tags.join(' · ')})` : g.name;
+                      })
+                      .join(', ')}
+                    .
                   </p>
                 </div>
               ) : (
                 <p>
                   <strong>Protocolo Direto em Etapa Única (7–10 dias):</strong>{' '}
-                  {protocol.singleStage?.geometries.map((g) => g.name).join(', ')}.
+                  {protocol.singleStage?.geometries
+                    .map((g) => {
+                      const cr = resolveCrystalForChart(activeSession.chartCrystals, 'single', g.name);
+                      const tags: string[] = [];
+                      if (g.source === 'therapist') tags.push('Pendulado pelo Terapeuta');
+                      if (cr) tags.push(`Cristal: ${cr}`);
+                      return tags.length > 0 ? `${g.name} (${tags.join(' · ')})` : g.name;
+                    })
+                    .join(', ')}
+                  .
                 </p>
               )}
             </section>
@@ -703,35 +744,123 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               </h3>
               {aiResult ? (
                 <div className="space-y-3">
-                  {aiResult.testemunhos.map((t, i) => (
-                    <p
-                      key={i}
-                      className="text-xs font-mono bg-[#FAF8F5] p-2.5 rounded border border-[#E2E8F0]"
-                    >
-                      <strong>{t.geometria}:</strong> {t.testemunhoFormatado}
-                    </p>
-                  ))}
-                  {aiResult.comandosQuanticos.map((c, i) => (
-                    <blockquote
-                      key={i}
-                      className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] font-serif italic text-xs sm:text-sm text-[#0F172A]"
-                    >
-                      <span className="not-italic font-sans font-bold text-[#B45309] block mb-1">
-                        {c.tituloComando} ({c.etapa})
-                      </span>
-                      &ldquo;{c.comandoTexto}&rdquo;
-                    </blockquote>
-                  ))}
+                  {aiResult.testemunhos.map((t, i) => {
+                    const crystalName =
+                      t.cristalAncorado ||
+                      resolveCrystalForChart(activeSession.chartCrystals, t.etapa, t.geometria);
+                    const isTherapist = t.origem === 'therapist';
+                    return (
+                      <div
+                        key={i}
+                        className="text-xs font-mono bg-[#FAF8F5] p-2.5 rounded border border-[#E2E8F0] space-y-1"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <strong>{t.geometria}</strong>
+                            {isTherapist && (
+                              <span className="font-sans px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                                Pendulado pelo Terapeuta
+                              </span>
+                            )}
+                          </div>
+                          {crystalName && (
+                            <span className="font-sans px-2 py-0.5 rounded bg-[#FEFCE8] border border-[#D97706]/40 text-[10px] font-semibold text-[#92400E]">
+                              Cristal Ancorado: {crystalName}
+                            </span>
+                          )}
+                        </div>
+                        <p>{t.testemunhoFormatado}</p>
+                      </div>
+                    );
+                  })}
+                  {aiResult.comandosQuanticos.map((c, i) => {
+                    const crystalName =
+                      c.cristalAncorado ||
+                      resolveCrystalForChart(activeSession.chartCrystals, c.etapa, c.geometria);
+                    const isTherapist = c.origem === 'therapist';
+                    return (
+                      <blockquote
+                        key={i}
+                        className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] font-serif italic text-xs sm:text-sm text-[#0F172A]"
+                      >
+                        <div className="not-italic font-sans flex flex-wrap items-center justify-between gap-2 mb-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-bold text-[#B45309]">
+                              {c.tituloComando} ({c.etapa})
+                            </span>
+                            {isTherapist && (
+                              <span className="px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                                Pendulado pelo Terapeuta
+                              </span>
+                            )}
+                          </div>
+                          {crystalName && (
+                            <span className="px-2 py-0.5 rounded bg-[#FEFCE8] border border-[#D97706]/40 text-[10px] font-semibold text-[#92400E]">
+                              Cristal Informacional: {crystalName}
+                            </span>
+                          )}
+                        </div>
+                        &ldquo;{c.comandoTexto}&rdquo;
+                      </blockquote>
+                    );
+                  })}
                 </div>
               ) : (
-                <p className="text-xs text-[#64748B]">Nenhum comando gerado ainda.</p>
+                <p className="text-xs text-[#64748B]">
+                  Nenhum comando gerado ainda.
+                  {activeSession.chartCrystals &&
+                    Object.keys(activeSession.chartCrystals).length > 0 &&
+                    ` Cristais ancorados na mesa: ${Object.entries(activeSession.chartCrystals)
+                      .map(([k, v]) => `${k.split('::')[1] || k}: ${v}`)
+                      .join(' · ')}.`}
+                </p>
               )}
             </section>
 
-            {/* 8. Prescrições & Ressalva */}
+            {/* 8. Painel de Envio de Medicamentos Energéticos */}
+            <section className="space-y-3">
+              <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
+                8. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)
+              </h3>
+              {(activeSession.energeticRemedies || []).length > 0 ? (
+                <div className="space-y-3">
+                  {(activeSession.energeticRemedies || []).map((rem) => (
+                    <div
+                      key={rem.id}
+                      className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1.5 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <strong className="text-[#0F172A] text-sm">
+                          {rem.items.join(' + ')} ({rem.category})
+                        </strong>
+                        <span className="font-semibold text-[#B45309]">
+                          {rem.emitterGraph} · {formatRemedyDurationLabel(rem.durationHours)} ·{' '}
+                          {rem.isActive ? 'Ativo' : 'Pausado'}
+                        </span>
+                      </div>
+                      <p className="text-[#45464D]">
+                        <strong>Posologia Sutil:</strong> {rem.dosageInstruction}
+                      </p>
+                      <p className="font-mono text-[#0F172A]">
+                        <strong>Testemunho Informacional:</strong> {rem.testimonyText}
+                      </p>
+                      <p className="font-serif italic text-[#0F172A]">
+                        &ldquo;{rem.activationCommand}&rdquo;
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[#64748B]">
+                  Nenhum medicamento energético ativado na Estação Radionics para esta sessão.
+                </p>
+              )}
+            </section>
+
+            {/* 9. Prescrições & Ressalva */}
             <section className="space-y-2">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                8. Prescrições Integrativas, Cristais, Bons Hábitos & Ressalva Ética
+                9. Prescrições Integrativas, Cristais, Bons Hábitos & Ressalva Ética
               </h3>
               {aiResult?.prescricoes && (
                 <div className="space-y-1.5 text-xs sm:text-sm">
@@ -863,6 +992,34 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                   }. Busque incluir esses tons no vestuário ou na visualização diária durante respirações tranquilas.`}
               </p>
             </section>
+
+            {(activeSession.energeticRemedies || []).some((r) => r.isActive) && (
+              <section className="p-5 rounded-xl bg-[#FAF8F5] border border-[#D97706]/40 space-y-2.5">
+                <h3 className="font-serif text-base font-bold text-[#0F172A]">
+                  Remédios Sutis em Emissão Vibracional à Distância
+                </h3>
+                <p className="text-xs sm:text-sm text-[#334155]">
+                  Para apoiar sua recuperação com delicadeza e continuidade, os seguintes remédios
+                  sutis (florais, fitoterápicos energéticos ou frequências integrativas) estão sendo
+                  enviados vibracionalmente em ressonância ao seu campo:
+                </p>
+                <ul className="space-y-1.5 text-xs sm:text-sm text-[#0F172A] list-disc list-inside">
+                  {(activeSession.energeticRemedies || [])
+                    .filter((r) => r.isActive)
+                    .map((rem) => (
+                      <li key={rem.id}>
+                        <strong>{rem.items.join(' + ')}</strong> ({rem.category} ·{' '}
+                        {formatRemedyDurationLabel(rem.durationHours)} — {rem.dosageInstruction})
+                      </li>
+                    ))}
+                </ul>
+                <p className="text-xs text-[#B45309] font-medium pt-1">
+                  Ressalva ética fundamental: este envio vibracional atua de forma estritamente
+                  complementar ao seu bem-estar. Nunca suspenda ou altere por conta própria as
+                  medicações prescritas pelo seu médico.
+                </p>
+              </section>
+            )}
 
             <section className="space-y-3">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">

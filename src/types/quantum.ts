@@ -33,6 +33,7 @@ export interface OrganicSystemStatus {
 export interface SensitivityReading {
   bovis: number; // Angstroms (0 - 15000)
   hawkins: number; // 20 - 1000
+  hawkinsLevel?: string;
   auricProtection: number; // 0 - 100%
   stressLevel: number; // 1 - 5
   subtleInterferences: number; // count 0 - 5
@@ -42,10 +43,14 @@ export interface SensitivityReading {
 }
 
 export interface QuantumGeometry {
+  id?: string;
   name: string;
   category: 'assepsia' | 'protecao' | 'regeneracao' | 'prosperidade' | 'harmonia';
   role: string;
   durationHint: string;
+  anchoredCrystal?: string;
+  source?: 'motor' | 'therapist';
+  customFocus?: string;
 }
 
 export interface AntiCatharsisProtocol {
@@ -82,6 +87,9 @@ export interface TestemunhoItem {
   geometria: string;
   etapa: string;
   testemunhoFormatado: string;
+  cristalAncorado?: string;
+  origem?: 'motor' | 'therapist';
+  focoEspecifico?: string;
 }
 
 export interface ComandoQuanticoItem {
@@ -89,6 +97,9 @@ export interface ComandoQuanticoItem {
   etapa: string;
   tituloComando: string;
   comandoTexto: string;
+  cristalAncorado?: string;
+  origem?: 'motor' | 'therapist';
+  focoEspecifico?: string;
 }
 
 export interface SolfeggioRecommendation {
@@ -124,6 +135,32 @@ export interface QuantumGenerationResult {
   generatedAt: string;
 }
 
+export type EnergeticRemedyCategory =
+  | 'Florais de Bach'
+  | 'Fitoterapia & Chás'
+  | 'Suplementos / Oligoelementos'
+  | 'Frequências & Cromoterapia'
+  | 'Medicação Informacional / Homeopatia'
+  | 'Personalizado';
+
+export type EnergeticRemedyEmitterGraph =
+  | 'Decágono Duplo'
+  | 'SCAP Cabalístico'
+  | 'Decágono Duplo + SCAP';
+
+export interface EnergeticRemedyEmission {
+  id: string;
+  category: EnergeticRemedyCategory;
+  items: string[];
+  emitterGraph: EnergeticRemedyEmitterGraph;
+  durationHours: number;
+  dosageInstruction: string;
+  testimonyText: string;
+  activationCommand: string;
+  isActive: boolean;
+  activatedAt?: string;
+}
+
 export interface QuantumRoomSession {
   id: string;
   sessionType?: 'Avaliação Inicial' | 'Pós-Tratamento 1' | 'Pós-Tratamento 2' | 'Novo Ciclo';
@@ -138,5 +175,7 @@ export interface QuantumRoomSession {
   stage2StartedAt?: string;
   restStartedAt?: string;
   selectedSolfeggioHz: number;
+  chartCrystals?: Record<string, string>;
+  energeticRemedies?: EnergeticRemedyEmission[];
   updatedAt: string;
 }

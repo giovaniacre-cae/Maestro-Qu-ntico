@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  Check,
   CheckCircle2,
   Compass,
   HeartHandshake,
@@ -19,10 +20,15 @@ import {
   AuraProtectionLevel,
   AuraSizeLevel,
   BiometerDefinition,
+  CHAKRA_COLORS,
   ChakraPolarityStatus,
   ClinicalAnsaeRhenSheet,
+  HAWKINS_SCALE_TABLE,
   LifeAreaRating,
   RootProblemDomain,
+  getAuraSizeLabelFromPercent,
+  getChakraColor,
+  getHawkinsLabelByHz,
 } from '../types/clinical';
 import {
   ChakraReading,
@@ -360,6 +366,8 @@ function loadInitialSheet(
             ...parsed.spiritualPsycho,
             bovis: sensitivity.bovis,
             hawkinsAgathaHz: sensitivity.hawkins,
+            hawkinsHz: sensitivity.hawkins,
+            hawkinsLevel: getHawkinsLabelByHz(sensitivity.hawkins),
             stressLevel: sensitivity.stressLevel,
             spiritualDisturbances: sensitivity.interferenceTypes,
           },
@@ -385,6 +393,8 @@ function loadInitialSheet(
         ...matched.ansaeRhen.spiritualPsycho,
         bovis: sensitivity.bovis,
         hawkinsAgathaHz: sensitivity.hawkins,
+        hawkinsHz: sensitivity.hawkins,
+        hawkinsLevel: getHawkinsLabelByHz(sensitivity.hawkins),
         stressLevel: sensitivity.stressLevel,
         spiritualDisturbances: sensitivity.interferenceTypes,
       },
@@ -398,6 +408,8 @@ function loadInitialSheet(
   const base = createDefaultAnsaeRhenSheet();
   base.spiritualPsycho.bovis = sensitivity.bovis;
   base.spiritualPsycho.hawkinsAgathaHz = sensitivity.hawkins;
+  base.spiritualPsycho.hawkinsHz = sensitivity.hawkins;
+  base.spiritualPsycho.hawkinsLevel = getHawkinsLabelByHz(sensitivity.hawkins);
   base.spiritualPsycho.stressLevel = sensitivity.stressLevel;
   base.spiritualPsycho.spiritualDisturbances = sensitivity.interferenceTypes;
   base.auricField.protectionPercent = sensitivity.auricProtection;
@@ -423,12 +435,21 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   const [customDisturbance, setCustomDisturbance] = useState<string>('');
   const [customImplant, setCustomImplant] = useState<string>('');
   const [customKarmic, setCustomKarmic] = useState<string>('');
+  const [hawkinsInputText, setHawkinsInputText] = useState<string>(() =>
+    String(sheet.spiritualPsycho.hawkinsAgathaHz)
+  );
 
   // Re-sync when switching patients
   useEffect(() => {
-    setSheet(loadInitialSheet(anamnesis, sensitivity));
+    const nextLoaded = loadInitialSheet(anamnesis, sensitivity);
+    setSheet(nextLoaded);
+    setHawkinsInputText(String(nextLoaded.spiritualPsycho.hawkinsAgathaHz));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anamnesis.id]);
+
+  useEffect(() => {
+    setHawkinsInputText(String(sheet.spiritualPsycho.hawkinsAgathaHz));
+  }, [sheet.spiritualPsycho.hawkinsAgathaHz]);
 
   // Persist ANSAE/RHEN working sheet locally & into matching clinical DB record
   useEffect(() => {
@@ -575,28 +596,55 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     syncChakras = false
   ) => {
     const next = normalizeAnsaeSheet(updater(sheet));
+    const syncedHz = Math.max(20, Math.min(1000, next.spiritualPsycho.hawkinsAgathaHz || 200));
+    const syncedLevel = getHawkinsLabelByHz(syncedHz);
+    const syncedSheet: ClinicalAnsaeRhenSheet = {
+      ...next,
+      spiritualPsycho: {
+        ...next.spiritualPsycho,
+        hawkinsAgathaHz: syncedHz,
+        hawkinsHz: syncedHz,
+        hawkinsLevel: syncedLevel,
+      },
+    };
     try {
-      localStorage.setItem(getSheetStorageKey(anamnesis.id), JSON.stringify(next));
+      localStorage.setItem(getSheetStorageKey(anamnesis.id), JSON.stringify(syncedSheet));
     } catch {
       // Ignore storage quota errors
     }
-    setSheet(next);
+    setSheet(syncedSheet);
     const nextSensitivity: SensitivityReading = {
       ...sensitivity,
-      bovis: next.spiritualPsycho.bovis,
-      hawkins: next.spiritualPsycho.hawkinsAgathaHz,
-      auricProtection: next.auricField.protectionPercent,
-      stressLevel: next.spiritualPsycho.stressLevel,
-      interferenceTypes: next.spiritualPsycho.spiritualDisturbances,
+      bovis: syncedSheet.spiritualPsycho.bovis,
+      hawkins: syncedHz,
+      hawkinsLevel: syncedLevel,
+      auricProtection: syncedSheet.auricField.protectionPercent,
+      stressLevel: syncedSheet.spiritualPsycho.stressLevel,
+      interferenceTypes: syncedSheet.spiritualPsycho.spiritualDisturbances,
       subtleInterferences:
-        next.spiritualPsycho.spiritualDisturbances.length +
-        next.spiritualPsycho.implantsDetected.length,
-      ...(syncChakras ? { chakras: mapAnsaeChakrasToLegacy(next.chakras) } : {}),
+        syncedSheet.spiritualPsycho.spiritualDisturbances.length +
+        syncedSheet.spiritualPsycho.implantsDetected.length,
+      ...(syncChakras ? { chakras: mapAnsaeChakrasToLegacy(syncedSheet.chakras) } : {}),
       ...(syncOrgans
-        ? { organicSystems: mapAnsaeSystemsToLegacy(next.organs, next.systems) }
+        ? { organicSystems: mapAnsaeSystemsToLegacy(syncedSheet.organs, syncedSheet.systems) }
         : {}),
     };
     onChange(nextSensitivity);
+  };
+
+  const updateHawkinsFrequency = (hz: number) => {
+    const clamped = Math.max(20, Math.min(1000, Math.round(hz)));
+    const levelLabel = getHawkinsLabelByHz(clamped);
+    setHawkinsInputText(String(clamped));
+    updateSheetAndSync((prev) => ({
+      ...prev,
+      spiritualPsycho: {
+        ...prev.spiritualPsycho,
+        hawkinsAgathaHz: clamped,
+        hawkinsHz: clamped,
+        hawkinsLevel: levelLabel,
+      },
+    }));
   };
 
   const hawkinsInfo = useMemo(
@@ -691,8 +739,28 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   };
 
   const handleRecordBiometerReading = (bio: BiometerDefinition, selectedItem: string) => {
+    const hawkinsMatch = bio.id === 'bio-10' ? selectedItem.match(/(\d+)\s*Hz/i) : null;
+    const parsedHawkinsHz = hawkinsMatch ? Number(hawkinsMatch[1]) : null;
+    const resolvedHz =
+      parsedHawkinsHz !== null && Number.isFinite(parsedHawkinsHz)
+        ? Math.max(20, Math.min(1000, parsedHawkinsHz))
+        : null;
+
+    if (resolvedHz !== null) {
+      setHawkinsInputText(String(resolvedHz));
+    }
+
     updateSheetAndSync((prev) => ({
       ...prev,
+      spiritualPsycho:
+        resolvedHz !== null
+          ? {
+              ...prev.spiritualPsycho,
+              hawkinsAgathaHz: resolvedHz,
+              hawkinsHz: resolvedHz,
+              hawkinsLevel: getHawkinsLabelByHz(resolvedHz),
+            }
+          : prev.spiritualPsycho,
       biometerReadings: [
         {
           biometerId: bio.id,
@@ -753,7 +821,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   };
 
   const setAuraSizePreset = (label: AuraSizeLevel) => {
-    const pct = label === 'Encolhida' ? 60 : label === 'Regular' ? 100 : 145;
+    const pct = label === 'Encolhida' ? 25 : label === 'Regular' ? 50 : 100;
     updateSheetAndSync((prev) => ({
       ...prev,
       auricField: {
@@ -936,13 +1004,16 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             </h2>
 
             {/* Hawkins / Ágatha */}
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between text-xs gap-2">
                 <label htmlFor="hawkinsSlider" className="font-semibold text-[#0F172A]">
-                  Escala de Hawkins / Ágatha (20–800 Hz)
+                  Escala de Hawkins / Ágatha (20–1000 Hz)
                 </label>
-                <span className="font-mono tabular-nums font-semibold text-[#B45309]">
-                  {sheet.spiritualPsycho.hawkinsAgathaHz} Hz · {hawkinsInfo.label}
+                <span className="font-mono tabular-nums font-semibold text-[#B45309] text-right">
+                  {sheet.spiritualPsycho.hawkinsAgathaHz !== hawkinsInfo.hz
+                    ? `${sheet.spiritualPsycho.hawkinsAgathaHz} Hz → `
+                    : ''}
+                  {hawkinsInfo.fullLabel}
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -950,40 +1021,70 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   id="hawkinsSlider"
                   type="range"
                   min={20}
-                  max={800}
+                  max={1000}
                   step={5}
                   value={sheet.spiritualPsycho.hawkinsAgathaHz}
-                  onChange={(e) =>
-                    updateSheetAndSync((prev) => ({
-                      ...prev,
-                      spiritualPsycho: {
-                        ...prev.spiritualPsycho,
-                        hawkinsAgathaHz: Number(e.target.value),
-                      },
-                    }))
-                  }
+                  onChange={(e) => updateHawkinsFrequency(Number(e.target.value))}
                   className="flex-1 clinical-slider"
                 />
                 <input
-                  aria-label="Valor numérico exato Hawkins/Ágatha"
+                  aria-label="Valor numérico exato Hawkins/Ágatha em Hz"
                   type="number"
                   min={20}
-                  max={800}
-                  value={sheet.spiritualPsycho.hawkinsAgathaHz}
-                  onChange={(e) =>
-                    updateSheetAndSync((prev) => ({
-                      ...prev,
-                      spiritualPsycho: {
-                        ...prev.spiritualPsycho,
-                        hawkinsAgathaHz: Math.max(20, Math.min(800, Number(e.target.value) || 20)),
-                      },
-                    }))
-                  }
-                  className="w-20 px-2.5 py-1.5 text-xs font-mono tabular-nums text-right bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A]"
+                  max={1000}
+                  value={hawkinsInputText}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setHawkinsInputText(raw);
+                    if (raw.trim() === '') return;
+                    const parsed = Number(raw);
+                    if (Number.isFinite(parsed) && parsed >= 20 && parsed <= 1000) {
+                      updateSheetAndSync((prev) => ({
+                        ...prev,
+                        spiritualPsycho: {
+                          ...prev.spiritualPsycho,
+                          hawkinsAgathaHz: Math.round(parsed),
+                          hawkinsHz: Math.round(parsed),
+                          hawkinsLevel: getHawkinsLabelByHz(parsed),
+                        },
+                      }));
+                    }
+                  }}
+                  onBlur={() => {
+                    const parsed = Number(hawkinsInputText);
+                    const safeVal = Number.isFinite(parsed) ? parsed : 20;
+                    updateHawkinsFrequency(safeVal);
+                  }}
+                  className="w-24 px-2.5 py-1.5 text-xs font-mono tabular-nums text-right bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A]"
                 />
               </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <label
+                  htmlFor="hawkinsLevelSelect"
+                  className="text-[11px] font-semibold text-[#64748B] shrink-0"
+                >
+                  Nível Canônico:
+                </label>
+                <select
+                  id="hawkinsLevelSelect"
+                  aria-label="Selecionar nível na Escala de Hawkins"
+                  value={hawkinsInfo.hz}
+                  onChange={(e) => updateHawkinsFrequency(Number(e.target.value))}
+                  className="flex-1 px-2.5 py-1.5 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] font-medium focus:outline-none focus:border-[#D97706]"
+                >
+                  {HAWKINS_SCALE_TABLE.map((lvl) => (
+                    <option key={lvl.hz} value={lvl.hz}>
+                      {lvl.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <p className="text-xs text-[#64748B]">
-                Zona: <strong className="text-[#0F172A]">{hawkinsInfo.zone}</strong> — {hawkinsInfo.emotion}
+                Zona: <strong className="text-[#0F172A]">{hawkinsInfo.zone}</strong> · Patamar:{' '}
+                <strong className="text-[#B45309]">{hawkinsInfo.fullLabel}</strong> —{' '}
+                {hawkinsInfo.emotion}
               </p>
             </div>
 
@@ -1278,13 +1379,15 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                       <p className="text-[11px] font-medium text-[#64748B] mb-1.5">
                         Chakras afetados:
                       </p>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1.5">
                         {CHAKRA_SHORT_NAMES.map((ch) => {
                           const checked = field.affectedChakras.includes(ch);
+                          const chakraColor = getChakraColor(ch);
                           return (
                             <button
                               key={ch}
                               type="button"
+                              aria-pressed={checked}
                               onClick={() =>
                                 updateSheetAndSync((prev) => ({
                                   ...prev,
@@ -1297,13 +1400,34 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                                   }),
                                 }))
                               }
-                              className={`px-2 py-0.5 text-[10px] font-medium rounded border cursor-pointer ${
+                              style={
                                 checked
-                                  ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                                  : 'bg-white text-[#64748B] border-[#E2E8F0] hover:border-[#D97706]'
+                                  ? {
+                                      backgroundColor: chakraColor.bg,
+                                      color: chakraColor.text,
+                                      borderColor: chakraColor.border,
+                                    }
+                                  : {
+                                      backgroundColor: '#FFFFFF',
+                                      color: '#334155',
+                                      borderColor: '#CBD5E1',
+                                    }
+                              }
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-all duration-150 cursor-pointer ${
+                                checked
+                                  ? 'shadow-sm ring-1 ring-black/5'
+                                  : 'hover:bg-[#F8FAFC]'
                               }`}
                             >
-                              {ch}
+                              {checked ? (
+                                <Check className="w-3 h-3 shrink-0" strokeWidth={2.75} />
+                              ) : (
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: chakraColor.bg }}
+                                />
+                              )}
+                              <span>{ch}</span>
                             </button>
                           );
                         })}
@@ -1325,17 +1449,36 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             </div>
 
             <div className="space-y-3">
-              {sheet.chakras.map((ch) => (
+              {sheet.chakras.map((ch) => {
+                const chakraColor = CHAKRA_COLORS[ch.id as keyof typeof CHAKRA_COLORS] ?? getChakraColor(ch.id || ch.name);
+                return (
                 <div
                   key={ch.id}
-                  className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] grid grid-cols-1 md:grid-cols-12 items-center gap-3"
+                  style={{ borderLeftWidth: '5px', borderLeftColor: chakraColor.bg }}
+                  className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] grid grid-cols-1 md:grid-cols-12 items-center gap-3 transition-colors"
                 >
-                  <div className="md:col-span-4">
-                    <p className="text-xs font-bold text-[#0F172A]">
-                      {ch.name}{' '}
-                      <span className="font-normal text-[#64748B]">({ch.sanskrit})</span>
-                    </p>
-                    <p className="text-[11px] font-medium text-[#B45309]">
+                  <div className="md:col-span-4 space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: chakraColor.bg }}
+                        title={`${ch.name} — ${chakraColor.colorName}`}
+                      />
+                      <p className="text-xs font-bold text-[#0F172A]">
+                        {ch.name}
+                      </p>
+                      <span
+                        style={{
+                          backgroundColor: chakraColor.softBg,
+                          color: chakraColor.accentText,
+                          borderColor: chakraColor.border,
+                        }}
+                        className="px-1.5 py-0.5 text-[10px] font-semibold rounded border leading-none"
+                      >
+                        {ch.sanskrit}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-medium text-[#B45309] pl-4">
                       Glândula: {ch.gland}
                     </p>
                   </div>
@@ -1442,7 +1585,8 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     <span>Afeta físico</span>
                   </label>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -1461,7 +1605,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     sheet.auricField.protectionPercent < 50 ? 'text-[#BA1A1A]' : 'text-[#B45309]'
                   }`}
                 >
-                  Proteção: {sheet.auricField.protectionPercent}%
+                  Proteção: {sheet.auricField.protectionPercent}% · Tamanho: {sheet.auricField.sizePercent}%
                 </span>
               </div>
 
@@ -1545,12 +1689,11 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                         aria-label="Porcentagem do tamanho da aura"
                         type="number"
                         min={0}
-                        max={200}
-                        value={sheet.auricField.sizePercent}
+                        max={100}
+                        value={Math.min(100, Math.max(0, sheet.auricField.sizePercent))}
                         onChange={(e) => {
-                          const val = Math.max(0, Math.min(200, Number(e.target.value) || 0));
-                          const label: AuraSizeLevel =
-                            val < 80 ? 'Encolhida' : val > 120 ? 'Expandida' : 'Regular';
+                          const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                          const label = getAuraSizeLabelFromPercent(val);
                           updateSheetAndSync((prev) => ({
                             ...prev,
                             auricField: {
@@ -1584,14 +1727,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   <input
                     aria-label="Slider tamanho da aura"
                     type="range"
-                    min={20}
-                    max={200}
+                    min={0}
+                    max={100}
                     step={5}
-                    value={sheet.auricField.sizePercent}
+                    value={Math.min(100, Math.max(0, sheet.auricField.sizePercent))}
                     onChange={(e) => {
-                      const val = Number(e.target.value);
-                      const label: AuraSizeLevel =
-                        val < 80 ? 'Encolhida' : val > 120 ? 'Expandida' : 'Regular';
+                      const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                      const label = getAuraSizeLabelFromPercent(val);
                       updateSheetAndSync((prev) => ({
                         ...prev,
                         auricField: {
@@ -2509,6 +2651,8 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         onSaveCustomBiometer={handleSaveCustomBiometer}
         onDeleteCustomBiometer={handleDeleteCustomBiometer}
         onRecordReading={handleRecordBiometerReading}
+        currentHawkinsHz={sheet.spiritualPsycho.hawkinsAgathaHz}
+        onSelectHawkinsHz={updateHawkinsFrequency}
       />
     </div>
   );
