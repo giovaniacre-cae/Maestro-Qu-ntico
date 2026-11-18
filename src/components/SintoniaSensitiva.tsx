@@ -25,7 +25,10 @@ import {
   ClinicalAnsaeRhenSheet,
   HAWKINS_SCALE_TABLE,
   LifeAreaRating,
+  PRIMARY_AURIC_COLORS,
   RootProblemDomain,
+  SECONDARY_AURIC_COLORS,
+  analyzeAuricColorsChakraCorrelation,
   getAuraSizeLabelFromPercent,
   getChakraColor,
   getHawkinsLabelByHz,
@@ -84,28 +87,22 @@ const CHAKRA_SHORT_NAMES = [
   'Básico',
 ];
 
-const MISSING_COLOR_OPTIONS = [
-  'Violeta',
-  'Índigo',
-  'Azul Celeste',
-  'Verde Esmeralda',
-  'Amarelo Ouro',
-  'Dourado',
-  'Laranja',
-  'Rosa',
-  'Branco Cristalino',
-  'Magenta',
-];
+const AURA_PROTECTION_ACTIVE_CLASSES: Record<AuraProtectionLevel, string> = {
+  'Aberta 0%': 'bg-[#DC2626] text-[#FFFFFF] border-[#B91C1C] shadow-sm',
+  'Média 50%': 'bg-[#EAB308] text-[#0F172A] border-[#CA8A04] shadow-sm',
+  'Fechada 100%': 'bg-[#16A34A] text-[#FFFFFF] border-[#15803D] shadow-sm',
+};
 
-const EXCESS_COLOR_OPTIONS = [
-  'Vermelho Denso',
-  'Cinza',
-  'Marrom Lodoso',
-  'Laranja Escuro',
-  'Preto Opaco',
-  'Amarelo Ácido',
-  'Verde Turvo',
-];
+const AURA_SIZE_ACTIVE_CLASSES: Record<AuraSizeLevel, string> = {
+  Encolhida: 'bg-[#DC2626] text-[#FFFFFF] border-[#B91C1C] shadow-sm',
+  Regular: 'bg-[#EAB308] text-[#0F172A] border-[#CA8A04] shadow-sm',
+  Expandida: 'bg-[#16A34A] text-[#FFFFFF] border-[#15803D] shadow-sm',
+};
+
+const SECONDARY_COLOR_NAMES = new Set(SECONDARY_AURIC_COLORS.map((c) => c.name));
+
+const NEUTRAL_AURIC_BUTTON_CLASSES =
+  'bg-white text-slate-700 border-slate-200 hover:bg-slate-50';
 
 const LIFE_AREAS_CONFIG: Array<{
   key: keyof ClinicalAnsaeRhenSheet['lifeAreas'];
@@ -438,12 +435,36 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   const [hawkinsInputText, setHawkinsInputText] = useState<string>(() =>
     String(sheet.spiritualPsycho.hawkinsAgathaHz)
   );
+  const [showExtraMissingColors, setShowExtraMissingColors] = useState<boolean>(() =>
+    sheet.auricField.missingColors.some((c) => SECONDARY_COLOR_NAMES.has(c))
+  );
+  const [showExtraExcessColors, setShowExtraExcessColors] = useState<boolean>(() =>
+    sheet.auricField.excessColors.some((c) => SECONDARY_COLOR_NAMES.has(c))
+  );
+
+  const highlightedList = useMemo(() => {
+    return (anamnesis.copilotAnalysis?.highlightedOrgansAndChakras || []).map((s) => s.toLowerCase().trim());
+  }, [anamnesis]);
+
+  const isHighlightedByAnamnesis = (names: string[]) => {
+    if (highlightedList.length === 0) return false;
+    return names.some((name) => {
+      const n = name.toLowerCase().trim();
+      return highlightedList.some((item) => item.includes(n) || n.includes(item));
+    });
+  };
 
   // Re-sync when switching patients
   useEffect(() => {
     const nextLoaded = loadInitialSheet(anamnesis, sensitivity);
     setSheet(nextLoaded);
     setHawkinsInputText(String(nextLoaded.spiritualPsycho.hawkinsAgathaHz));
+    setShowExtraMissingColors(
+      nextLoaded.auricField.missingColors.some((c) => SECONDARY_COLOR_NAMES.has(c))
+    );
+    setShowExtraExcessColors(
+      nextLoaded.auricField.excessColors.some((c) => SECONDARY_COLOR_NAMES.has(c))
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anamnesis.id]);
 
@@ -1455,9 +1476,10 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                 <div
                   key={ch.id}
                   style={{ borderLeftWidth: '5px', borderLeftColor: chakraColor.bg }}
-                  className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] grid grid-cols-1 md:grid-cols-12 items-center gap-3 transition-colors"
+                  className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] flex flex-wrap items-center justify-between gap-3 transition-colors"
                 >
-                  <div className="md:col-span-4 space-y-1">
+                  {/* 1. Identificação do Chakra e Glândula */}
+                  <div className="min-w-[200px] flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -1477,14 +1499,19 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                       >
                         {ch.sanskrit}
                       </span>
+                      {isHighlightedByAnamnesis([ch.name, ch.sanskrit]) && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[#FEF3C7] text-[#B45309] border border-[#F59E0B]/40 rounded inline-flex items-center gap-1">
+                          Sinalizado na Anamnese
+                        </span>
+                      )}
                     </div>
                     <p className="text-[11px] font-medium text-[#B45309] pl-4">
                       Glândula: {ch.gland}
                     </p>
                   </div>
 
-                  {/* Status selector */}
-                  <div className="md:col-span-3 flex gap-1">
+                  {/* 2. Botões de Polaridade */}
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {(['Hipo', 'Normal', 'Hiper', 'Nulo'] as ChakraPolarityStatus[]).map((st) => {
                       const active = ch.status === st;
                       return (
@@ -1503,12 +1530,12 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                               true
                             )
                           }
-                          className={`flex-1 py-1 text-[10px] font-semibold rounded border cursor-pointer ${
+                          className={`px-2.5 py-1 text-[10px] font-semibold rounded border cursor-pointer whitespace-nowrap ${
                             active
                               ? st === 'Normal'
                                 ? 'bg-[#0F172A] text-white border-[#0F172A]'
                                 : 'bg-[#B45309] text-white border-[#B45309]'
-                              : 'bg-white text-[#45464D] border-[#CBD5E1]'
+                              : 'bg-white text-[#45464D] border-[#CBD5E1] hover:border-[#94A3B8]'
                           }`}
                         >
                           {st}
@@ -1517,8 +1544,8 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     })}
                   </div>
 
-                  {/* % Desequilíbrio */}
-                  <div className="md:col-span-3 flex items-center gap-2">
+                  {/* 3. Controle de % de Desequilíbrio (Slider + Input Numérico Isolado) */}
+                  <div className="flex items-center gap-2 shrink-0">
                     <input
                       aria-label={`Desequilíbrio % ${ch.name}`}
                       type="range"
@@ -1539,34 +1566,36 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                           true
                         );
                       }}
-                      className="flex-1 clinical-slider"
+                      className="w-28 sm:w-36 min-w-0 clinical-slider"
                     />
-                    <input
-                      aria-label={`Número % desequilíbrio ${ch.name}`}
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={ch.imbalancePercent}
-                      onChange={(e) => {
-                        const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                        updateSheetAndSync(
-                          (prev) => ({
-                            ...prev,
-                            chakras: prev.chakras.map((item) =>
-                              item.id === ch.id ? { ...item, imbalancePercent: val } : item
-                            ),
-                          }),
-                          false,
-                          true
-                        );
-                      }}
-                      className="w-14 px-1.5 py-1 text-xs font-mono text-right bg-white border border-[#CBD5E1] rounded"
-                    />
-                    <span className="text-[11px] font-mono text-[#64748B]">%</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        aria-label={`Número % desequilíbrio ${ch.name}`}
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={ch.imbalancePercent}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                          updateSheetAndSync(
+                            (prev) => ({
+                              ...prev,
+                              chakras: prev.chakras.map((item) =>
+                                item.id === ch.id ? { ...item, imbalancePercent: val } : item
+                              ),
+                            }),
+                            false,
+                            true
+                          );
+                        }}
+                        className="w-16 px-2 py-1 pr-1 text-xs font-mono tabular-nums text-right bg-white border border-[#CBD5E1] rounded"
+                      />
+                      <span className="text-[11px] font-mono text-[#64748B] select-none">%</span>
+                    </div>
                   </div>
 
-                  {/* Afeta o corpo físico? */}
-                  <label className="md:col-span-2 flex items-center justify-end gap-1.5 text-[11px] font-medium text-[#0F172A] cursor-pointer">
+                  {/* 4. Checkbox Afeta o corpo físico */}
+                  <label className="flex items-center gap-2 pl-2 border-l border-slate-200 text-[11px] font-medium text-[#0F172A] shrink-0 cursor-pointer select-none whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={ch.affectsPhysicalBody}
@@ -1580,7 +1609,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                           ),
                         }))
                       }
-                      className="w-3.5 h-3.5 accent-[#0F172A] cursor-pointer"
+                      className="w-4 h-4 accent-[#0F172A] cursor-pointer shrink-0"
                     />
                     <span>Afeta físico</span>
                   </label>
@@ -1641,20 +1670,24 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {(['Aberta 0%', 'Média 50%', 'Fechada 100%'] as AuraProtectionLevel[]).map(
-                      (lvl) => (
-                        <button
-                          key={lvl}
-                          type="button"
-                          onClick={() => setAuraProtectionPreset(lvl)}
-                          className={`py-1.5 text-[11px] font-semibold rounded border cursor-pointer ${
-                            sheet.auricField.protectionLabel === lvl
-                              ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                              : 'bg-white text-[#45464D] border-[#CBD5E1]'
-                          }`}
-                        >
-                          {lvl}
-                        </button>
-                      )
+                      (lvl) => {
+                        const selected = sheet.auricField.protectionLabel === lvl;
+                        return (
+                          <button
+                            key={lvl}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setAuraProtectionPreset(lvl)}
+                            className={`py-1.5 text-[11px] font-semibold rounded border transition-all duration-150 cursor-pointer ${
+                              selected
+                                ? AURA_PROTECTION_ACTIVE_CLASSES[lvl]
+                                : NEUTRAL_AURIC_BUTTON_CLASSES
+                            }`}
+                          >
+                            {lvl}
+                          </button>
+                        );
+                      }
                     )}
                   </div>
                   <input
@@ -1709,20 +1742,24 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
-                    {(['Encolhida', 'Regular', 'Expandida'] as AuraSizeLevel[]).map((sz) => (
-                      <button
-                        key={sz}
-                        type="button"
-                        onClick={() => setAuraSizePreset(sz)}
-                        className={`py-1.5 text-[11px] font-semibold rounded border cursor-pointer ${
-                          sheet.auricField.sizeLabel === sz
-                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                            : 'bg-white text-[#45464D] border-[#CBD5E1]'
-                        }`}
-                      >
-                        {sz}
-                      </button>
-                    ))}
+                    {(['Encolhida', 'Regular', 'Expandida'] as AuraSizeLevel[]).map((sz) => {
+                      const selected = sheet.auricField.sizeLabel === sz;
+                      return (
+                        <button
+                          key={sz}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => setAuraSizePreset(sz)}
+                          className={`py-1.5 text-[11px] font-semibold rounded border transition-all duration-150 cursor-pointer ${
+                            selected
+                              ? AURA_SIZE_ACTIVE_CLASSES[sz]
+                              : NEUTRAL_AURIC_BUTTON_CLASSES
+                          }`}
+                        >
+                          {sz}
+                        </button>
+                      );
+                    })}
                   </div>
                   <input
                     aria-label="Slider tamanho da aura"
@@ -1750,7 +1787,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
               {/* Cores em Falta (mín. 3) & Cores em Excesso (mín. 3) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#0F172A]">Cores em Falta (mín. 3)</span>
                     <span
@@ -1764,27 +1801,59 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {MISSING_COLOR_OPTIONS.map((c) => {
-                      const selected = sheet.auricField.missingColors.includes(c);
+                    {PRIMARY_AURIC_COLORS.map((c) => {
+                      const selected = sheet.auricField.missingColors.includes(c.name);
                       return (
                         <button
-                          key={c}
+                          key={`missing-${c.name}`}
                           type="button"
-                          onClick={() => toggleColorTag('missingColors', c)}
-                          className={`px-2.5 py-1 text-[11px] font-medium rounded-md border cursor-pointer ${
-                            selected
-                              ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                              : 'bg-white text-[#45464D] border-[#E2E8F0]'
+                          aria-pressed={selected}
+                          title={`${c.name} — ${c.chakraLabel}`}
+                          onClick={() => toggleColorTag('missingColors', c.name)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-all duration-150 cursor-pointer ${
+                            selected ? c.activeClasses : NEUTRAL_AURIC_BUTTON_CLASSES
                           }`}
                         >
-                          {c}
+                          {c.name}
                         </button>
                       );
                     })}
                   </div>
+
+                  {showExtraMissingColors && (
+                    <div className="flex flex-wrap gap-1.5 pt-1 border-t border-[#E2E8F0]/70">
+                      {SECONDARY_AURIC_COLORS.map((c) => {
+                        const selected = sheet.auricField.missingColors.includes(c.name);
+                        return (
+                          <button
+                            key={`missing-extra-${c.name}`}
+                            type="button"
+                            aria-pressed={selected}
+                            title={`${c.name} — ${c.chakraLabel}`}
+                            onClick={() => toggleColorTag('missingColors', c.name)}
+                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-all duration-150 cursor-pointer ${
+                              selected ? c.activeClasses : NEUTRAL_AURIC_BUTTON_CLASSES
+                            }`}
+                          >
+                            {c.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowExtraMissingColors((v) => !v)}
+                    className="text-[11px] font-medium text-[#64748B] hover:text-[#0F172A] underline-offset-2 hover:underline cursor-pointer"
+                  >
+                    {showExtraMissingColors
+                      ? '− Ocultar Tonalidades Extras'
+                      : '+ Tonalidades Extras (Rosa, Dourado, Branco, Cinza, Marrom, Preto)'}
+                  </button>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#0F172A]">Cores em Excesso (mín. 3)</span>
                     <span
@@ -1798,26 +1867,93 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {EXCESS_COLOR_OPTIONS.map((c) => {
-                      const selected = sheet.auricField.excessColors.includes(c);
+                    {PRIMARY_AURIC_COLORS.map((c) => {
+                      const selected = sheet.auricField.excessColors.includes(c.name);
                       return (
                         <button
-                          key={c}
+                          key={`excess-${c.name}`}
                           type="button"
-                          onClick={() => toggleColorTag('excessColors', c)}
-                          className={`px-2.5 py-1 text-[11px] font-medium rounded-md border cursor-pointer ${
-                            selected
-                              ? 'bg-[#B45309] text-white border-[#B45309]'
-                              : 'bg-white text-[#45464D] border-[#E2E8F0]'
+                          aria-pressed={selected}
+                          title={`${c.name} — ${c.chakraLabel}`}
+                          onClick={() => toggleColorTag('excessColors', c.name)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-all duration-150 cursor-pointer ${
+                            selected ? c.activeClasses : NEUTRAL_AURIC_BUTTON_CLASSES
                           }`}
                         >
-                          {c}
+                          {c.name}
                         </button>
                       );
                     })}
                   </div>
+
+                  {showExtraExcessColors && (
+                    <div className="flex flex-wrap gap-1.5 pt-1 border-t border-[#E2E8F0]/70">
+                      {SECONDARY_AURIC_COLORS.map((c) => {
+                        const selected = sheet.auricField.excessColors.includes(c.name);
+                        return (
+                          <button
+                            key={`excess-extra-${c.name}`}
+                            type="button"
+                            aria-pressed={selected}
+                            title={`${c.name} — ${c.chakraLabel}`}
+                            onClick={() => toggleColorTag('excessColors', c.name)}
+                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-all duration-150 cursor-pointer ${
+                              selected ? c.activeClasses : NEUTRAL_AURIC_BUTTON_CLASSES
+                            }`}
+                          >
+                            {c.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowExtraExcessColors((v) => !v)}
+                    className="text-[11px] font-medium text-[#64748B] hover:text-[#0F172A] underline-offset-2 hover:underline cursor-pointer"
+                  >
+                    {showExtraExcessColors
+                      ? '− Ocultar Tonalidades Extras'
+                      : '+ Tonalidades Extras (Rosa, Dourado, Branco, Cinza, Marrom, Preto)'}
+                  </button>
                 </div>
               </div>
+
+              {/* Cruzamento Automático Cores da Aura × 7 Chakras */}
+              {(() => {
+                const correlation = analyzeAuricColorsChakraCorrelation(
+                  sheet.auricField.missingColors,
+                  sheet.auricField.excessColors
+                );
+                return (
+                  <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-1.5">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-[#B45309]">
+                      Leitura Cruzada: Cores da Aura × Chakras Correspondentes
+                    </p>
+                    <p className="text-xs text-[#0F172A] leading-relaxed">
+                      {correlation.summaryText}
+                    </p>
+                    {(correlation.missingMappings.length > 0 ||
+                      correlation.excessMappings.length > 0) && (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-[11px] text-[#45464D]">
+                        {correlation.missingMappings.length > 0 && (
+                          <span>
+                            <strong className="text-[#0F172A]">Em Falta:</strong>{' '}
+                            {correlation.missingMappings.join(' · ')}
+                          </span>
+                        )}
+                        {correlation.excessMappings.length > 0 && (
+                          <span>
+                            <strong className="text-[#0F172A]">Em Excesso:</strong>{' '}
+                            {correlation.excessMappings.join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -2175,9 +2311,16 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                           className="w-4 h-4 mt-0.5 accent-[#0F172A] cursor-pointer"
                         />
                         <div>
-                          <p className="text-xs font-bold text-[#0F172A]">
-                            [{sys.systemCode}] {sys.systemName}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="text-xs font-bold text-[#0F172A]">
+                              [{sys.systemCode}] {sys.systemName}
+                            </p>
+                            {isHighlightedByAnamnesis([sys.systemName, sys.systemCode]) && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[#FEF3C7] text-[#B45309] border border-[#F59E0B]/40 rounded inline-flex items-center gap-1">
+                                Sinalizado na Anamnese
+                              </span>
+                            )}
+                          </div>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
                             <span
                               className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold rounded border ${band.badgeClass}`}
@@ -2424,7 +2567,14 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                           className="w-4 h-4 mt-0.5 accent-[#0F172A] cursor-pointer"
                         />
                         <div>
-                          <p className="text-xs font-bold text-[#0F172A]">{organ.organName}</p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="text-xs font-bold text-[#0F172A]">{organ.organName}</p>
+                            {isHighlightedByAnamnesis([organ.organName, organ.systemName, organ.systemCode]) && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[#FEF3C7] text-[#B45309] border border-[#F59E0B]/40 rounded inline-flex items-center gap-1">
+                                Sinalizado na Anamnese
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[11px] font-mono text-[#64748B]">
                             {organ.systemCode} · {organ.systemName}
                           </p>

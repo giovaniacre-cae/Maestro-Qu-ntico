@@ -11,6 +11,7 @@ import {
   MasterPatient,
   getAuraSizeLabelFromPercent,
   getHawkinsLabelByHz,
+  normalizeAuricColorName,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
 import { loadSessions, saveSessions } from '../data/seedSessions';
@@ -202,6 +203,14 @@ export function normalizeAnsaeSheet(sheet: ClinicalAnsaeRhenSheet): ClinicalAnsa
 
   const rawSizePercent = sheet.auricField?.sizePercent ?? 50;
   const clampedSizePercent = Math.max(0, Math.min(100, rawSizePercent));
+  const normalizeColorList = (list?: string[]) =>
+    Array.from(
+      new Set(
+        (Array.isArray(list) ? list : [])
+          .map((c) => normalizeAuricColorName(String(c)))
+          .filter(Boolean)
+      )
+    );
 
   return {
     ...sheet,
@@ -209,6 +218,8 @@ export function normalizeAnsaeSheet(sheet: ClinicalAnsaeRhenSheet): ClinicalAnsa
       ...sheet.auricField,
       sizePercent: clampedSizePercent,
       sizeLabel: getAuraSizeLabelFromPercent(clampedSizePercent),
+      missingColors: normalizeColorList(sheet.auricField?.missingColors),
+      excessColors: normalizeColorList(sheet.auricField?.excessColors),
     },
     spiritualPsycho: {
       ...sheet.spiritualPsycho,
@@ -354,8 +365,8 @@ export function createDefaultAnsaeRhenSheet(
         protectionPercent: auraPct,
         sizeLabel: getAuraSizeLabelFromPercent(defaultSizePercent),
         sizePercent: defaultSizePercent,
-        missingColors: ['Dourado', 'Violeta', 'Verde Esmeralda'],
-        excessColors: ['Vermelho Denso', 'Cinza', 'Laranja Escuro'],
+        missingColors: ['Violeta', 'Índigo', 'Azul Claro'],
+        excessColors: ['Vermelho', 'Laranja', 'Verde'],
       };
     })(),
     lifeAreas: {

@@ -48,6 +48,85 @@ function getHawkinsLabelServer(hz: number): string {
   return closest.label;
 }
 
+const AURIC_COLOR_CHAKRA_MAP_SERVER: Record<
+  string,
+  { name: string; chakra: string; tier: 'inferior' | 'medio' | 'superior' | 'complementar' }
+> = {
+  vermelho: { name: 'Vermelho', chakra: 'Básico / Muladhara', tier: 'inferior' },
+  'vermelho denso': { name: 'Vermelho', chakra: 'Básico / Muladhara', tier: 'inferior' },
+  laranja: { name: 'Laranja', chakra: 'Sacro / Svadhisthana', tier: 'inferior' },
+  'laranja escuro': { name: 'Laranja', chakra: 'Sacro / Svadhisthana', tier: 'inferior' },
+  amarelo: { name: 'Amarelo', chakra: 'Plexo Solar / Manipura', tier: 'inferior' },
+  'amarelo ouro': { name: 'Amarelo', chakra: 'Plexo Solar / Manipura', tier: 'inferior' },
+  'amarelo acido': { name: 'Amarelo', chakra: 'Plexo Solar / Manipura', tier: 'inferior' },
+  verde: { name: 'Verde', chakra: 'Cardíaco / Anahata', tier: 'medio' },
+  'verde esmeralda': { name: 'Verde', chakra: 'Cardíaco / Anahata', tier: 'medio' },
+  'verde turvo': { name: 'Verde', chakra: 'Cardíaco / Anahata', tier: 'medio' },
+  'azul claro': { name: 'Azul Claro', chakra: 'Laríngeo / Vishuddha', tier: 'superior' },
+  'azul celeste': { name: 'Azul Claro', chakra: 'Laríngeo / Vishuddha', tier: 'superior' },
+  indigo: { name: 'Índigo', chakra: 'Frontal / Ajna', tier: 'superior' },
+  violeta: { name: 'Violeta', chakra: 'Coronário / Sahasrara', tier: 'superior' },
+  rosa: { name: 'Rosa', chakra: 'Cardíaco Superior', tier: 'complementar' },
+  dourado: { name: 'Dourado', chakra: 'Coronário / Proteção Solar', tier: 'complementar' },
+  branco: { name: 'Branco', chakra: 'Campo Integral', tier: 'complementar' },
+  'branco cristalino': { name: 'Branco', chakra: 'Campo Integral', tier: 'complementar' },
+  cinza: { name: 'Cinza', chakra: 'Estagnação Mental', tier: 'complementar' },
+  marrom: { name: 'Marrom', chakra: 'Básico / Densidade Telúrica', tier: 'complementar' },
+  'marrom lodoso': { name: 'Marrom', chakra: 'Básico / Densidade Telúrica', tier: 'complementar' },
+  preto: { name: 'Preto', chakra: 'Absorção Densa / Bloqueio', tier: 'complementar' },
+  'preto opaco': { name: 'Preto', chakra: 'Absorção Densa / Bloqueio', tier: 'complementar' },
+};
+
+function buildAuricColorChakraAnalysisServer(
+  missingColors: string[] = [],
+  excessColors: string[] = []
+): string {
+  const resolve = (raw: string) => {
+    const key = raw
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    return AURIC_COLOR_CHAKRA_MAP_SERVER[key];
+  };
+
+  const mapList = (list: string[]) =>
+    list.map((c) => {
+      const info = resolve(c);
+      return info ? `${info.name} (${info.chakra})` : c;
+    });
+
+  const missingMapped = mapList(missingColors);
+  const excessMapped = mapList(excessColors);
+
+  const countTiers = (list: string[]) => {
+    let inferior = 0;
+    let medio = 0;
+    let superior = 0;
+    list.forEach((c) => {
+      const info = resolve(c);
+      if (!info) return;
+      if (info.tier === 'inferior') inferior += 1;
+      else if (info.tier === 'medio') medio += 1;
+      else if (info.tier === 'superior') superior += 1;
+    });
+    return { inferior, medio, superior };
+  };
+
+  const exT = countTiers(excessColors);
+  const msT = countTiers(missingColors);
+  let pattern = '';
+  if (exT.inferior + exT.medio > 0 && msT.superior > 0) {
+    pattern = `Sobrecarga nos chakras inferiores/médios (${excessMapped.join(', ')}) e carência nos chakras superiores (${missingMapped.join(', ')}).`;
+  } else if (exT.superior > 0 && msT.inferior + msT.medio > 0) {
+    pattern = `Excesso nos chakras superiores (${excessMapped.join(', ')}) com carência de aterramento nos inferiores/médios (${missingMapped.join(', ')}).`;
+  } else {
+    pattern = `Falta: ${missingMapped.join(', ') || 'nenhuma'} | Excesso: ${excessMapped.join(', ') || 'nenhum'}.`;
+  }
+
+  return pattern;
+}
+
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -201,7 +280,7 @@ async function startServer() {
         : imbalancedChakras.join('; ') || 'Todos alinhados';
 
       const auricText = ansaeRhen?.auricField
-        ? `Proteção: ${ansaeRhen.auricField.protectionLabel} (${ansaeRhen.auricField.protectionPercent}%), Tamanho: ${ansaeRhen.auricField.sizeLabel} (${Math.max(0, Math.min(100, Number(ansaeRhen.auricField.sizePercent ?? 50)))}%), Cores em Falta: ${(ansaeRhen.auricField.missingColors || []).join(', ')}, Cores em Excesso: ${(ansaeRhen.auricField.excessColors || []).join(', ')}`
+        ? `Proteção: ${ansaeRhen.auricField.protectionLabel} (${ansaeRhen.auricField.protectionPercent}%), Tamanho: ${ansaeRhen.auricField.sizeLabel} (${Math.max(0, Math.min(100, Number(ansaeRhen.auricField.sizePercent ?? 50)))}%), Cores em Falta: ${(ansaeRhen.auricField.missingColors || []).join(', ')}, Cores em Excesso: ${(ansaeRhen.auricField.excessColors || []).join(', ')} | Correlação Automática Cores × Chakras: ${buildAuricColorChakraAnalysisServer(ansaeRhen.auricField.missingColors, ansaeRhen.auricField.excessColors)}`
         : `Proteção Áurica: ${sensitivity.auricProtection}%`;
 
       const lifeAreasText = ansaeRhen?.lifeAreas
@@ -379,10 +458,10 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
    - Integrar Ressonância Harmônica (transferência de informação arquetípica pura, transmutação na Escala de Hawkins).
    - Terminar EXATAMENTE com a frase de selamento: "Está ativado, colapsado e manifestado na ordem cósmica."
 3. "analiseCausaRaiz": Análise técnica cruzando especificamente os sistemas e órgãos ANSAE em desequilíbrio (citando % e Energia de Saúde em Å), os chakras/glândulas afetados, os campos eletromagnéticos, as áreas da vida comprometidas e as emoções/causas raiz.
-4. "analisePsicossomatica": Texto técnico-clínico de 2 parágrafos para o Relatório do Terapeuta correlacionando Bovis, Hawkins/Ágatha, Yin/Yang, campo áurico (cores em falta/excesso) e somatização orgânica.
+4. "analisePsicossomatica": Texto técnico-clínico de 2 parágrafos para o Relatório do Terapeuta correlacionando Bovis, Hawkins/Ágatha, Yin/Yang, campo áurico (cruzando obrigatoriamente cada cor em falta/excesso com o seu Chakra correspondente — ex.: excessos inferiores/médios vs. carências superiores) e somatização orgânica.
 5. "comparativoEvolutivo": ${isPostTreatment ? 'OBRIGATÓRIO: Compare numericamente e clinicamente os ganhos entre a sessão anterior e a leitura atual (Bovis, Hawkins, Aura, Estresse e órgãos), destacando a resposta do organismo ao protocolo.' : 'Retorne string vazia "" por ser Avaliação Inicial.'}
 6. "orientacaoPacienteResumo": Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual${activeRemediesList.length > 0 ? ', mencionando com suavidade o suporte vibracional à distância dos remédios sutis programados e reforçando que nunca substitui nem autoriza suspender medicações médicas prescritas' : ''}.
-7. "orientacaoChakrasAuraHabitos": Texto prático e acolhedor traduzindo para o paciente o significado dos chakras em atenção, das cores da aura em falta/excesso (como utilizá-las em roupas, visualização ou ambiente) e dos hábitos saudáveis aferidos.
+7. "orientacaoChakrasAuraHabitos": Texto prático e acolhedor traduzindo para o paciente o significado dos chakras em atenção, relacionando diretamente cada cor da aura em falta e em excesso ao seu chakra correspondente (como nutrir as cores em falta em roupas, visualização ou ambiente e desacelerar os excessos) e dos hábitos saudáveis aferidos.
 8. "welcomeMessage": Redija uma Mensagem Inicial de Acolhimento Humanizado (1 parágrafo acolhedor, empático, fraterno e encorajador, de 5 a 7 linhas) para abrir o Guia do Paciente. Valide com sensibilidade as queixas físicas ou emocionais relatadas pelo interagente na anamnese, desmistifique a leitura energética sem gerar medo ou alarme, e reforce o vínculo terapêutico e a confiança serena no processo de restauração e cura.
 9. "prescricoes":
    - "floraisBach": 3 a 4 recomendações específicas (incorporando os aferidos nos biômetros, se houver) com breve justificativa.
@@ -548,6 +627,79 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
         ? 'O serviço de geração está com pico temporário de demanda (503). Aguarde alguns segundos e clique em "Tentar Novamente".'
         : rawMessage;
       res.status(isHighDemand ? 503 : 500).json({ error: friendlyMessage });
+    }
+  });
+
+  // Copiloto IA para Anamnese & Transcrição
+  app.post('/api/anamnese/copilot', async (req: Request, res: Response) => {
+    try {
+      const { transcript, patientName } = req.body;
+      if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
+        res.status(400).json({ error: 'Transcrição vazia ou inválida.' });
+        return;
+      }
+
+      const ai = getGeminiClient();
+      const prompt = `
+Você é o Copiloto Clínico IA do sistema "Maestro Quântico v2.0" (Maestro Terapias Vibracionais, conduzido pelo terapeuta Giovani Caetano).
+Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com o paciente "${patientName || 'Paciente'}" e extraia os insights estruturados em JSON estrito.
+
+TRANSCRIÇÃO DA SESSÃO / ANAMNESE:
+"""
+${transcript}
+"""
+
+Retorne um JSON contendo estritamente as seguintes chaves:
+- "clinicalComplaints": Resumo detalhado dos sintomas físicos, dores localizadas, diagnósticos médicos citados e tempo de evolução.
+- "psychosomaticMapping": Correlação psicossomática profunda entre os sintomas físicos relatados e os conflitos emocionais, traumas, estresse ou padrões mentais identificados na fala do paciente.
+- "centralIntention": Intenção Central de Tratamento sintetizada no Padrão Maestro (ex.: "Harmonização do eixo neuroemocional, restauração da vitalidade física e prosperidade").
+- "suggestedFocus": Foco principal do atendimento (ex.: "Saúde Física", "Equilíbrio Emocional", "Limpeza Espiritual", "Prosperidade/Material", "Relacionamentos").
+- "highlightedOrgansAndChakras": Array de strings com a lista de órgãos, sistemas ANSAE e chakras associados às queixas para destaque clínico.
+`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            'Você é um copiloto clínico especialista em anamnese terapêutica e psicossomática. Responda em português brasileiro culto e acolhedor, seguindo estritamente o esquema JSON solicitado.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              clinicalComplaints: { type: Type.STRING },
+              psychosomaticMapping: { type: Type.STRING },
+              centralIntention: { type: Type.STRING },
+              suggestedFocus: { type: Type.STRING },
+              highlightedOrgansAndChakras: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+            },
+            required: [
+              'clinicalComplaints',
+              'psychosomaticMapping',
+              'centralIntention',
+              'suggestedFocus',
+              'highlightedOrgansAndChakras',
+            ],
+          },
+        },
+      });
+
+      const rawText = (response?.text ?? '').trim();
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida do Copiloto IA.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText);
+      res.json(parsed);
+    } catch (error) {
+      console.error('Erro na rota /api/anamnese/copilot:', error);
+      const msg = error instanceof Error ? error.message : 'Erro interno no Copiloto IA.';
+      res.status(500).json({ error: msg });
     }
   });
 

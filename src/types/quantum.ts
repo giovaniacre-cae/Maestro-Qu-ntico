@@ -2,6 +2,14 @@ export type ScreenId = 'dashboard' | 'anamnesis' | 'sensitivity' | 'quantum-tabl
 
 export type RoomPhase = 'stage1' | 'rest' | 'stage2' | 'single' | 'completed';
 
+export interface CopilotAnalysisResult {
+  clinicalComplaints: string;
+  psychosomaticMapping: string;
+  centralIntention: string;
+  suggestedFocus: string;
+  highlightedOrgansAndChakras: string[];
+}
+
 export interface PatientAnamnesis {
   id: string;
   fullName: string;
@@ -12,6 +20,8 @@ export interface PatientAnamnesis {
   physicalSymptoms: string;
   medicalTreatments: string;
   clinicalNotes: string;
+  sessionTranscript?: string;
+  copilotAnalysis?: CopilotAnalysisResult | null;
 }
 
 export interface ChakraReading {

@@ -206,6 +206,271 @@ export interface AuricFieldReading {
   excessColors: string[]; // min 3
 }
 
+export interface AuraColorSpec {
+  name: string;
+  group: 'primary' | 'secondary';
+  chakraId?: ChakraColorKey;
+  chakraLabel: string;
+  chakraShort: string;
+  chakraTier: 'inferior' | 'medio' | 'superior' | 'complementar';
+  activeClasses: string;
+  hex: string;
+}
+
+export const PRIMARY_AURIC_COLORS: readonly AuraColorSpec[] = [
+  {
+    name: 'Vermelho',
+    group: 'primary',
+    chakraId: 'basico',
+    chakraLabel: 'Básico / Muladhara',
+    chakraShort: 'Básico',
+    chakraTier: 'inferior',
+    activeClasses: 'bg-[#DC2626] text-[#FFFFFF] border-[#B91C1C] shadow-sm',
+    hex: '#DC2626',
+  },
+  {
+    name: 'Laranja',
+    group: 'primary',
+    chakraId: 'sacro',
+    chakraLabel: 'Sacro / Svadhisthana',
+    chakraShort: 'Sacro',
+    chakraTier: 'inferior',
+    activeClasses: 'bg-[#EA580C] text-[#FFFFFF] border-[#C2410C] shadow-sm',
+    hex: '#EA580C',
+  },
+  {
+    name: 'Amarelo',
+    group: 'primary',
+    chakraId: 'plexo',
+    chakraLabel: 'Plexo Solar / Manipura',
+    chakraShort: 'Plexo Solar',
+    chakraTier: 'inferior',
+    activeClasses: 'bg-[#EAB308] text-[#0F172A] border-[#CA8A04] shadow-sm',
+    hex: '#EAB308',
+  },
+  {
+    name: 'Verde',
+    group: 'primary',
+    chakraId: 'cardiaco',
+    chakraLabel: 'Cardíaco / Anahata',
+    chakraShort: 'Cardíaco',
+    chakraTier: 'medio',
+    activeClasses: 'bg-[#16A34A] text-[#FFFFFF] border-[#15803D] shadow-sm',
+    hex: '#16A34A',
+  },
+  {
+    name: 'Azul Claro',
+    group: 'primary',
+    chakraId: 'laringeo',
+    chakraLabel: 'Laríngeo / Vishuddha',
+    chakraShort: 'Laríngeo',
+    chakraTier: 'superior',
+    activeClasses: 'bg-[#0284C7] text-[#FFFFFF] border-[#0369A1] shadow-sm',
+    hex: '#0284C7',
+  },
+  {
+    name: 'Índigo',
+    group: 'primary',
+    chakraId: 'frontal',
+    chakraLabel: 'Frontal / Ajna',
+    chakraShort: 'Frontal',
+    chakraTier: 'superior',
+    activeClasses: 'bg-[#4338CA] text-[#FFFFFF] border-[#3730A3] shadow-sm',
+    hex: '#4338CA',
+  },
+  {
+    name: 'Violeta',
+    group: 'primary',
+    chakraId: 'coronario',
+    chakraLabel: 'Coronário / Sahasrara',
+    chakraShort: 'Coronário',
+    chakraTier: 'superior',
+    activeClasses: 'bg-[#7C3AED] text-[#FFFFFF] border-[#6D28D9] shadow-sm',
+    hex: '#7C3AED',
+  },
+];
+
+export const SECONDARY_AURIC_COLORS: readonly AuraColorSpec[] = [
+  {
+    name: 'Rosa',
+    group: 'secondary',
+    chakraId: 'cardiaco',
+    chakraLabel: 'Cardíaco Superior / Amor Incondicional',
+    chakraShort: 'Cardíaco Superior',
+    chakraTier: 'complementar',
+    activeClasses: 'bg-[#DB2777] text-[#FFFFFF] border-[#BE185D] shadow-sm',
+    hex: '#DB2777',
+  },
+  {
+    name: 'Dourado',
+    group: 'secondary',
+    chakraId: 'coronario',
+    chakraLabel: 'Coronário / Proteção Solar Crística',
+    chakraShort: 'Coronário / Solar',
+    chakraTier: 'complementar',
+    activeClasses: 'bg-[#D97706] text-[#FFFFFF] border-[#B45309] shadow-sm',
+    hex: '#D97706',
+  },
+  {
+    name: 'Branco',
+    group: 'secondary',
+    chakraLabel: 'Campo Integral / Luz Cristalina',
+    chakraShort: 'Campo Integral',
+    chakraTier: 'complementar',
+    activeClasses:
+      'bg-[#FFFFFF] text-[#0F172A] border-[#B45309] ring-2 ring-amber-400/50 shadow-md',
+    hex: '#FFFFFF',
+  },
+  {
+    name: 'Cinza',
+    group: 'secondary',
+    chakraLabel: 'Fadiga Áurica / Estagnação Mental',
+    chakraShort: 'Estagnação Mental',
+    chakraTier: 'complementar',
+    activeClasses: 'bg-[#4B5563] text-[#FFFFFF] border-[#374151] shadow-sm',
+    hex: '#4B5563',
+  },
+  {
+    name: 'Marrom',
+    group: 'secondary',
+    chakraId: 'basico',
+    chakraLabel: 'Básico / Densidade Telúrica',
+    chakraShort: 'Básico (Denso)',
+    chakraTier: 'complementar',
+    activeClasses: 'bg-[#78350F] text-[#FFFFFF] border-[#451A03] shadow-sm',
+    hex: '#78350F',
+  },
+  {
+    name: 'Preto',
+    group: 'secondary',
+    chakraLabel: 'Absorção Densa / Bloqueio Protetivo',
+    chakraShort: 'Bloqueio Protetivo',
+    chakraTier: 'complementar',
+    activeClasses: 'bg-[#111827] text-[#FFFFFF] border-[#000000] shadow-sm',
+    hex: '#111827',
+  },
+];
+
+export const ALL_AURIC_COLORS: readonly AuraColorSpec[] = [
+  ...PRIMARY_AURIC_COLORS,
+  ...SECONDARY_AURIC_COLORS,
+];
+
+const LEGACY_AURIC_COLOR_ALIASES: Record<string, string> = {
+  'vermelho denso': 'Vermelho',
+  'laranja escuro': 'Laranja',
+  'amarelo ouro': 'Amarelo',
+  'amarelo acido': 'Amarelo',
+  'verde esmeralda': 'Verde',
+  'verde turvo': 'Verde',
+  'azul celeste': 'Azul Claro',
+  'branco cristalino': 'Branco',
+  'marrom lodoso': 'Marrom',
+  'preto opaco': 'Preto',
+  magenta: 'Violeta',
+};
+
+export function normalizeAuricColorName(color: string): string {
+  const trimmed = color.trim();
+  if (!trimmed) return '';
+  const exact = ALL_AURIC_COLORS.find(
+    (c) => c.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (exact) return exact.name;
+
+  const key = trimmed
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return LEGACY_AURIC_COLOR_ALIASES[key] || trimmed;
+}
+
+export function getAuraColorSpec(color: string): AuraColorSpec | undefined {
+  const normalized = normalizeAuricColorName(color);
+  return ALL_AURIC_COLORS.find(
+    (c) => c.name.toLowerCase() === normalized.toLowerCase()
+  );
+}
+
+export interface AuricChakraCorrelation {
+  missingMappings: string[];
+  excessMappings: string[];
+  summaryText: string;
+}
+
+export function analyzeAuricColorsChakraCorrelation(
+  missingColors: string[],
+  excessColors: string[]
+): AuricChakraCorrelation {
+  const mapList = (colors: string[]) =>
+    colors.map((c) => {
+      const spec = getAuraColorSpec(c);
+      return spec ? `${spec.name} (${spec.chakraShort})` : c;
+    });
+
+  const missingMappings = mapList(missingColors);
+  const excessMappings = mapList(excessColors);
+
+  const countTiers = (colors: string[]) => {
+    let inferior = 0;
+    let medio = 0;
+    let superior = 0;
+    let dense = 0;
+    colors.forEach((c) => {
+      const spec = getAuraColorSpec(c);
+      if (!spec) return;
+      if (spec.chakraTier === 'inferior') inferior += 1;
+      else if (spec.chakraTier === 'medio') medio += 1;
+      else if (spec.chakraTier === 'superior') superior += 1;
+      else dense += 1;
+    });
+    return { inferior, medio, superior, dense };
+  };
+
+  const exT = countTiers(excessColors);
+  const msT = countTiers(missingColors);
+
+  const observations: string[] = [];
+
+  if (exT.inferior + exT.medio > 0 && msT.superior > 0) {
+    const excessLowerLabels = excessMappings.join(', ');
+    const missingUpperLabels = missingMappings.join(', ');
+    observations.push(
+      `Sobrecarga nos chakras inferiores/médios (${excessLowerLabels}) associada à carência nos chakras superiores (${missingUpperLabels}).`
+    );
+  } else if (exT.superior > 0 && msT.inferior + msT.medio > 0) {
+    observations.push(
+      `Excesso de atividade mental/espiritual superior (${excessMappings.join(', ')}) com carência de aterramento nos chakras inferiores/médios (${missingMappings.join(', ')}).`
+    );
+  } else {
+    if (excessMappings.length > 0) {
+      observations.push(`Sobrecarga cromática em: ${excessMappings.join(', ')}.`);
+    }
+    if (missingMappings.length > 0) {
+      observations.push(`Carência cromática em: ${missingMappings.join(', ')}.`);
+    }
+  }
+
+  if (exT.dense > 0) {
+    const denseNames = excessColors
+      .filter((c) => getAuraColorSpec(c)?.group === 'secondary')
+      .join(', ');
+    if (denseNames) {
+      observations.push(
+        `Presença de tonalidades secundárias de densidade/fadiga em excesso (${denseNames}), pedindo assepsia áurica.`
+      );
+    }
+  }
+
+  return {
+    missingMappings,
+    excessMappings,
+    summaryText:
+      observations.join(' ') ||
+      'Selecione as cores em falta e em excesso para visualizar o cruzamento automático com os 7 Chakras.',
+  };
+}
+
 export function getAuraSizeLabelFromPercent(percent: number): AuraSizeLevel {
   const clamped = Math.max(0, Math.min(100, percent));
   if (clamped < 35) return 'Encolhida';

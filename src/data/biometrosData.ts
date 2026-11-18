@@ -1,6 +1,8 @@
 import {
   BiometerDefinition,
   HAWKINS_SCALE_TABLE,
+  PRIMARY_AURIC_COLORS,
+  SECONDARY_AURIC_COLORS,
   getHawkinsEntryByHz,
   getHawkinsLabelByHz,
 } from '../types/clinical';
@@ -446,6 +448,18 @@ export const BUILTIN_22_BIOMETERS: BiometerDefinition[] = [
       'Nível de Stress (0–9)',
       'Bovis < 6.500 Å (Alerta)',
       'Bovis ≥ 6.500 Å (Estável)',
+    ],
+  },
+  {
+    id: 'bio-23',
+    number: 23,
+    name: 'Cores da Aura & Cromoterapia (7 Chakras)',
+    category: 'Chakras',
+    description:
+      'Biômetro de Cores da Aura alinhado exatamente às 7 cores principais dos Chakras (Vermelho ao Violeta) e tonalidades secundárias opcionais para aferição de falta ou excesso cromático.',
+    items: [
+      ...PRIMARY_AURIC_COLORS.map((c) => `${c.name} (${c.chakraLabel})`),
+      ...SECONDARY_AURIC_COLORS.map((c) => `${c.name} (${c.chakraLabel})`),
     ],
   },
 ];

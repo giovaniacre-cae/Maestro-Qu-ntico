@@ -988,7 +988,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               <p className="whitespace-pre-line">
                 {aiResult?.orientacaoChakrasAuraHabitos ||
                   `Cores que nutrem seu campo neste ciclo: ${
-                    resolvedSheet.auricField.missingColors.join(', ') || 'Dourado e Verde Esmeralda'
+                    resolvedSheet.auricField.missingColors.join(', ') || 'Violeta, Índigo e Azul Claro'
                   }. Busque incluir esses tons no vestuário ou na visualização diária durante respirações tranquilas.`}
               </p>
             </section>

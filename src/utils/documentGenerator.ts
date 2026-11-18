@@ -18,6 +18,7 @@ import {
   ClinicalAnsaeRhenSheet,
   ClinicalSessionRecord,
   SessionMilestoneType,
+  analyzeAuricColorsChakraCorrelation,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
 import {
@@ -133,18 +134,23 @@ function buildFallbackChakraAuraHabitsText(
           .join(', ')}): busque momentos de respiração calma levando atenção gentil a essas regiões.`
       : 'Seus sete centros de força (chakras) apresentam boa harmonia geral nesta leitura.';
 
+  const colorCorrelation = analyzeAuricColorsChakraCorrelation(
+    sheet.auricField.missingColors,
+    sheet.auricField.excessColors
+  );
+
   const missingColorsText =
-    sheet.auricField.missingColors.length > 0
-      ? `Cores que nutrem seu campo neste ciclo: ${sheet.auricField.missingColors.join(
+    colorCorrelation.missingMappings.length > 0
+      ? `Cores que nutrem seu campo e chakras neste ciclo: ${colorCorrelation.missingMappings.join(
           ', '
         )}. Utilize-as em detalhes de vestuário, objetos do ambiente ou visualizações suaves ao inspirar.`
       : '';
 
   const excessColorsText =
-    sheet.auricField.excessColors.length > 0
-      ? `Cores em excesso que pedem desaceleração e limpeza: ${sheet.auricField.excessColors.join(
+    colorCorrelation.excessMappings.length > 0
+      ? `Cores e centros em excesso que pedem desaceleração e limpeza: ${colorCorrelation.excessMappings.join(
           ', '
-        )} (evite ambientes sobrecarregados e priorize iluminação amena à noite).`
+        )} (${colorCorrelation.summaryText}).`
       : '';
 
   const habits =
@@ -441,6 +447,10 @@ export async function downloadTherapistDocx(
       typeof o.healthEnergyAngstroms === 'number'
   );
   const ansaeSystems = sheet.systems || [];
+  const auraColorCorrelation = analyzeAuricColorsChakraCorrelation(
+    sheet.auricField.missingColors,
+    sheet.auricField.excessColors
+  );
 
   const identificationTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -607,8 +617,19 @@ export async function downloadTherapistDocx(
       new TableRow({
         children: [
           buildTableCell('Cromoterapia Áurica', true),
-          buildTableCell(`Em falta: ${sheet.auricField.missingColors.join(', ') || '—'}`),
-          buildTableCell(`Em excesso: ${sheet.auricField.excessColors.join(', ') || '—'}`),
+          buildTableCell(
+            `Em falta: ${auraColorCorrelation.missingMappings.join(', ') || '—'}`
+          ),
+          buildTableCell(
+            `Em excesso: ${auraColorCorrelation.excessMappings.join(', ') || '—'}`
+          ),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Leitura Cores × Chakras', true),
+          buildTableCell('Cruzamento Automático'),
+          buildTableCell(auraColorCorrelation.summaryText),
         ],
       }),
       new TableRow({
@@ -1532,6 +1553,10 @@ export async function downloadTherapistPdf(
   const hawkinsInfo = getHawkinsLevelInfo(hawkinsHz);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
   const ansaeSystems = sheet.systems || [];
+  const auraColorCorrelation = analyzeAuricColorsChakraCorrelation(
+    sheet.auricField.missingColors,
+    sheet.auricField.excessColors
+  );
   const imbalancedOrgans = sheet.organs.filter(
     (o) =>
       o.isImbalanced ||
@@ -1599,9 +1624,13 @@ export async function downloadTherapistPdf(
     ],
     [
       'Cores da Aura',
-      `Em falta: ${sheet.auricField.missingColors.join(', ') || '—'} | Em excesso: ${
-        sheet.auricField.excessColors.join(', ') || '—'
+      `Em falta: ${auraColorCorrelation.missingMappings.join(', ') || '—'} | Em excesso: ${
+        auraColorCorrelation.excessMappings.join(', ') || '—'
       }`,
+    ],
+    [
+      'Leitura Cores × Chakras',
+      auraColorCorrelation.summaryText,
     ],
     [
       'Áreas da Vida',
