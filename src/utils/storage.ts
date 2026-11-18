@@ -2,6 +2,7 @@ import {
   AnsaeChakraReading,
   AnsaeOrganReading,
   AnsaeSystemCode,
+  AnsaeSystemReading,
   BiometerDefinition,
   ClinicalAnsaeRhenSheet,
   ClinicalSessionRecord,
@@ -92,6 +93,112 @@ export const ANSAE_38_ORGANS_CATALOG: Array<{
   // ST (1)
   { id: 'org-pele', systemCode: 'ST', organName: 'Pele & Anexos Cutâneos' },
 ];
+
+export const ANSAE_SYSTEM_PSYCHOSOMATIC: Record<AnsaeSystemCode, string> = {
+  SC: 'Alegria de viver, circulação do amor e ritmo afetivo-vital',
+  SD: 'Assimilação de experiências, digestão emocional e aceitação do novo',
+  SEnd: 'Regulação do ritmo interno, propósito e equilíbrio dos centros sutis',
+  SExc: 'Capacidade de desapego, liberação de mágoas e limpeza interna',
+  SI: 'Fronteiras psíquicas, autodefesa emocional e proteção da identidade',
+  SL: 'Fluidez emocional, drenagem de ressentimentos e renovação sutil',
+  SNC: 'Controle mental, clareza decisória e percepção consciente da realidade',
+  SNP: 'Conexão mente-corpo, resposta ao estresse e flexibilidade adaptativa',
+  SRep: 'Criatividade, prazer vital, continuidade e vínculo afetivo-criador',
+  SResp: 'Troca com a vida, liberdade interior e inspiração existencial',
+  SS: 'Abertura perceptiva, discernimento e modo de enxergar ou ouvir o mundo',
+  SU: 'Segurança existencial, manejo de medos profundos e filtragem emocional',
+  SEsq: 'Sustentação estrutural, amparo familiar e flexibilidade diante da vida',
+  SM: 'Força de ação, movimento resolutivo e sustentação do esforço diário',
+  ST: 'Contato, limite saudável entre o eu e o mundo, e sensibilidade afetiva',
+};
+
+export const ANSAE_ORGAN_PSYCHOSOMATIC: Record<string, string> = {
+  'org-coracao': 'Centro do amor, coerência afetiva e alegria de existir',
+  'org-vasos': 'Fluidez na entrega emocional e circulação da vitalidade',
+  'org-estomago': 'Capacidade de digerir situações difíceis e contrariedades',
+  'org-figado': 'Raiva contida, frustração, planejamento e transmutação emocional',
+  'org-vesicula': 'Amargura reprimida, decisão firme e coragem de agir',
+  'org-int-delgado': 'Discernimento e absorção nutritiva das vivências',
+  'org-int-grosso': 'Apego ao passado, controle excessivo e dificuldade de soltar',
+  'org-pineal': 'Conexão espiritual, ciclo sono-vigília e intuição superior',
+  'org-hipofise': 'Comando integrativo entre propósito mental e resposta física',
+  'org-tireoide': 'Expressão da verdade pessoal e ritmo de realização ("tempo")',
+  'org-paratireoides': 'Sustentação mineral da calma e equilíbrio da pressa interior',
+  'org-timo': 'Imunidade afetiva, autoestima e vínculo com a alegria do coração',
+  'org-pancreas': 'Doçura da vida, prazer genuíno e acolhimento das emoções',
+  'org-suprarrenais': 'Medo, estado de alerta crônico, sobrevivência e reserva vital',
+  'org-sudoriparas': 'Liberação de tensões acumuladas e termorregulação emocional',
+  'org-reto': 'Desfecho saudável de ciclos e desprendimento de velhas dores',
+  'org-medula-ossea': 'Vitalidade ancestral profunda e renovação da força de viver',
+  'org-baco': 'Excesso de preocupação mental, ruminação e defesa energética',
+  'org-linfonodos': 'Retenção de emoções não expressas e necessidade de proteção',
+  'org-vasos-linf': 'Escoamento sutil de sobrecargas afetivas e limpeza orgânica',
+  'org-tonsilas': 'Engolir sapos, conflito entre o que se sente e o que se cala',
+  'org-cerebro': 'Excesso de controle racional, hipervigilância e carga cognitiva',
+  'org-cerebelo': 'Equilíbrio, coordenação de rumos e estabilidade emocional',
+  'org-medula-esp': 'Eixo de transmissão entre intenção espiritual e ação corporal',
+  'org-cranianos': 'Percepção sensorial refinada e comunicação neural direta',
+  'org-vago': 'Autorregulação parassimpática, calma visceral e segurança interna',
+  'org-gonadas': 'Força criadora, vitalidade sexual e expressão da identidade',
+  'org-utero-prostata': 'Ninho afetivo, criatividade, proteção e realização familiar',
+  'org-pulmoes': 'Tristeza profunda, luto não elaborado e direito de respirar livremente',
+  'org-bronquios': 'Conflitos territoriais e sufocamento por pressões externas',
+  'org-traqueia': 'Expressão livre, passagem da voz e autenticidade emocional',
+  'org-olhos': 'Medo de enxergar certas verdades ou sobrecarga visual/mental',
+  'org-ouvidos': 'Resistência em ouvir críticas, conflitos ou busca de silêncio',
+  'org-rins': 'Medo existencial, insegurança profunda e memória ancestral',
+  'org-bexiga': 'Pressão por limites territoriais e irritação contida',
+  'org-esqueleto': 'Sobrecarga de responsabilidades, apoio emocional e retidão',
+  'org-musculos': 'Tensão para agir, prontidão excessiva e cansaço de sustentar lutas',
+  'org-pele': 'Medo de rejeição, exposição ou necessidade de escudo protetor',
+};
+
+export function getSystemPsychosomaticMeaning(code: AnsaeSystemCode): string {
+  return ANSAE_SYSTEM_PSYCHOSOMATIC[code] || 'Equilíbrio sistêmico e vitalidade orgânica';
+}
+
+export function getOrganPsychosomaticMeaning(organId: string): string {
+  return ANSAE_ORGAN_PSYCHOSOMATIC[organId] || 'Coerência funcional e integração psicossomática';
+}
+
+export function createDefaultAnsaeSystems(): AnsaeSystemReading[] {
+  return (Object.keys(ANSAE_SYSTEMS_META) as AnsaeSystemCode[]).map((code) => ({
+    systemCode: code,
+    systemName: ANSAE_SYSTEMS_META[code],
+    isImbalanced: false,
+    imbalancePercent: 0,
+    durationValue: 0,
+    durationUnit: 'd',
+  }));
+}
+
+export function normalizeAnsaeSheet(sheet: ClinicalAnsaeRhenSheet): ClinicalAnsaeRhenSheet {
+  const existingSystems = Array.isArray(sheet.systems) ? sheet.systems : [];
+  const systemCodes = Object.keys(ANSAE_SYSTEMS_META) as AnsaeSystemCode[];
+  const normalizedSystems: AnsaeSystemReading[] = systemCodes.map((code) => {
+    const found = existingSystems.find((s) => s.systemCode === code);
+    if (found) {
+      return {
+        ...found,
+        systemName: ANSAE_SYSTEMS_META[code],
+      };
+    }
+    return {
+      systemCode: code,
+      systemName: ANSAE_SYSTEMS_META[code],
+      isImbalanced: false,
+      imbalancePercent: 0,
+      durationValue: 0,
+      durationUnit: 'd',
+    };
+  });
+
+  return {
+    ...sheet,
+    systems: normalizedSystems,
+    organs: Array.isArray(sheet.organs) ? sheet.organs : [],
+  };
+}
 
 export const DEFAULT_ELECTROMAGNETIC_FIELDS: ElectromagneticFieldReading[] = [
   { id: 'mental', label: 'Campo Mental', imbalancePercent: 15, affectedChakras: [] },
@@ -249,6 +356,7 @@ export function createDefaultAnsaeRhenSheet(
           ? 'Mesa de Assepsia & Blindagem Anti-Catarse'
           : 'Mesa Radiônica Quântica de Alta Vitalidade',
     },
+    systems: createDefaultAnsaeSystems(),
     organs,
     biometerReadings: [],
   };
@@ -423,7 +531,7 @@ export function getAnsaeDraftForSession(session: QuantumRoomSession): ClinicalAn
     if (raw) {
       const parsed = JSON.parse(raw) as ClinicalAnsaeRhenSheet;
       if (parsed && Array.isArray(parsed.organs) && parsed.organs.length === 38) {
-        return parsed;
+        return normalizeAnsaeSheet(parsed);
       }
     }
   } catch {
@@ -437,7 +545,7 @@ export function getAnsaeDraftForSession(session: QuantumRoomSession): ClinicalAn
     db.sessions.find((s) => s.patientId === patientId);
 
   if (matched && matched.ansaeRhen && Array.isArray(matched.ansaeRhen.organs)) {
-    return matched.ansaeRhen;
+    return normalizeAnsaeSheet(matched.ansaeRhen);
   }
 
   return createDefaultAnsaeRhenSheet(session);

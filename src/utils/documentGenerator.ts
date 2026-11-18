@@ -20,8 +20,14 @@ import {
   SessionMilestoneType,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
-import { formatBirthDateBR, getHawkinsLevelInfo } from './antiCatharsis';
-import { getAnsaeDraftForSession, getPreviousSessionForPatient } from './storage';
+import { formatAngstromsBR, formatBirthDateBR, getHawkinsLevelInfo } from './antiCatharsis';
+import {
+  getAnsaeDraftForSession,
+  getOrganPsychosomaticMeaning,
+  getPreviousSessionForPatient,
+  getSystemPsychosomaticMeaning,
+  normalizeAnsaeSheet,
+} from './storage';
 
 const NAVY_HEX = '0F172A';
 const AMBER_HEX = 'B45309';
@@ -99,7 +105,7 @@ function resolveDocContext(
   prev: ClinicalSessionRecord | null;
   sessionType: SessionMilestoneType;
 } {
-  const sheet = ctx?.ansaeSheet || getAnsaeDraftForSession(session);
+  const sheet = normalizeAnsaeSheet(ctx?.ansaeSheet || getAnsaeDraftForSession(session));
   const prev =
     ctx?.previousSession !== undefined
       ? ctx.previousSession
@@ -417,7 +423,13 @@ export async function downloadTherapistDocx(
   const logo = await loadMaestroLogo();
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
-  const imbalancedOrgans = sheet.organs.filter((o) => o.isImbalanced);
+  const imbalancedOrgans = sheet.organs.filter(
+    (o) =>
+      o.isImbalanced ||
+      o.imbalancePercent > 0 ||
+      typeof o.healthEnergyAngstroms === 'number'
+  );
+  const ansaeSystems = sheet.systems || [];
 
   const identificationTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -634,6 +646,34 @@ export async function downloadTherapistDocx(
     ],
   });
 
+  // 15 Sistemas Orgânicos ANSAE Table
+  const systemsTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          buildTableCell('Sigla', true, true),
+          buildTableCell('Sistema Orgânico', true, true),
+          buildTableCell('Energia de Saúde (Å)', true, true),
+          buildTableCell('% de Desequilíbrio', true, true),
+          buildTableCell('Significado Psicossomático', true, true),
+        ],
+      }),
+      ...ansaeSystems.map(
+        (s) =>
+          new TableRow({
+            children: [
+              buildTableCell(s.systemCode, true),
+              buildTableCell(s.systemName),
+              buildTableCell(formatAngstromsBR(s.healthEnergyAngstroms)),
+              buildTableCell(`${s.imbalancePercent}%`),
+              buildTableCell(getSystemPsychosomaticMeaning(s.systemCode)),
+            ],
+          })
+      ),
+    ],
+  });
+
   // ANSAE Organs Table
   const organsTable =
     imbalancedOrgans.length > 0
@@ -643,10 +683,10 @@ export async function downloadTherapistDocx(
             new TableRow({
               children: [
                 buildTableCell('Sigla', true, true),
-                buildTableCell('Sistema Orgânico', true, true),
                 buildTableCell('Órgão / Glândula', true, true),
-                buildTableCell('Desequilíbrio', true, true),
-                buildTableCell('Tempo', true, true),
+                buildTableCell('Energia de Saúde (Å)', true, true),
+                buildTableCell('% de Desequilíbrio', true, true),
+                buildTableCell('Significado Psicossomático', true, true),
               ],
             }),
             ...imbalancedOrgans.map(
@@ -654,10 +694,14 @@ export async function downloadTherapistDocx(
                 new TableRow({
                   children: [
                     buildTableCell(o.systemCode, true),
-                    buildTableCell(o.systemName),
-                    buildTableCell(o.organName),
-                    buildTableCell(`${o.imbalancePercent}%`),
-                    buildTableCell(`${o.durationValue}${o.durationUnit}`),
+                    buildTableCell(`${o.organName} (${o.systemName})`),
+                    buildTableCell(formatAngstromsBR(o.healthEnergyAngstroms)),
+                    buildTableCell(
+                      o.durationValue > 0
+                        ? `${o.imbalancePercent}% (${o.durationValue}${o.durationUnit})`
+                        : `${o.imbalancePercent}%`
+                    ),
+                    buildTableCell(getOrganPsychosomaticMeaning(o.id)),
                   ],
                 })
             ),
@@ -840,9 +884,17 @@ export async function downloadTherapistDocx(
           lifeAreasTable,
 
           buildSectionHeading('5. Sistemas Orgânicos e Órgãos/Glândulas (ANSAE)'),
+          buildBodyParagraph('Aferição dos 15 Sistemas Orgânicos:', ''),
+          systemsTable,
+          new Paragraph({ spacing: { before: 140, after: 60 } }),
+          buildBodyParagraph('Detalhamento de Órgãos e Glândulas (ANSAE):', ''),
           ...(organsTable
             ? [organsTable]
-            : [buildBodyParagraph('Nenhum dos 38 órgãos ANSAE foi sinalizado em desequilíbrio.')]),
+            : [
+                buildBodyParagraph(
+                  'Nenhum dos 38 órgãos ANSAE foi sinalizado em desequilíbrio ou aferido individualmente.'
+                ),
+              ]),
 
           buildSectionHeading('6. Biômetros Virtuais Consultados'),
           ...(sheet.biometerReadings.length > 0
@@ -1252,6 +1304,70 @@ class MaestroPdfBuilder {
     this.y += cardHeight + 6;
   }
 
+  public addMultiColumnTable(
+    headers: string[],
+    colWidths: number[],
+    rows: string[][]
+  ): void {
+    const drawHeaderRow = () => {
+      const headerHeight = 8;
+      this.ensureSpace(headerHeight + 6);
+      let x = this.margin;
+      headers.forEach((h, i) => {
+        const w = colWidths[i];
+        this.doc.setFillColor(250, 248, 245);
+        this.doc.setDrawColor(203, 213, 225);
+        this.doc.setLineWidth(0.25);
+        this.doc.rect(x, this.y, w, headerHeight, 'FD');
+        this.doc.setFont('helvetica', 'bold');
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(15, 23, 42);
+        this.doc.text(h, x + 2, this.y + 5.2, { maxWidth: w - 3.5 });
+        x += w;
+      });
+      this.y += headerHeight;
+    };
+
+    drawHeaderRow();
+
+    rows.forEach((row) => {
+      this.doc.setFont('helvetica', 'normal');
+      this.doc.setFontSize(8);
+      const cellLines = row.map((val, i) =>
+        this.doc.splitTextToSize(val || '—', colWidths[i] - 3.5) as string[]
+      );
+      const maxLines = Math.max(...cellLines.map((l) => l.length), 1);
+      const rowHeight = Math.max(7, maxLines * 3.9 + 2.6);
+
+      const pageHeight = this.doc.internal.pageSize.getHeight();
+      if (this.y + rowHeight > pageHeight - 16) {
+        this.doc.addPage();
+        this.y = 18;
+        drawHeaderRow();
+      }
+
+      let x = this.margin;
+      row.forEach((_val, i) => {
+        const w = colWidths[i];
+        this.doc.setDrawColor(203, 213, 225);
+        this.doc.setLineWidth(0.25);
+        this.doc.rect(x, this.y, w, rowHeight, 'D');
+
+        this.doc.setFont('helvetica', i === 0 ? 'bold' : 'normal');
+        this.doc.setFontSize(8);
+        this.doc.setTextColor(i === 0 ? 180 : 51, i === 0 ? 83 : 65, i === 0 ? 9 : 85);
+        cellLines[i].forEach((line, lineIdx) => {
+          this.doc.text(line, x + 1.8, this.y + 4.3 + lineIdx * 3.9);
+        });
+        x += w;
+      });
+
+      this.y += rowHeight;
+    });
+
+    this.y += 4;
+  }
+
   public save(filename: string): void {
     this.doc.save(filename);
   }
@@ -1266,7 +1382,13 @@ export async function downloadTherapistPdf(
   const logo = await loadMaestroLogo();
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
-  const imbalancedOrgans = sheet.organs.filter((o) => o.isImbalanced);
+  const ansaeSystems = sheet.systems || [];
+  const imbalancedOrgans = sheet.organs.filter(
+    (o) =>
+      o.isImbalanced ||
+      o.imbalancePercent > 0 ||
+      typeof o.healthEnergyAngstroms === 'number'
+  );
 
   const pdf = new MaestroPdfBuilder();
   pdf.addOfficialHeader(
@@ -1348,16 +1470,49 @@ export async function downloadTherapistPdf(
     ['Mesa Radiônica Indicada', sheet.spiritualPsycho.recommendedRadionicBoard],
   ]);
 
-  pdf.addSectionTitle('4. Órgãos ANSAE em Alerta & Biômetros Consultados');
+  pdf.addSectionTitle('4. Sistemas Orgânicos e Órgãos/Glândulas (ANSAE) & Biômetros');
+  pdf.addMultiColumnTable(
+    [
+      'Sigla',
+      'Sistema Orgânico',
+      'Energia de Saúde (Å)',
+      '% Deseq.',
+      'Significado Psicossomático',
+    ],
+    [14, 42, 28, 18, 72],
+    ansaeSystems.map((s) => [
+      s.systemCode,
+      s.systemName,
+      formatAngstromsBR(s.healthEnergyAngstroms),
+      `${s.imbalancePercent}%`,
+      getSystemPsychosomaticMeaning(s.systemCode),
+    ])
+  );
+
   if (imbalancedOrgans.length > 0) {
-    pdf.addKeyValueTable(
+    pdf.addMultiColumnTable(
+      [
+        'Sigla',
+        'Órgão / Glândula',
+        'Energia de Saúde (Å)',
+        '% Deseq.',
+        'Significado Psicossomático',
+      ],
+      [14, 42, 28, 22, 68],
       imbalancedOrgans.map((o) => [
-        `[${o.systemCode}] ${o.organName}`,
-        `${o.systemName} · ${o.imbalancePercent}% desequilíbrio · Tempo: ${o.durationValue}${o.durationUnit}`,
+        o.systemCode,
+        `${o.organName} (${o.systemName})`,
+        formatAngstromsBR(o.healthEnergyAngstroms),
+        o.durationValue > 0
+          ? `${o.imbalancePercent}% (${o.durationValue}${o.durationUnit})`
+          : `${o.imbalancePercent}%`,
+        getOrganPsychosomaticMeaning(o.id),
       ])
     );
   } else {
-    pdf.addParagraph('Nenhum órgão dos 15 sistemas ANSAE sinalizado em desequilíbrio.');
+    pdf.addParagraph(
+      'Nenhum dos 38 órgãos ANSAE sinalizado em desequilíbrio ou aferido individualmente.'
+    );
   }
 
   if (sheet.biometerReadings.length > 0) {

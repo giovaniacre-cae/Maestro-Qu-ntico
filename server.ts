@@ -138,9 +138,45 @@ async function startServer() {
         ? `Familiar=${ansaeRhen.lifeAreas.familiar}, Afetivo=${ansaeRhen.lifeAreas.relacionamentoAfetivo}, Profissional=${ansaeRhen.lifeAreas.profissional}, Financeiro=${ansaeRhen.lifeAreas.financeiro}, Missão=${ansaeRhen.lifeAreas.missaoDeVida}`
         : 'Não detalhado';
 
+      const formatAngstromsServer = (val?: number | null) => {
+        if (val === undefined || val === null || Number.isNaN(val)) return 'não aferida';
+        if (val === 0) return '0.000 Å';
+        return `${val.toLocaleString('pt-BR')} Å`;
+      };
+
+      const systemsEnergyText = Array.isArray(ansaeRhen?.systems)
+        ? ansaeRhen.systems
+            .filter(
+              (s: { isImbalanced?: boolean; imbalancePercent?: number; healthEnergyAngstroms?: number }) =>
+                s.isImbalanced ||
+                (s.imbalancePercent ?? 0) > 0 ||
+                typeof s.healthEnergyAngstroms === 'number'
+            )
+            .map(
+              (s: {
+                systemCode: string;
+                systemName: string;
+                isImbalanced?: boolean;
+                imbalancePercent?: number;
+                healthEnergyAngstroms?: number;
+              }) =>
+                `[${s.systemCode}] ${s.systemName}: ${s.imbalancePercent ?? 0}% desequilíbrio | Energia de Saúde: ${formatAngstromsServer(s.healthEnergyAngstroms)}${
+                  typeof s.healthEnergyAngstroms === 'number' && s.healthEnergyAngstroms < 6500
+                    ? ' [ALERTA CRÍTICO < 6.500 Å]'
+                    : ''
+                }`
+            )
+            .join(' | ') || 'Todos os 15 sistemas sem alertas específicos'
+        : 'Não detalhado';
+
       const imbalancedOrgansText = Array.isArray(ansaeRhen?.organs)
         ? ansaeRhen.organs
-            .filter((o: { isImbalanced: boolean }) => o.isImbalanced)
+            .filter(
+              (o: { isImbalanced: boolean; healthEnergyAngstroms?: number; imbalancePercent?: number }) =>
+                o.isImbalanced ||
+                (o.imbalancePercent ?? 0) > 0 ||
+                typeof o.healthEnergyAngstroms === 'number'
+            )
             .map(
               (o: {
                 systemCode: string;
@@ -148,8 +184,13 @@ async function startServer() {
                 imbalancePercent: number;
                 durationValue: number;
                 durationUnit: string;
+                healthEnergyAngstroms?: number;
               }) =>
-                `[${o.systemCode}] ${o.organName}: ${o.imbalancePercent}% desequilíbrio (tempo: ${o.durationValue}${o.durationUnit})`
+                `[${o.systemCode}] ${o.organName}: ${o.imbalancePercent}% desequilíbrio | Energia de Saúde: ${formatAngstromsServer(o.healthEnergyAngstroms)} (tempo: ${o.durationValue}${o.durationUnit})${
+                  typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500
+                    ? ' [ALERTA CRÍTICO < 6.500 Å]'
+                    : ''
+                }`
             )
             .join(' | ') || 'Nenhum órgão ANSAE em alerta'
         : alertSystems.join('; ') || 'Nenhum sistema em alerta';
@@ -203,7 +244,8 @@ FICHA COMPLETA ANSAE & RHEN:
 - Campo Áurico & Cromoterapia: ${auricText}
 - Áreas da Vida: ${lifeAreasText}
 - Dimensão Espiritual & Psicoemocional: ${spiritualExtra || `${sensitivity.subtleInterferences} interferências (${(sensitivity.interferenceTypes || []).join(', ')})`}
-- Órgãos & Sistemas ANSAE em Desequilíbrio: ${imbalancedOrgansText}
+- 15 Sistemas Orgânicos ANSAE (% Desequilíbrio e Energia de Saúde em Å): ${systemsEnergyText}
+- Órgãos & Glândulas ANSAE (% Desequilíbrio e Energia de Saúde em Å): ${imbalancedOrgansText}
 - Leituras dos 22 Biômetros Virtuais Consultados: ${biometerReadingsText}
 
 ${therapeuticsContext}
@@ -219,12 +261,12 @@ ${JSON.stringify(geometriesList, null, 2)}
 REGRAS OBRIGATÓRIAS DE REDAÇÃO:
 1. "testemunhos": Crie um item para CADA geometria listada acima. O campo "testemunhoFormatado" DEVE seguir rigorosamente o padrão:
    "${anamnesis.fullName} - ${birthFormatted} | [Foco específico adaptado à função daquela geometria]"
-2. "comandosQuanticos": Crie comandos quânticos profundos e personalizados para CADA geometria/etapa ativa selecionada, integrando os chakras, órgãos ANSAE, cores em falta e virtudes detectadas. Cada "comandoTexto" DEVE:
+2. "comandosQuanticos": Crie comandos quânticos profundos e personalizados para CADA geometria/etapa ativa selecionada, integrando os chakras, órgãos/sistemas ANSAE (citando explicitamente os valores exatos em Ångströms aferidos quando disponíveis, comandando a elevação de órgãos/sistemas em 0.000 Å, 4.500 Å ou < 6.500 Å para acima de 9.500 Å de Energia de Saúde), cores em falta e virtudes detectadas. Cada "comandoTexto" DEVE:
    - Ser redigido na 1ª pessoa do presente do indicativo ("Eu colapso...", "Eu ativo...", "Eu ancoro...").
    - Integrar conceitos de física quântica (colapso de função de onda, campo de ponto zero, não-localidade).
    - Integrar Ressonância Harmônica (transferência de informação arquetípica pura, transmutação na Escala de Hawkins).
    - Terminar EXATAMENTE com a frase de selamento: "Está ativado, colapsado e manifestado na ordem cósmica."
-3. "analiseCausaRaiz": Análise técnica cruzando especificamente os órgãos ANSAE em desequilíbrio, os chakras/glândulas afetados, os campos eletromagnéticos, as áreas da vida comprometidas e as emoções/causas raiz.
+3. "analiseCausaRaiz": Análise técnica cruzando especificamente os sistemas e órgãos ANSAE em desequilíbrio (citando % e Energia de Saúde em Å), os chakras/glândulas afetados, os campos eletromagnéticos, as áreas da vida comprometidas e as emoções/causas raiz.
 4. "analisePsicossomatica": Texto técnico-clínico de 2 parágrafos para o Relatório do Terapeuta correlacionando Bovis, Hawkins/Ágatha, Yin/Yang, campo áurico (cores em falta/excesso) e somatização orgânica.
 5. "comparativoEvolutivo": ${isPostTreatment ? 'OBRIGATÓRIO: Compare numericamente e clinicamente os ganhos entre a sessão anterior e a leitura atual (Bovis, Hawkins, Aura, Estresse e órgãos), destacando a resposta do organismo ao protocolo.' : 'Retorne string vazia "" por ser Avaliação Inicial.'}
 6. "orientacaoPacienteResumo": Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual.

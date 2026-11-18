@@ -84,6 +84,16 @@ export interface SpiritualPsychoReading {
   recommendedRadionicBoard: string;
 }
 
+export interface AnsaeSystemReading {
+  systemCode: AnsaeSystemCode;
+  systemName: string;
+  isImbalanced: boolean;
+  imbalancePercent: number; // 0 - 100
+  durationValue: number;
+  durationUnit: 'h' | 'd' | 'm';
+  healthEnergyAngstroms?: number; // 0 - 18000 (step 500)
+}
+
 export interface AnsaeOrganReading {
   id: string;
   systemCode: AnsaeSystemCode;
@@ -93,6 +103,7 @@ export interface AnsaeOrganReading {
   imbalancePercent: number; // 0 - 100
   durationValue: number;
   durationUnit: 'h' | 'd' | 'm';
+  healthEnergyAngstroms?: number; // 0 - 18000 (step 500)
 }
 
 export interface ClinicalAnsaeRhenSheet {
@@ -102,6 +113,7 @@ export interface ClinicalAnsaeRhenSheet {
   auricField: AuricFieldReading;
   lifeAreas: LifeAreasReading;
   spiritualPsycho: SpiritualPsychoReading;
+  systems?: AnsaeSystemReading[];
   organs: AnsaeOrganReading[];
   biometerReadings: Array<{
     biometerId: string;

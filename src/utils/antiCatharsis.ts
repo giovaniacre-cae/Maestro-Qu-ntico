@@ -1,3 +1,4 @@
+import { ClinicalAnsaeRhenSheet } from '../types/clinical';
 import {
   AntiCatharsisProtocol,
   ChakraReading,
@@ -6,6 +7,16 @@ import {
   QuantumGeometry,
   SensitivityReading,
 } from '../types/quantum';
+
+export function formatAngstromsBR(value?: number | null): string {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return '—';
+  }
+  if (value === 0) {
+    return '0.000 Å';
+  }
+  return `${value.toLocaleString('pt-BR')} Å`;
+}
 
 export const DEFAULT_CHAKRAS: ChakraReading[] = [
   { id: 'coronario', name: 'Coronário', sanskrit: 'Sahasrara', percentage: 75, status: 'Equilibrado' },
@@ -99,9 +110,30 @@ function includesProsperityFocus(anamnesis: PatientAnamnesis): boolean {
   return keywords.some((kw) => text.includes(kw));
 }
 
+const VITAL_ANSAE_KEYWORDS = [
+  'coração',
+  'cérebro',
+  'rins',
+  'fígado',
+  'pâncreas',
+  'imunológico',
+  'medula',
+  'pulmões',
+  'timo',
+  'nervoso',
+  'cardiovascular',
+  'endócrino',
+];
+
+function isVitalItemName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return VITAL_ANSAE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 export function evaluateAntiCatharsis(
   anamnesis: PatientAnamnesis,
-  sensitivity: SensitivityReading
+  sensitivity: SensitivityReading,
+  ansaeSheet?: ClinicalAnsaeRhenSheet
 ): AntiCatharsisProtocol {
   const alertSystems = sensitivity.organicSystems.filter((s) => s.status === 'Em Alerta');
   const alertSystemsCount = alertSystems.length;
@@ -120,7 +152,7 @@ export function evaluateAntiCatharsis(
   }
   if (sensitivity.stressLevel >= 4) {
     riskReasons.push(
-      `Sobrecarga / Estresse do Sistema Nervoso em nível ${sensitivity.stressLevel}/5 (≥ 4 exige descompressão gradual)`
+      `Sobrecarga / Estresse do Sistema Nervoso em nível ${sensitivity.stressLevel}/9 (≥ 4 exige descompressão gradual)`
     );
   }
   if (sensitivity.subtleInterferences > 0) {
@@ -131,6 +163,49 @@ export function evaluateAntiCatharsis(
   if (alertSystemsCount >= 3) {
     riskReasons.push(
       `${alertSystemsCount} sistemas orgânicos em estado de alerta simultâneo (≥ 3 exige estabilização prévia)`
+    );
+  }
+
+  // Regra Anti-Catarse para Energia de Saúde (Å) < 6.500 Å em Sistemas e Órgãos ANSAE
+  const criticalEnergyEntries: string[] = [];
+  const seenCriticalNames = new Set<string>();
+
+  (ansaeSheet?.systems || []).forEach((sys) => {
+    if (typeof sys.healthEnergyAngstroms === 'number' && sys.healthEnergyAngstroms < 6500) {
+      const label = `${sys.systemName} [${sys.systemCode}] (${formatAngstromsBR(
+        sys.healthEnergyAngstroms
+      )})`;
+      if (!seenCriticalNames.has(sys.systemName)) {
+        seenCriticalNames.add(sys.systemName);
+        criticalEnergyEntries.push(label);
+      }
+    }
+  });
+
+  (ansaeSheet?.organs || []).forEach((org) => {
+    if (typeof org.healthEnergyAngstroms === 'number' && org.healthEnergyAngstroms < 6500) {
+      const tag = isVitalItemName(org.organName) ? ' [Órgão Vital]' : '';
+      const label = `${org.organName}${tag} (${formatAngstromsBR(org.healthEnergyAngstroms)})`;
+      if (!seenCriticalNames.has(org.organName)) {
+        seenCriticalNames.add(org.organName);
+        criticalEnergyEntries.push(label);
+      }
+    }
+  });
+
+  if (criticalEnergyEntries.length === 0) {
+    (sensitivity.organicSystems || []).forEach((sys) => {
+      if (typeof sys.healthEnergyAngstroms === 'number' && sys.healthEnergyAngstroms < 6500) {
+        criticalEnergyEntries.push(`${sys.name} (${formatAngstromsBR(sys.healthEnergyAngstroms)})`);
+      }
+    });
+  }
+
+  if (criticalEnergyEntries.length > 0) {
+    riskReasons.push(
+      `Energia de Saúde abaixo de 6.500 Å detectada em ${criticalEnergyEntries.length} sistema(s)/órgão(s): ${criticalEnergyEntries
+        .slice(0, 5)
+        .join(', ')}${criticalEnergyEntries.length > 5 ? '…' : ''} — exige Modo Escalonado Anti-Catarse`
     );
   }
 

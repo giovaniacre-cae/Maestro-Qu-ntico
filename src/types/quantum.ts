@@ -27,6 +27,7 @@ export interface OrganicSystemStatus {
   name: string;
   status: 'Equilibrado' | 'Em Alerta';
   note: string;
+  healthEnergyAngstroms?: number;
 }
 
 export interface SensitivityReading {

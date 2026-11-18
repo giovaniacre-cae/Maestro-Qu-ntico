@@ -30,7 +30,7 @@ import {
   QuantumGenerationResult,
   SensitivityReading,
 } from '../types/quantum';
-import { formatTestemunho, getHawkinsLevelInfo } from '../utils/antiCatharsis';
+import { formatAngstromsBR, formatTestemunho, getHawkinsLevelInfo } from '../utils/antiCatharsis';
 import { solfeggioSynth } from '../utils/audioSynth';
 
 export interface SelectedTherapeutics {
@@ -238,7 +238,22 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   };
 
   const imbalancedOrgans = useMemo(
-    () => (ansaeSheet?.organs || []).filter((o) => o.isImbalanced),
+    () =>
+      (ansaeSheet?.organs || []).filter(
+        (o) =>
+          o.isImbalanced ||
+          (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500)
+      ),
+    [ansaeSheet]
+  );
+
+  const alertSystems = useMemo(
+    () =>
+      (ansaeSheet?.systems || []).filter(
+        (s) =>
+          s.isImbalanced ||
+          (typeof s.healthEnergyAngstroms === 'number' && s.healthEnergyAngstroms < 6500)
+      ),
     [ansaeSheet]
   );
 
@@ -331,17 +346,29 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
 
             <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1">
               <p className="font-semibold text-[#0F172A]">
-                Órgãos ANSAE em Alerta ({imbalancedOrgans.length})
+                Sistemas & Órgãos ANSAE em Alerta ({alertSystems.length + imbalancedOrgans.length})
               </p>
               <p className="text-[#45464D]">
-                {imbalancedOrgans.length > 0
-                  ? imbalancedOrgans
-                      .map(
+                {alertSystems.length > 0 || imbalancedOrgans.length > 0
+                  ? [
+                      ...alertSystems.map(
+                        (s) =>
+                          `[${s.systemCode}] ${s.systemName} (${s.imbalancePercent}%${
+                            typeof s.healthEnergyAngstroms === 'number'
+                              ? ` · ${formatAngstromsBR(s.healthEnergyAngstroms)}`
+                              : ''
+                          })`
+                      ),
+                      ...imbalancedOrgans.map(
                         (o) =>
-                          `[${o.systemCode}] ${o.organName} (${o.imbalancePercent}% · ${o.durationValue}${o.durationUnit})`
-                      )
-                      .join('; ')
-                  : 'Nenhum órgão marcado em desequilíbrio na ficha ANSAE.'}
+                          `[${o.systemCode}] ${o.organName} (${o.imbalancePercent}%${
+                            typeof o.healthEnergyAngstroms === 'number'
+                              ? ` · ${formatAngstromsBR(o.healthEnergyAngstroms)}`
+                              : ''
+                          } · ${o.durationValue}${o.durationUnit})`
+                      ),
+                    ].join('; ')
+                  : 'Nenhum sistema ou órgão marcado em desequilíbrio na ficha ANSAE.'}
               </p>
             </div>
 

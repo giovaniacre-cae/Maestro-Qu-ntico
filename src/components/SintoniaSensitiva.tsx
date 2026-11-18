@@ -15,6 +15,7 @@ import {
   AnsaeChakraReading,
   AnsaeOrganReading,
   AnsaeSystemCode,
+  AnsaeSystemReading,
   AuraProtectionLevel,
   AuraSizeLevel,
   BiometerDefinition,
@@ -32,6 +33,7 @@ import {
 import {
   INTERFERENCE_OPTIONS,
   evaluateAntiCatharsis,
+  formatAngstromsBR,
   getHawkinsLevelInfo,
 } from '../utils/antiCatharsis';
 import {
@@ -39,6 +41,7 @@ import {
   createDefaultAnsaeRhenSheet,
   loadClinicalDatabase,
   loadCustomBiometers,
+  normalizeAnsaeSheet,
   saveClinicalDatabase,
   saveCustomBiometers,
 } from '../utils/storage';
@@ -300,6 +303,44 @@ const BovisGauge: React.FC<{ bovis: number }> = ({ bovis }) => {
   );
 };
 
+function getEnergyBandMeta(energy?: number): {
+  label: string;
+  badgeClass: string;
+  inputClass: string;
+  cardBorderClass: string;
+} {
+  if (energy === undefined || energy === null || Number.isNaN(energy)) {
+    return {
+      label: 'Não aferido',
+      badgeClass: 'bg-[#F1F5F9] text-[#64748B] border-[#CBD5E1]',
+      inputClass: 'bg-white border-[#CBD5E1] text-[#0F172A]',
+      cardBorderClass: '',
+    };
+  }
+  if (energy < 6500) {
+    return {
+      label: 'Alerta (< 6.500 Å)',
+      badgeClass: 'bg-[#BA1A1A]/10 text-[#93000A] border-[#BA1A1A]/40',
+      inputClass: 'bg-[#BA1A1A]/5 border-[#BA1A1A] text-[#93000A] font-bold',
+      cardBorderClass: 'border-[#BA1A1A]/50 bg-[#BA1A1A]/5',
+    };
+  }
+  if (energy < 7000) {
+    return {
+      label: 'Limiar (6.500 Å)',
+      badgeClass: 'bg-[#FEF3C7] text-[#92400E] border-[#D97706]/50',
+      inputClass: 'bg-[#FEF3C7]/60 border-[#D97706] text-[#92400E] font-bold',
+      cardBorderClass: 'border-[#D97706]/50 bg-[#FEF3C7]/25',
+    };
+  }
+  return {
+    label: 'Equilíbrio (≥ 7.000 Å)',
+    badgeClass: 'bg-[#DCFCE7] text-[#166534] border-[#16A34A]/40',
+    inputClass: 'bg-[#DCFCE7]/50 border-[#16A34A] text-[#166534] font-semibold',
+    cardBorderClass: 'border-[#16A34A]/35 bg-[#DCFCE7]/15',
+  };
+}
+
 function getSheetStorageKey(patientId: string): string {
   return `maestro_quantico_ansae_draft_${patientId || 'default'}`;
 }
@@ -313,7 +354,7 @@ function loadInitialSheet(
     if (raw) {
       const parsed = JSON.parse(raw) as ClinicalAnsaeRhenSheet;
       if (parsed && Array.isArray(parsed.organs) && parsed.organs.length === 38) {
-        return {
+        return normalizeAnsaeSheet({
           ...parsed,
           spiritualPsycho: {
             ...parsed.spiritualPsycho,
@@ -326,7 +367,7 @@ function loadInitialSheet(
             ...parsed.auricField,
             protectionPercent: sensitivity.auricProtection,
           },
-        };
+        });
       }
     }
   } catch {
@@ -338,7 +379,7 @@ function loadInitialSheet(
     (s) => s.patientId === anamnesis.id && s.phase !== 'completed'
   );
   if (matched) {
-    return {
+    return normalizeAnsaeSheet({
       ...matched.ansaeRhen,
       spiritualPsycho: {
         ...matched.ansaeRhen.spiritualPsycho,
@@ -351,7 +392,7 @@ function loadInitialSheet(
         ...matched.ansaeRhen.auricField,
         protectionPercent: sensitivity.auricProtection,
       },
-    };
+    });
   }
 
   const base = createDefaultAnsaeRhenSheet();
@@ -410,7 +451,10 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     }
   }, [anamnesis.id, sheet]);
 
-  const mapAnsaeSystemsToLegacy = (organs: AnsaeOrganReading[]): OrganicSystemStatus[] => {
+  const mapAnsaeSystemsToLegacy = (
+    organs: AnsaeOrganReading[],
+    systems?: AnsaeSystemReading[]
+  ): OrganicSystemStatus[] => {
     const codeGroups: Array<{
       legacyId: string;
       codes: AnsaeSystemCode[];
@@ -428,22 +472,76 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     return sensitivity.organicSystems.map((sys) => {
       const group = codeGroups.find((g) => g.legacyId === sys.id);
       if (!group) return sys;
-      const imbalancedOrgans = organs.filter(
-        (o) => group.codes.includes(o.systemCode) && o.isImbalanced
-      );
-      if (imbalancedOrgans.length > 0) {
+      const groupSystems = (systems || []).filter((s) => group.codes.includes(s.systemCode));
+      const groupOrgans = organs.filter((o) => group.codes.includes(o.systemCode));
+
+      const alertItems = [
+        ...groupSystems.filter(
+          (s) =>
+            s.isImbalanced ||
+            (typeof s.healthEnergyAngstroms === 'number' && s.healthEnergyAngstroms < 6500)
+        ),
+        ...groupOrgans.filter(
+          (o) =>
+            o.isImbalanced ||
+            (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500)
+        ),
+      ];
+
+      const recordedEnergies = [
+        ...groupSystems
+          .map((s) => s.healthEnergyAngstroms)
+          .filter((v): v is number => typeof v === 'number'),
+        ...groupOrgans
+          .map((o) => o.healthEnergyAngstroms)
+          .filter((v): v is number => typeof v === 'number'),
+      ];
+      const minEnergy =
+        recordedEnergies.length > 0 ? Math.min(...recordedEnergies) : undefined;
+
+      if (alertItems.length > 0) {
+        const notes = [
+          ...groupSystems
+            .filter(
+              (s) =>
+                s.isImbalanced ||
+                (typeof s.healthEnergyAngstroms === 'number' && s.healthEnergyAngstroms < 6500)
+            )
+            .map(
+              (s) =>
+                `${s.systemName} (${s.imbalancePercent}% · ${formatAngstromsBR(
+                  s.healthEnergyAngstroms
+                )})`
+            ),
+          ...groupOrgans
+            .filter(
+              (o) =>
+                o.isImbalanced ||
+                (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500)
+            )
+            .map(
+              (o) =>
+                `${o.organName} (${o.imbalancePercent}% · ${formatAngstromsBR(
+                  o.healthEnergyAngstroms
+                )} · ${o.durationValue}${o.durationUnit})`
+            ),
+        ];
+
         return {
           ...sys,
           status: 'Em Alerta',
-          note: imbalancedOrgans
-            .map((o) => `${o.organName} (${o.imbalancePercent}% · ${o.durationValue}${o.durationUnit})`)
-            .join(', '),
+          healthEnergyAngstroms: minEnergy,
+          note: notes.join(', '),
         };
       }
       return {
         ...sys,
         status: 'Equilibrado',
-        note: 'Tônus estável na varredura ANSAE',
+        healthEnergyAngstroms: minEnergy,
+        note:
+          minEnergy !== undefined
+            ? `Tônus estável (${formatAngstromsBR(minEnergy)})`
+            : 'Tônus estável na varredura ANSAE',
       };
     });
   };
@@ -476,7 +574,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     syncOrgans = false,
     syncChakras = false
   ) => {
-    const next = updater(sheet);
+    const next = normalizeAnsaeSheet(updater(sheet));
     try {
       localStorage.setItem(getSheetStorageKey(anamnesis.id), JSON.stringify(next));
     } catch {
@@ -494,7 +592,9 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         next.spiritualPsycho.spiritualDisturbances.length +
         next.spiritualPsycho.implantsDetected.length,
       ...(syncChakras ? { chakras: mapAnsaeChakrasToLegacy(next.chakras) } : {}),
-      ...(syncOrgans ? { organicSystems: mapAnsaeSystemsToLegacy(next.organs) } : {}),
+      ...(syncOrgans
+        ? { organicSystems: mapAnsaeSystemsToLegacy(next.organs, next.systems) }
+        : {}),
     };
     onChange(nextSensitivity);
   };
@@ -505,8 +605,8 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   );
 
   const previewProtocol = useMemo(
-    () => evaluateAntiCatharsis(anamnesis, sensitivity),
-    [anamnesis, sensitivity]
+    () => evaluateAntiCatharsis(anamnesis, sensitivity, sheet),
+    [anamnesis, sensitivity, sheet]
   );
 
   const toggleRootDomain = (domain: RootProblemDomain) => {
@@ -524,15 +624,59 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   const isDomainVisible = (domain: RootProblemDomain) =>
     showAllBlocks || sheet.rootProblems.length === 0 || sheet.rootProblems.includes(domain);
 
-  const imbalancedOrgansCount = sheet.organs.filter((o) => o.isImbalanced).length;
-  const affectedSystemsCount = new Set(
-    sheet.organs.filter((o) => o.isImbalanced).map((o) => o.systemCode)
-  ).size;
+  const allSystems = sheet.systems || [];
+  const imbalancedOrgansCount = sheet.organs.filter(
+    (o) =>
+      o.isImbalanced ||
+      (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500)
+  ).length;
+  const affectedSystemsCount = new Set([
+    ...sheet.organs
+      .filter(
+        (o) =>
+          o.isImbalanced ||
+          (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500)
+      )
+      .map((o) => o.systemCode),
+    ...allSystems
+      .filter(
+        (s) =>
+          s.isImbalanced ||
+          (typeof s.healthEnergyAngstroms === 'number' && s.healthEnergyAngstroms < 6500)
+      )
+      .map((s) => s.systemCode),
+  ]).size;
+
+  const filteredSystems = useMemo(() => {
+    const list = sheet.systems || [];
+    if (activeSystemTab === 'ALL') return list;
+    return list.filter((s) => s.systemCode === activeSystemTab);
+  }, [activeSystemTab, sheet.systems]);
 
   const filteredOrgans = useMemo(() => {
     if (activeSystemTab === 'ALL') return sheet.organs;
     return sheet.organs.filter((o) => o.systemCode === activeSystemTab);
   }, [activeSystemTab, sheet.organs]);
+
+  const handleFillHealthyDefaults = () => {
+    updateSheetAndSync(
+      (prev) => ({
+        ...prev,
+        systems: (prev.systems || []).map((s) =>
+          !s.isImbalanced && s.healthEnergyAngstroms === undefined
+            ? { ...s, healthEnergyAngstroms: 9500 }
+            : s
+        ),
+        organs: prev.organs.map((o) =>
+          !o.isImbalanced && o.healthEnergyAngstroms === undefined
+            ? { ...o, healthEnergyAngstroms: 9500 }
+            : o
+        ),
+      }),
+      true,
+      false
+    );
+  };
 
   const handleSaveCustomBiometer = (bio: BiometerDefinition) => {
     const next = [...customBiometers, bio];
@@ -1725,8 +1869,8 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
       {/* Full-Width Section: 15 Sistemas Orgânicos & 38 Órgãos/Glândulas (ANSAE) */}
       {isDomainVisible('Órgãos') && (
-        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
             <div className="flex items-center gap-2.5">
               <Activity className="w-5 h-5 text-[#B45309]" />
               <div>
@@ -1734,20 +1878,44 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   15 Sistemas Orgânicos e 38 Órgãos / Glândulas (ANSAE)
                 </h2>
                 <p className="text-xs text-[#64748B]">
-                  Marque os órgãos sensibilizados na varredura, informe o % de desequilíbrio e o tempo estimado (h/d/m).
+                  Informe o % de Desequilíbrio e a Energia de Saúde em Ångströms (0 a 18.000 Å, passo 500). Valores &lt; 6.500 Å acionam o Protocolo Anti-Catarse automaticamente.
                 </p>
               </div>
             </div>
 
-            <div className="text-right">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleFillHealthyDefaults}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#166534] bg-[#DCFCE7] border border-[#16A34A]/40 rounded-lg hover:bg-[#BBF7D0] transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Preencher Padrão Saudável (9.500 Å)
+              </button>
               <span
                 className={`font-mono tabular-nums text-xs font-semibold ${
-                  affectedSystemsCount >= 3 ? 'text-[#BA1A1A]' : 'text-[#0F172A]'
+                  affectedSystemsCount >= 3 || previewProtocol.riskTriggered
+                    ? 'text-[#BA1A1A]'
+                    : 'text-[#0F172A]'
                 }`}
               >
-                {imbalancedOrgansCount} órgão(s) · {affectedSystemsCount} sistema(s) em alerta
+                {imbalancedOrgansCount} órgão(s) · {affectedSystemsCount} sistema(s) em atenção
               </span>
             </div>
+          </div>
+
+          {/* Legenda Faixas de Bovis */}
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="font-semibold text-[#64748B]">Indicador Bovis (Å):</span>
+            <span className="px-2 py-0.5 rounded border bg-[#BA1A1A]/10 text-[#93000A] border-[#BA1A1A]/40 font-medium">
+              &lt; 6.500 Å · Alerta Crítico
+            </span>
+            <span className="px-2 py-0.5 rounded border bg-[#FEF3C7] text-[#92400E] border-[#D97706]/50 font-medium">
+              6.500 Å · Limiar Mínimo
+            </span>
+            <span className="px-2 py-0.5 rounded border bg-[#DCFCE7] text-[#166534] border-[#16A34A]/40 font-medium">
+              ≥ 7.000 Å · Equilíbrio
+            </span>
           </div>
 
           {/* Filter by System Sigla */}
@@ -1765,8 +1933,16 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             </button>
             {SYSTEM_CODES_ORDER.map((code) => {
               const countInSys = sheet.organs.filter(
-                (o) => o.systemCode === code && o.isImbalanced
+                (o) =>
+                  o.systemCode === code &&
+                  (o.isImbalanced ||
+                    (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500))
               ).length;
+              const sysEntry = allSystems.find((s) => s.systemCode === code);
+              const sysAlert =
+                Boolean(sysEntry?.isImbalanced) ||
+                (typeof sysEntry?.healthEnergyAngstroms === 'number' &&
+                  sysEntry.healthEnergyAngstroms < 6500);
               const active = activeSystemTab === code;
               return (
                 <button
@@ -1777,7 +1953,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   className={`px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border cursor-pointer ${
                     active
                       ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                      : countInSys > 0
+                      : countInSys > 0 || sysAlert
                       ? 'bg-[#BA1A1A]/8 text-[#BA1A1A] border-[#BA1A1A]/40'
                       : 'bg-white text-[#45464D] border-[#E2E8F0] hover:border-[#D97706]'
                   }`}
@@ -1789,136 +1965,497 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             })}
           </div>
 
-          {/* Organs Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {filteredOrgans.map((organ) => (
-              <div
-                key={organ.id}
-                className={`p-3.5 rounded-xl border transition-colors space-y-2.5 ${
-                  organ.isImbalanced
-                    ? 'bg-[#BA1A1A]/5 border-[#BA1A1A]/40'
-                    : 'bg-[#FAF8F5] border-[#E2E8F0]'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={organ.isImbalanced}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        updateSheetAndSync(
-                          (prev) => ({
-                            ...prev,
-                            organs: prev.organs.map((o) =>
-                              o.id === organ.id
-                                ? {
-                                    ...o,
-                                    isImbalanced: checked,
-                                    imbalancePercent:
-                                      checked && o.imbalancePercent === 0 ? 35 : checked ? o.imbalancePercent : 0,
-                                    durationValue:
-                                      checked && o.durationValue === 0 ? 7 : checked ? o.durationValue : 0,
-                                  }
-                                : o
-                            ),
-                          }),
-                          true,
-                          false
-                        );
-                      }}
-                      className="w-4 h-4 mt-0.5 accent-[#0F172A] cursor-pointer"
-                    />
-                    <div>
-                      <p className="text-xs font-bold text-[#0F172A]">{organ.organName}</p>
-                      <p className="text-[11px] font-mono text-[#64748B]">
-                        {organ.systemCode} · {organ.systemName}
-                      </p>
-                    </div>
-                  </label>
-                  {organ.isImbalanced ? (
-                    <AlertTriangle className="w-4 h-4 text-[#BA1A1A] shrink-0" />
-                  ) : (
-                    <CheckCircle2 className="w-4 h-4 text-[#94A3B8] shrink-0" />
-                  )}
-                </div>
+          {/* 15 Sistemas Orgânicos (Aferição Sistêmica) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#B45309]">
+                Bloco A · 15 Sistemas Orgânicos (Aferição Sistêmica ANSAE)
+              </h3>
+              <span className="text-[11px] text-[#64748B]">
+                Registro direto de % Desequilíbrio e Energia de Saúde (Å)
+              </span>
+            </div>
 
-                {organ.isImbalanced && (
-                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[#BA1A1A]/15">
-                    <div>
-                      <label className="block text-[10px] text-[#64748B] mb-0.5">Desequil. %</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={organ.imbalancePercent}
-                        onChange={(e) => {
-                          const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                          updateSheetAndSync(
-                            (prev) => ({
-                              ...prev,
-                              organs: prev.organs.map((o) =>
-                                o.id === organ.id ? { ...o, imbalancePercent: val } : o
-                              ),
-                            }),
-                            true,
-                            false
-                          );
-                        }}
-                        className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
-                      />
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {filteredSystems.map((sys) => {
+                const band = getEnergyBandMeta(sys.healthEnergyAngstroms);
+                const isAlert =
+                  sys.isImbalanced ||
+                  (typeof sys.healthEnergyAngstroms === 'number' &&
+                    sys.healthEnergyAngstroms < 6500);
+
+                return (
+                  <div
+                    key={sys.systemCode}
+                    className={`p-3.5 rounded-xl border transition-colors space-y-2.5 ${
+                      band.cardBorderClass
+                        ? band.cardBorderClass
+                        : sys.isImbalanced
+                        ? 'bg-[#BA1A1A]/5 border-[#BA1A1A]/40'
+                        : 'bg-[#FAF8F5] border-[#E2E8F0]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sys.isImbalanced}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                systems: (prev.systems || []).map((s) =>
+                                  s.systemCode === sys.systemCode
+                                    ? {
+                                        ...s,
+                                        isImbalanced: checked,
+                                        imbalancePercent:
+                                          checked && s.imbalancePercent === 0
+                                            ? 35
+                                            : checked
+                                            ? s.imbalancePercent
+                                            : 0,
+                                        durationValue:
+                                          checked && s.durationValue === 0
+                                            ? 7
+                                            : checked
+                                            ? s.durationValue
+                                            : 0,
+                                      }
+                                    : s
+                                ),
+                              }),
+                              true,
+                              false
+                            );
+                          }}
+                          className="w-4 h-4 mt-0.5 accent-[#0F172A] cursor-pointer"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-[#0F172A]">
+                            [{sys.systemCode}] {sys.systemName}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold rounded border ${band.badgeClass}`}
+                            >
+                              {band.label}
+                            </span>
+                            {typeof sys.healthEnergyAngstroms === 'number' && (
+                              <span className="text-[10px] font-mono text-[#45464D]">
+                                {formatAngstromsBR(sys.healthEnergyAngstroms)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </label>
+                      {isAlert ? (
+                        <AlertTriangle className="w-4 h-4 text-[#BA1A1A] shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4 text-[#94A3B8] shrink-0" />
+                      )}
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-[#64748B] mb-0.5">Tempo</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={365}
-                        value={organ.durationValue}
-                        onChange={(e) => {
-                          const val = Math.max(0, Number(e.target.value) || 0);
-                          updateSheetAndSync(
-                            (prev) => ({
-                              ...prev,
-                              organs: prev.organs.map((o) =>
-                                o.id === organ.id ? { ...o, durationValue: val } : o
-                              ),
-                            }),
-                            true,
-                            false
-                          );
-                        }}
-                        className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
-                      />
+
+                    <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#E2E8F0]/80">
+                      <div>
+                        <label className="block text-[10px] text-[#64748B] mb-0.5">
+                          % Desequilíbrio
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={sys.imbalancePercent}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                systems: (prev.systems || []).map((s) =>
+                                  s.systemCode === sys.systemCode
+                                    ? {
+                                        ...s,
+                                        imbalancePercent: val,
+                                        isImbalanced: val > 0 ? true : s.isImbalanced,
+                                      }
+                                    : s
+                                ),
+                              }),
+                              true,
+                              false
+                            );
+                          }}
+                          className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-semibold text-[#0F172A] mb-0.5">
+                          Energia (Å)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={18000}
+                          step={500}
+                          placeholder={sys.isImbalanced ? '6500' : '9500'}
+                          value={sys.healthEnergyAngstroms ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const parsed =
+                              raw === ''
+                                ? undefined
+                                : Math.max(0, Math.min(18000, Number(raw)));
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                systems: (prev.systems || []).map((s) =>
+                                  s.systemCode === sys.systemCode
+                                    ? {
+                                        ...s,
+                                        healthEnergyAngstroms: Number.isNaN(parsed)
+                                          ? undefined
+                                          : parsed,
+                                      }
+                                    : s
+                                ),
+                              }),
+                              true,
+                              false
+                            );
+                          }}
+                          className={`w-full px-2 py-1 text-xs font-mono border rounded ${band.inputClass}`}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-[#64748B] mb-0.5">Unidade</label>
-                      <select
-                        value={organ.durationUnit}
-                        onChange={(e) => {
-                          const unit = e.target.value as 'h' | 'd' | 'm';
-                          updateSheetAndSync(
-                            (prev) => ({
-                              ...prev,
-                              organs: prev.organs.map((o) =>
-                                o.id === organ.id ? { ...o, durationUnit: unit } : o
-                              ),
-                            }),
-                            true,
-                            false
-                          );
-                        }}
-                        className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
-                      >
-                        <option value="h">horas</option>
-                        <option value="d">dias</option>
-                        <option value="m">meses</option>
-                      </select>
-                    </div>
+
+                    {sys.isImbalanced ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-[#64748B] mb-0.5">Tempo</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={365}
+                            value={sys.durationValue}
+                            onChange={(e) => {
+                              const val = Math.max(0, Number(e.target.value) || 0);
+                              updateSheetAndSync(
+                                (prev) => ({
+                                  ...prev,
+                                  systems: (prev.systems || []).map((s) =>
+                                    s.systemCode === sys.systemCode
+                                      ? { ...s, durationValue: val }
+                                      : s
+                                  ),
+                                }),
+                                true,
+                                false
+                              );
+                            }}
+                            className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-[#64748B] mb-0.5">Unidade</label>
+                          <select
+                            value={sys.durationUnit}
+                            onChange={(e) => {
+                              const unit = e.target.value as 'h' | 'd' | 'm';
+                              updateSheetAndSync(
+                                (prev) => ({
+                                  ...prev,
+                                  systems: (prev.systems || []).map((s) =>
+                                    s.systemCode === sys.systemCode
+                                      ? { ...s, durationUnit: unit }
+                                      : s
+                                  ),
+                                }),
+                                true,
+                                false
+                              );
+                            }}
+                            className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                          >
+                            <option value="h">horas</option>
+                            <option value="d">dias</option>
+                            <option value="m">meses</option>
+                          </select>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                systems: (prev.systems || []).map((s) =>
+                                  s.systemCode === sys.systemCode
+                                    ? { ...s, healthEnergyAngstroms: 9500 }
+                                    : s
+                                ),
+                              }),
+                              true,
+                              false
+                            )
+                          }
+                          className="text-[10px] font-semibold text-[#166534] hover:underline cursor-pointer"
+                        >
+                          Preencher Padrão Saudável (9.500 Å)
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 38 Órgãos e Glândulas Grid */}
+          <div className="space-y-3 pt-2 border-t border-[#E2E8F0]">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#B45309]">
+                Bloco B · 38 Órgãos e Glândulas (Detalhamento Anatômico ANSAE)
+              </h3>
+              <span className="text-[11px] text-[#64748B]">
+                Energia (Å) ao lado de % Desequilíbrio
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {filteredOrgans.map((organ) => {
+                const band = getEnergyBandMeta(organ.healthEnergyAngstroms);
+                const isAlert =
+                  organ.isImbalanced ||
+                  (typeof organ.healthEnergyAngstroms === 'number' &&
+                    organ.healthEnergyAngstroms < 6500);
+
+                return (
+                  <div
+                    key={organ.id}
+                    className={`p-3.5 rounded-xl border transition-colors space-y-2.5 ${
+                      band.cardBorderClass
+                        ? band.cardBorderClass
+                        : organ.isImbalanced
+                        ? 'bg-[#BA1A1A]/5 border-[#BA1A1A]/40'
+                        : 'bg-[#FAF8F5] border-[#E2E8F0]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={organ.isImbalanced}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                organs: prev.organs.map((o) =>
+                                  o.id === organ.id
+                                    ? {
+                                        ...o,
+                                        isImbalanced: checked,
+                                        imbalancePercent:
+                                          checked && o.imbalancePercent === 0
+                                            ? 35
+                                            : checked
+                                            ? o.imbalancePercent
+                                            : 0,
+                                        durationValue:
+                                          checked && o.durationValue === 0
+                                            ? 7
+                                            : checked
+                                            ? o.durationValue
+                                            : 0,
+                                      }
+                                    : o
+                                ),
+                              }),
+                              true,
+                              false
+                            );
+                          }}
+                          className="w-4 h-4 mt-0.5 accent-[#0F172A] cursor-pointer"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-[#0F172A]">{organ.organName}</p>
+                          <p className="text-[11px] font-mono text-[#64748B]">
+                            {organ.systemCode} · {organ.systemName}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold rounded border ${band.badgeClass}`}
+                            >
+                              {band.label}
+                            </span>
+                            {typeof organ.healthEnergyAngstroms === 'number' && (
+                              <span className="text-[10px] font-mono text-[#45464D]">
+                                {formatAngstromsBR(organ.healthEnergyAngstroms)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </label>
+                      {isAlert ? (
+                        <AlertTriangle className="w-4 h-4 text-[#BA1A1A] shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4 text-[#94A3B8] shrink-0" />
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#E2E8F0]/80">
+                      <div>
+                        <label className="block text-[10px] text-[#64748B] mb-0.5">
+                          % Desequilíbrio
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={organ.imbalancePercent}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                organs: prev.organs.map((o) =>
+                                  o.id === organ.id
+                                    ? {
+                                        ...o,
+                                        imbalancePercent: val,
+                                        isImbalanced: val > 0 ? true : o.isImbalanced,
+                                      }
+                                    : o
+                                ),
+                              }),
+                              true,
+                              false
+                            );
+                          }}
+                          className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-semibold text-[#0F172A] mb-0.5">
+                          Energia (Å)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={18000}
+                          step={500}
+                          placeholder={organ.isImbalanced ? '6500' : '9500'}
+                          value={organ.healthEnergyAngstroms ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const parsed =
+                              raw === ''
+                                ? undefined
+                                : Math.max(0, Math.min(18000, Number(raw)));
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                organs: prev.organs.map((o) =>
+                                  o.id === organ.id
+                                    ? {
+                                        ...o,
+                                        healthEnergyAngstroms: Number.isNaN(parsed)
+                                          ? undefined
+                                          : parsed,
+                                      }
+                                    : o
+                                ),
+                              }),
+                              true,
+                              false
+                            );
+                          }}
+                          className={`w-full px-2 py-1 text-xs font-mono border rounded ${band.inputClass}`}
+                        />
+                      </div>
+                    </div>
+
+                    {organ.isImbalanced ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-[#64748B] mb-0.5">Tempo</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={365}
+                            value={organ.durationValue}
+                            onChange={(e) => {
+                              const val = Math.max(0, Number(e.target.value) || 0);
+                              updateSheetAndSync(
+                                (prev) => ({
+                                  ...prev,
+                                  organs: prev.organs.map((o) =>
+                                    o.id === organ.id ? { ...o, durationValue: val } : o
+                                  ),
+                                }),
+                                true,
+                                false
+                              );
+                            }}
+                            className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-[#64748B] mb-0.5">Unidade</label>
+                          <select
+                            value={organ.durationUnit}
+                            onChange={(e) => {
+                              const unit = e.target.value as 'h' | 'd' | 'm';
+                              updateSheetAndSync(
+                                (prev) => ({
+                                  ...prev,
+                                  organs: prev.organs.map((o) =>
+                                    o.id === organ.id ? { ...o, durationUnit: unit } : o
+                                  ),
+                                }),
+                                true,
+                                false
+                              );
+                            }}
+                            className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                          >
+                            <option value="h">horas</option>
+                            <option value="d">dias</option>
+                            <option value="m">meses</option>
+                          </select>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                organs: prev.organs.map((o) =>
+                                  o.id === organ.id ? { ...o, healthEnergyAngstroms: 9500 } : o
+                                ),
+                              }),
+                              true,
+                              false
+                            )
+                          }
+                          className="text-[10px] font-semibold text-[#166534] hover:underline cursor-pointer"
+                        >
+                          Preencher Padrão Saudável (9.500 Å)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
       )}

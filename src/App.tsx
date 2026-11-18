@@ -198,7 +198,7 @@ export default function App() {
       setDraftAnsaeSheet(clonedSheet);
       setDraftPreviousSession(baseRecord);
       setDraftTherapeutics(createEmptyTherapeutics());
-      setDraftProtocol(evaluateAntiCatharsis(clonedAnamnesis, clonedSensitivity));
+      setDraftProtocol(evaluateAntiCatharsis(clonedAnamnesis, clonedSensitivity, clonedSheet));
       setDraftAiResult(null);
       setDraftIsAnchored(false);
       setDraftSelectedHz(baseRecord.selectedSolfeggioHz || 432);
@@ -325,8 +325,19 @@ export default function App() {
               auricProtection: prevSessionInput.ansaeRhen.auricField.protectionPercent,
               stressLevel: prevSessionInput.ansaeRhen.spiritualPsycho.stressLevel,
               alertOrgans: prevSessionInput.ansaeRhen.organs
-                .filter((o) => o.isImbalanced)
-                .map((o) => `${o.systemCode} ${o.organName} (${o.imbalancePercent}%)`),
+                .filter(
+                  (o) =>
+                    o.isImbalanced ||
+                    (typeof o.healthEnergyAngstroms === 'number' && o.healthEnergyAngstroms < 6500)
+                )
+                .map(
+                  (o) =>
+                    `${o.systemCode} ${o.organName} (${o.imbalancePercent}%${
+                      typeof o.healthEnergyAngstroms === 'number'
+                        ? `, ${o.healthEnergyAngstroms === 0 ? '0.000' : o.healthEnergyAngstroms.toLocaleString('pt-BR')} Å`
+                        : ''
+                    })`
+                ),
             }
           : null;
 
@@ -403,7 +414,7 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     });
     setDraftAnsaeSheet(latestSheet);
-    const nextProtocol = evaluateAntiCatharsis(draftAnamnesis, draftSensitivity);
+    const nextProtocol = evaluateAntiCatharsis(draftAnamnesis, draftSensitivity, latestSheet);
     setDraftProtocol(nextProtocol);
     setActiveScreen('quantum-table');
     void generateWithGemini(
@@ -635,7 +646,7 @@ export default function App() {
             existingSessions={sessions}
             onChange={(updated) => {
               setDraftAnamnesis(updated);
-              setDraftProtocol(evaluateAntiCatharsis(updated, draftSensitivity));
+              setDraftProtocol(evaluateAntiCatharsis(updated, draftSensitivity, draftAnsaeSheet));
             }}
             onSelectExistingSession={(id) => {
               const found = sessions.find((s) => s.id === id);
@@ -651,22 +662,21 @@ export default function App() {
             anamnesis={draftAnamnesis}
             sensitivity={draftSensitivity}
             onChange={(updated) => {
+              const latestSheet = getAnsaeDraftForSession({
+                id: draftSessionId,
+                anamnesis: draftAnamnesis,
+                sensitivity: updated,
+                protocol: draftProtocol,
+                aiResult: draftAiResult,
+                phase: 'stage1',
+                isAnchored: draftIsAnchored,
+                activatedAt: new Date().toISOString(),
+                selectedSolfeggioHz: draftSelectedHz,
+                updatedAt: new Date().toISOString(),
+              });
               setDraftSensitivity(updated);
-              setDraftProtocol(evaluateAntiCatharsis(draftAnamnesis, updated));
-              setDraftAnsaeSheet(
-                getAnsaeDraftForSession({
-                  id: draftSessionId,
-                  anamnesis: draftAnamnesis,
-                  sensitivity: updated,
-                  protocol: draftProtocol,
-                  aiResult: draftAiResult,
-                  phase: 'stage1',
-                  isAnchored: draftIsAnchored,
-                  activatedAt: new Date().toISOString(),
-                  selectedSolfeggioHz: draftSelectedHz,
-                  updatedAt: new Date().toISOString(),
-                })
-              );
+              setDraftAnsaeSheet(latestSheet);
+              setDraftProtocol(evaluateAntiCatharsis(draftAnamnesis, updated, latestSheet));
             }}
             onProcessProtocol={handleProcessProtocol}
             onBackToAnamnesis={() => setActiveScreen('anamnesis')}

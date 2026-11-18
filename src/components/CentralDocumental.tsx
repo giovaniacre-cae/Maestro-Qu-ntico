@@ -6,7 +6,7 @@ import {
   SessionMilestoneType,
 } from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
-import { formatBirthDateBR, getHawkinsLevelInfo } from '../utils/antiCatharsis';
+import { formatAngstromsBR, formatBirthDateBR, getHawkinsLevelInfo } from '../utils/antiCatharsis';
 import {
   DocumentExportContext,
   applyVocativeToWelcomeMessage,
@@ -17,7 +17,13 @@ import {
   downloadTherapistPdf,
   getDefaultWelcomeMessage,
 } from '../utils/documentGenerator';
-import { getAnsaeDraftForSession, getPreviousSessionForPatient } from '../utils/storage';
+import {
+  getAnsaeDraftForSession,
+  getOrganPsychosomaticMeaning,
+  getPreviousSessionForPatient,
+  getSystemPsychosomaticMeaning,
+  normalizeAnsaeSheet,
+} from '../utils/storage';
 
 interface CentralDocumentalProps {
   sessions: QuantumRoomSession[];
@@ -69,7 +75,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   }, [initialWelcomeMessage]);
 
   const resolvedSheet = useMemo(
-    () => ansaeSheet || getAnsaeDraftForSession(activeSession),
+    () => normalizeAnsaeSheet(ansaeSheet || getAnsaeDraftForSession(activeSession)),
     [ansaeSheet, activeSession]
   );
   const resolvedPrev = useMemo(
@@ -89,7 +95,13 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   };
 
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
-  const imbalancedOrgans = resolvedSheet.organs.filter((o) => o.isImbalanced);
+  const ansaeSystems = resolvedSheet.systems || [];
+  const imbalancedOrgans = resolvedSheet.organs.filter(
+    (o) =>
+      o.isImbalanced ||
+      o.imbalancePercent > 0 ||
+      typeof o.healthEnergyAngstroms === 'number'
+  );
 
   const handleDownload = async (key: string, fn: () => Promise<void> | void) => {
     setBusyAction(key);
@@ -468,49 +480,146 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
             </section>
 
             {/* 4. Sistemas & Órgãos ANSAE + Biômetros Consultados */}
-            <section className="space-y-3">
+            <section className="space-y-4">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                4. Sistemas & Órgãos ANSAE em Alerta ({imbalancedOrgans.length}) e Biômetros
+                4. Sistemas Orgânicos (15) e Órgãos/Glândulas ANSAE ({imbalancedOrgans.length}) &amp; Biômetros
               </h3>
-              {imbalancedOrgans.length > 0 ? (
+
+              {/* Tabela dos 15 Sistemas Orgânicos */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-[#0F172A]">
+                  Tabela Sistêmica ANSAE (15 Sistemas Orgânicos):
+                </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse border border-[#E2E8F0]">
                     <thead>
                       <tr className="bg-[#FAF8F5] text-left text-[#0F172A]">
                         <th className="p-2 border border-[#E2E8F0]">Sigla</th>
-                        <th className="p-2 border border-[#E2E8F0]">Sistema</th>
-                        <th className="p-2 border border-[#E2E8F0]">Órgão / Glândula</th>
-                        <th className="p-2 border border-[#E2E8F0]">%</th>
-                        <th className="p-2 border border-[#E2E8F0]">Tempo</th>
+                        <th className="p-2 border border-[#E2E8F0]">Sistema Orgânico</th>
+                        <th className="p-2 border border-[#E2E8F0]">Energia de Saúde (Å)</th>
+                        <th className="p-2 border border-[#E2E8F0]">% de Desequilíbrio</th>
+                        <th className="p-2 border border-[#E2E8F0]">Significado Psicossomático</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {imbalancedOrgans.map((o) => (
-                        <tr key={o.id}>
-                          <td className="p-2 border border-[#E2E8F0] font-mono font-bold text-[#B45309]">
-                            {o.systemCode}
-                          </td>
-                          <td className="p-2 border border-[#E2E8F0]">{o.systemName}</td>
-                          <td className="p-2 border border-[#E2E8F0] font-semibold text-[#0F172A]">
-                            {o.organName}
-                          </td>
-                          <td className="p-2 border border-[#E2E8F0] font-mono">
-                            {o.imbalancePercent}%
-                          </td>
-                          <td className="p-2 border border-[#E2E8F0] font-mono">
-                            {o.durationValue}
-                            {o.durationUnit}
-                          </td>
-                        </tr>
-                      ))}
+                      {ansaeSystems.map((s) => {
+                        const isCrit =
+                          typeof s.healthEnergyAngstroms === 'number' &&
+                          s.healthEnergyAngstroms < 6500;
+                        const isThresh =
+                          typeof s.healthEnergyAngstroms === 'number' &&
+                          s.healthEnergyAngstroms >= 6500 &&
+                          s.healthEnergyAngstroms < 7000;
+                        const isHealthy =
+                          typeof s.healthEnergyAngstroms === 'number' &&
+                          s.healthEnergyAngstroms >= 7000;
+                        return (
+                          <tr key={s.systemCode} className={isCrit ? 'bg-[#BA1A1A]/5' : ''}>
+                            <td className="p-2 border border-[#E2E8F0] font-mono font-bold text-[#B45309]">
+                              {s.systemCode}
+                            </td>
+                            <td className="p-2 border border-[#E2E8F0] font-semibold text-[#0F172A]">
+                              {s.systemName}
+                            </td>
+                            <td
+                              className={`p-2 border border-[#E2E8F0] font-mono font-semibold ${
+                                isCrit
+                                  ? 'text-[#BA1A1A]'
+                                  : isThresh
+                                  ? 'text-[#B45309]'
+                                  : isHealthy
+                                  ? 'text-[#166534]'
+                                  : 'text-[#64748B]'
+                              }`}
+                            >
+                              {formatAngstromsBR(s.healthEnergyAngstroms)}
+                            </td>
+                            <td className="p-2 border border-[#E2E8F0] font-mono">
+                              {s.imbalancePercent}%
+                            </td>
+                            <td className="p-2 border border-[#E2E8F0] text-[#45464D]">
+                              {getSystemPsychosomaticMeaning(s.systemCode)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              ) : (
-                <p className="text-xs text-[#64748B]">
-                  Nenhum dos 38 órgãos ANSAE foi marcado em desequilíbrio.
+              </div>
+
+              {/* Tabela de Órgãos & Glândulas */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-[#0F172A]">
+                  Detalhamento de Órgãos e Glândulas ANSAE:
                 </p>
-              )}
+                {imbalancedOrgans.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse border border-[#E2E8F0]">
+                      <thead>
+                        <tr className="bg-[#FAF8F5] text-left text-[#0F172A]">
+                          <th className="p-2 border border-[#E2E8F0]">Sigla</th>
+                          <th className="p-2 border border-[#E2E8F0]">Órgão / Glândula</th>
+                          <th className="p-2 border border-[#E2E8F0]">Energia de Saúde (Å)</th>
+                          <th className="p-2 border border-[#E2E8F0]">% de Desequilíbrio</th>
+                          <th className="p-2 border border-[#E2E8F0]">Significado Psicossomático</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {imbalancedOrgans.map((o) => {
+                          const isCrit =
+                            typeof o.healthEnergyAngstroms === 'number' &&
+                            o.healthEnergyAngstroms < 6500;
+                          const isThresh =
+                            typeof o.healthEnergyAngstroms === 'number' &&
+                            o.healthEnergyAngstroms >= 6500 &&
+                            o.healthEnergyAngstroms < 7000;
+                          const isHealthy =
+                            typeof o.healthEnergyAngstroms === 'number' &&
+                            o.healthEnergyAngstroms >= 7000;
+                          return (
+                            <tr key={o.id} className={isCrit ? 'bg-[#BA1A1A]/5' : ''}>
+                              <td className="p-2 border border-[#E2E8F0] font-mono font-bold text-[#B45309]">
+                                {o.systemCode}
+                              </td>
+                              <td className="p-2 border border-[#E2E8F0]">
+                                <span className="font-semibold text-[#0F172A]">{o.organName}</span>
+                                <span className="block text-[11px] text-[#64748B]">
+                                  {o.systemName}
+                                </span>
+                              </td>
+                              <td
+                                className={`p-2 border border-[#E2E8F0] font-mono font-semibold ${
+                                  isCrit
+                                    ? 'text-[#BA1A1A]'
+                                    : isThresh
+                                    ? 'text-[#B45309]'
+                                    : isHealthy
+                                    ? 'text-[#166534]'
+                                    : 'text-[#64748B]'
+                                }`}
+                              >
+                                {formatAngstromsBR(o.healthEnergyAngstroms)}
+                              </td>
+                              <td className="p-2 border border-[#E2E8F0] font-mono">
+                                {o.imbalancePercent}%
+                                {o.durationValue > 0 ? ` (${o.durationValue}${o.durationUnit})` : ''}
+                              </td>
+                              <td className="p-2 border border-[#E2E8F0] text-[#45464D]">
+                                {getOrganPsychosomaticMeaning(o.id)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#64748B]">
+                    Nenhum dos 38 órgãos ANSAE foi marcado em desequilíbrio ou aferido individualmente.
+                  </p>
+                )}
+              </div>
 
               {resolvedSheet.biometerReadings.length > 0 && (
                 <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] text-xs space-y-1">
