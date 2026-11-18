@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Download, FileText, MessageCircle, Radio } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Download, FileText, HeartHandshake, MessageCircle, Radio, RotateCcw } from 'lucide-react';
 import {
   ClinicalAnsaeRhenSheet,
   ClinicalSessionRecord,
@@ -9,11 +9,13 @@ import { QuantumRoomSession } from '../types/quantum';
 import { formatBirthDateBR, getHawkinsLevelInfo } from '../utils/antiCatharsis';
 import {
   DocumentExportContext,
+  applyVocativeToWelcomeMessage,
   buildWhatsAppShareUrl,
   downloadPatientGuideDocx,
   downloadPatientGuidePdf,
   downloadTherapistDocx,
   downloadTherapistPdf,
+  getDefaultWelcomeMessage,
 } from '../utils/documentGenerator';
 import { getAnsaeDraftForSession, getPreviousSessionForPatient } from '../utils/storage';
 
@@ -41,6 +43,31 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const { anamnesis, sensitivity, protocol, aiResult } = activeSession;
+  const firstName = anamnesis.fullName.trim().split(/\s+/)[0] || anamnesis.fullName;
+  const vocativeOptions = useMemo(
+    () => [
+      `Prezado(a) ${firstName}:`,
+      `Querido(a) ${firstName}:`,
+      'Meu Amado irmão:',
+      'Minha Amada irmã:',
+    ],
+    [firstName]
+  );
+
+  const initialWelcomeMessage = useMemo(() => {
+    const aiWelcome = aiResult?.welcomeMessage?.trim();
+    if (aiWelcome) {
+      return aiWelcome;
+    }
+    return getDefaultWelcomeMessage(activeSession);
+  }, [activeSession, aiResult?.welcomeMessage]);
+
+  const [welcomeMessage, setWelcomeMessage] = useState<string>(initialWelcomeMessage);
+
+  useEffect(() => {
+    setWelcomeMessage(initialWelcomeMessage);
+  }, [initialWelcomeMessage]);
+
   const resolvedSheet = useMemo(
     () => ansaeSheet || getAnsaeDraftForSession(activeSession),
     [ansaeSheet, activeSession]
@@ -58,6 +85,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
     ansaeSheet: resolvedSheet,
     previousSession: resolvedPrev,
     sessionType: resolvedSessionType,
+    welcomeMessage,
   };
 
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
@@ -644,6 +672,66 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                 Foco do seu acompanhamento: <strong>{anamnesis.therapeuticFocus}</strong>
               </p>
             </div>
+
+            {/* Card de Acolhimento Humanizado (editável antes da exportação) */}
+            <section
+              aria-label="Mensagem Inicial de Acolhimento Humanizado"
+              className="bg-[#F8FAFC] border-l-4 border-[#B45309] rounded-r-xl p-5 sm:p-6 space-y-3.5 shadow-[0_2px_12px_-2px_rgba(15,23,42,0.05)]"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#B45309]">
+                  <HeartHandshake className="w-4 h-4" />
+                  Mensagem Inicial de Acolhimento Humanizado
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWelcomeMessage(initialWelcomeMessage)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer self-start sm:self-auto"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restaurar texto sugerido
+                </button>
+              </div>
+
+              {/* Seletor Rápido de Vocativo */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-[#64748B] mr-1">
+                  Vocativo rápido:
+                </span>
+                {vocativeOptions.map((vocative) => {
+                  const isActive = welcomeMessage.trimStart().startsWith(vocative);
+                  return (
+                    <button
+                      key={vocative}
+                      type="button"
+                      onClick={() =>
+                        setWelcomeMessage((prev) => applyVocativeToWelcomeMessage(prev, vocative))
+                      }
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                          : 'bg-white text-[#334155] border-[#CBD5E1] hover:border-[#B45309] hover:text-[#0F172A]'
+                      }`}
+                    >
+                      {vocative}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <textarea
+                aria-label="Texto da mensagem inicial de acolhimento ao paciente"
+                rows={6}
+                value={welcomeMessage}
+                onChange={(e) => setWelcomeMessage(e.target.value)}
+                className="w-full rounded-lg bg-white/90 border border-[#E2E8F0] px-4 py-3 font-serif italic text-sm text-[#1E293B] leading-relaxed focus:outline-none focus:border-[#B45309] resize-y"
+                placeholder="Escreva ou ajuste aqui sua mensagem de acolhimento ao paciente..."
+              />
+              <p className="text-[11px] text-[#64748B]">
+                Edite livremente o texto ou escolha o vocativo acima antes de baixar o .DOCX, o
+                .PDF ou compartilhar no WhatsApp.
+              </p>
+            </section>
 
             <section className="space-y-2">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">

@@ -36,6 +36,7 @@ export interface DocumentExportContext {
   ansaeSheet?: ClinicalAnsaeRhenSheet;
   previousSession?: ClinicalSessionRecord | null;
   sessionType?: SessionMilestoneType;
+  welcomeMessage?: string;
 }
 
 interface MaestroLogoAssets {
@@ -139,6 +140,50 @@ function buildFallbackChakraAuraHabitsText(
       : 'Cultive pausas breves durante o dia, hidratação regular e silêncio antes de dormir.';
 
   return [chakrasSummary, missingColorsText, excessColorsText, habits].filter(Boolean).join('\n\n');
+}
+
+export function getDefaultWelcomeMessage(
+  session: QuantumRoomSession,
+  customVocative?: string
+): string {
+  const { anamnesis } = session;
+  const firstName = anamnesis.fullName.trim().split(/\s+/)[0] || anamnesis.fullName;
+  const vocative = customVocative || `Prezado(a) ${firstName}:`;
+
+  const emotionalNote = anamnesis.emotionalHistory?.trim()
+    ? 'Tudo o que você tem sentido e carregado emocionalmente merece escuta serena e respeito.'
+    : 'Cada sinal que seu corpo e suas emoções manifestam merece atenção gentil e acolhimento.';
+
+  const physicalNote = anamnesis.physicalSymptoms?.trim()
+    ? 'Reconhecemos o peso físico e o cansaço relatados em sua conversa inicial, e queremos que saiba que você não precisa atravessar esse momento sozinho(a).'
+    : 'Nosso propósito é oferecer suporte amoroso e seguro para restaurar sua disposição e clareza interior.';
+
+  return [
+    vocative,
+    `Receba este guia com o coração tranquilo. ${emotionalNote} ${physicalNote} Esta leitura vibracional não tem a intenção de assustar ou rotular, mas sim de iluminar com clareza e suavidade os caminhos pelos quais sua energia pode voltar a fluir em equilíbrio. Confie no ritmo sábio do seu organismo: passo a passo, em parceria fraterna e constante, estamos cuidando para que você recupere sua paz, força vital e bem-estar integral.`,
+  ].join('\n');
+}
+
+export function applyVocativeToWelcomeMessage(text: string, vocative: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return `${vocative}\n`;
+  }
+  const lines = trimmed.split('\n');
+  const firstLine = lines[0].trim();
+  const looksLikeVocative =
+    firstLine.length <= 75 &&
+    (firstLine.endsWith(':') ||
+      /^(Prezado|Prezada|Prezado\(a\)|Querido|Querida|Querido\(a\)|Meu Amado|Minha Amada|Olá)/i.test(
+        firstLine
+      ));
+
+  if (looksLikeVocative) {
+    const rest = lines.slice(1).join('\n').trimStart();
+    return rest ? `${vocative}\n${rest}` : vocative;
+  }
+
+  return `${vocative}\n${trimmed}`;
 }
 
 // ---------- DOCX HELPERS ----------
@@ -308,6 +353,52 @@ function buildTableCell(text: string, bold = false, shaded = false): TableCell {
             size: 19,
             color: bold ? NAVY_HEX : SLATE_TEXT_HEX,
             font: 'Calibri',
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+function buildDocxWelcomeCard(text: string): Table {
+  const paragraphs = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F1F5F9' },
+            margins: { top: 160, bottom: 160, left: 240, right: 200 },
+            borders: {
+              top: { style: BorderStyle.NONE, size: 0, color: 'F1F5F9' },
+              bottom: { style: BorderStyle.NONE, size: 0, color: 'F1F5F9' },
+              right: { style: BorderStyle.NONE, size: 0, color: 'F1F5F9' },
+              left: { style: BorderStyle.SINGLE, size: 24, color: AMBER_HEX },
+            },
+            children: (paragraphs.length > 0 ? paragraphs : [text]).map(
+              (line, idx, arr) =>
+                new Paragraph({
+                  spacing: {
+                    after: idx === arr.length - 1 ? 0 : 100,
+                    line: 290,
+                  },
+                  children: [
+                    new TextRun({
+                      text: line,
+                      italics: true,
+                      bold: idx === 0 && line.endsWith(':'),
+                      size: 21,
+                      color: '1E293B',
+                      font: 'Georgia',
+                    }),
+                  ],
+                })
+            ),
           }),
         ],
       }),
@@ -837,6 +928,10 @@ export async function downloadPatientGuideDocx(
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const chakrasAuraGuide =
     aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
+  const welcomeText =
+    ctx?.welcomeMessage?.trim() ||
+    aiResult?.welcomeMessage?.trim() ||
+    getDefaultWelcomeMessage(session);
 
   const doc = new Document({
     sections: [
@@ -870,6 +965,8 @@ export async function downloadPatientGuideDocx(
                 : 'Harmonização Integrativa Direta (7 a 10 dias)'
             }.`
           ),
+
+          buildDocxWelcomeCard(welcomeText),
 
           buildSectionHeading('Compreendendo seu Momento Energético'),
           buildBodyParagraph(
@@ -1115,6 +1212,46 @@ class MaestroPdfBuilder {
     this.y += 4;
   }
 
+  public addWelcomeCard(text: string): void {
+    const paragraphs = text
+      .split('\n')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const items = paragraphs.length > 0 ? paragraphs : [text];
+
+    this.doc.setFont('times', 'italic');
+    this.doc.setFontSize(10);
+
+    const wrappedParagraphs = items.map((p) =>
+      this.doc.splitTextToSize(p, this.contentWidth - 11) as string[]
+    );
+    const totalLines = wrappedParagraphs.reduce((sum, lines) => sum + lines.length, 0);
+    const paragraphGaps = Math.max(0, wrappedParagraphs.length - 1) * 2.2;
+    const cardHeight = totalLines * 4.9 + paragraphGaps + 9;
+
+    this.ensureSpace(cardHeight + 6);
+
+    // Fundo suave #F1F5F9 e borda esquerda Âmbar/Dourado #B45309
+    this.doc.setFillColor(241, 245, 249);
+    this.doc.rect(this.margin, this.y, this.contentWidth, cardHeight, 'F');
+    this.doc.setFillColor(180, 83, 9);
+    this.doc.rect(this.margin, this.y, 1.6, cardHeight, 'F');
+
+    let textY = this.y + 6;
+    this.doc.setTextColor(30, 41, 59);
+    wrappedParagraphs.forEach((lines, pIdx) => {
+      const isVocative = pIdx === 0 && items[0].endsWith(':');
+      this.doc.setFont('times', isVocative ? 'bolditalic' : 'italic');
+      lines.forEach((line) => {
+        this.doc.text(line, this.margin + 5.5, textY);
+        textY += 4.9;
+      });
+      textY += 2.2;
+    });
+
+    this.y += cardHeight + 6;
+  }
+
   public save(filename: string): void {
     this.doc.save(filename);
   }
@@ -1326,6 +1463,10 @@ export async function downloadPatientGuidePdf(
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const chakrasAuraGuide =
     aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
+  const welcomeText =
+    ctx?.welcomeMessage?.trim() ||
+    aiResult?.welcomeMessage?.trim() ||
+    getDefaultWelcomeMessage(session);
 
   const pdf = new MaestroPdfBuilder();
   pdf.addOfficialHeader(
@@ -1343,6 +1484,8 @@ export async function downloadPatientGuidePdf(
       : 'Protocolo direto de harmonização e vitalidade (7 a 10 dias).',
     'Jornada de Cuidado: '
   );
+
+  pdf.addWelcomeCard(welcomeText);
 
   pdf.addSectionTitle('Seu Momento Energético Atual');
   pdf.addParagraph(
@@ -1422,12 +1565,27 @@ export function buildWhatsAppShareUrl(
   const freqs =
     aiResult?.prescricoes.frequenciasSolfeggio.map((f) => `${f.hz} Hz`).join(', ') || '432 Hz';
   const missingColors = sheet.auricField.missingColors.join(', ');
+  const welcomeText =
+    ctx?.welcomeMessage?.trim() ||
+    aiResult?.welcomeMessage?.trim() ||
+    getDefaultWelcomeMessage(session);
+  const welcomeLines = welcomeText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const welcomeBody =
+    welcomeLines.length > 1 && welcomeLines[0].endsWith(':')
+      ? welcomeLines.slice(1).join(' ')
+      : welcomeLines.join(' ');
+  const welcomeSynthesis =
+    welcomeBody.length > 260 ? `${welcomeBody.slice(0, 257).trimEnd()}...` : welcomeBody;
 
   const text = [
     `*MAESTRO TERAPIAS VIBRACIONAIS*`,
     `_Guia de Orientação e Conscientização Vibracional_`,
     ``,
     `Olá, *${anamnesis.fullName}*!`,
+    welcomeSynthesis ? `_${welcomeSynthesis}_` : '',
     `Segue o resumo do seu atendimento integrativo:`,
     ``,
     `*Foco:* ${anamnesis.therapeuticFocus}`,

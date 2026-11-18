@@ -111,6 +111,7 @@ export interface PrescricoesIntegrativas {
 }
 
 export interface QuantumGenerationResult {
+  welcomeMessage?: string;
   testemunhos: TestemunhoItem[];
   comandosQuanticos: ComandoQuanticoItem[];
   analiseCausaRaiz?: string;

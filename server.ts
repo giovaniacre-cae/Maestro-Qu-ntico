@@ -229,7 +229,8 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
 5. "comparativoEvolutivo": ${isPostTreatment ? 'OBRIGATÓRIO: Compare numericamente e clinicamente os ganhos entre a sessão anterior e a leitura atual (Bovis, Hawkins, Aura, Estresse e órgãos), destacando a resposta do organismo ao protocolo.' : 'Retorne string vazia "" por ser Avaliação Inicial.'}
 6. "orientacaoPacienteResumo": Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual.
 7. "orientacaoChakrasAuraHabitos": Texto prático e acolhedor traduzindo para o paciente o significado dos chakras em atenção, das cores da aura em falta/excesso (como utilizá-las em roupas, visualização ou ambiente) e dos hábitos saudáveis aferidos.
-8. "prescricoes":
+8. "welcomeMessage": Redija uma Mensagem Inicial de Acolhimento Humanizado (1 parágrafo acolhedor, empático, fraterno e encorajador, de 5 a 7 linhas) para abrir o Guia do Paciente. Valide com sensibilidade as queixas físicas ou emocionais relatadas pelo interagente na anamnese, desmistifique a leitura energética sem gerar medo ou alarme, e reforce o vínculo terapêutico e a confiança serena no processo de restauração e cura.
+9. "prescricoes":
    - "floraisBach": 3 a 4 recomendações específicas (incorporando os aferidos nos biômetros, se houver) com breve justificativa.
    - "cristais": 2 a 4 cristais terapêuticos alinhados aos chakras em desequilíbrio e cores em falta (informando uso prático).
    - "fitoterapiaChas": 2 a 3 recomendações de chás/fitoterápicos suaves e integrativos alinhados aos órgãos ANSAE.
@@ -250,6 +251,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
             responseSchema: {
               type: Type.OBJECT,
               properties: {
+                welcomeMessage: { type: Type.STRING },
                 testemunhos: {
                   type: Type.ARRAY,
                   items: {
@@ -338,6 +340,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
                 },
               },
               required: [
+                'welcomeMessage',
                 'testemunhos',
                 'comandosQuanticos',
                 'analiseCausaRaiz',
