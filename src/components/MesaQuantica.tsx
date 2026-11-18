@@ -1,10 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Ban,
   Check,
+  Compass,
   Copy,
   FileText,
+  Gem,
+  Leaf,
   Lock,
   PauseCircle,
   Play,
@@ -13,8 +16,14 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  TrendingUp,
   Volume2,
 } from 'lucide-react';
+import {
+  ClinicalAnsaeRhenSheet,
+  ClinicalSessionRecord,
+  SessionMilestoneType,
+} from '../types/clinical';
 import {
   AntiCatharsisProtocol,
   PatientAnamnesis,
@@ -23,6 +32,13 @@ import {
 } from '../types/quantum';
 import { formatTestemunho, getHawkinsLevelInfo } from '../utils/antiCatharsis';
 import { solfeggioSynth } from '../utils/audioSynth';
+
+export interface SelectedTherapeutics {
+  florals: string[];
+  crystals: string[];
+  herbs: string[];
+  habits: string[];
+}
 
 interface MesaQuanticaProps {
   anamnesis: PatientAnamnesis;
@@ -33,6 +49,11 @@ interface MesaQuanticaProps {
   generationError: string | null;
   isAnchored: boolean;
   selectedHz: number;
+  ansaeSheet?: ClinicalAnsaeRhenSheet;
+  sessionType?: SessionMilestoneType;
+  previousSession?: ClinicalSessionRecord | null;
+  selectedTherapeutics?: SelectedTherapeutics;
+  onUpdateTherapeutics?: (updated: SelectedTherapeutics) => void;
   onRegenerateAI: () => void;
   onSelectHz: (hz: number) => void;
   onAnchorAndCollapse: () => void;
@@ -46,6 +67,33 @@ const SOLFEGGIO_OPTIONS = [
   { hz: 741, label: '741 Hz', desc: 'Assepsia Sutil & Limpeza' },
 ];
 
+const QUICK_FLORALS = [
+  'Walnut (Proteção & Transições)',
+  'Rescue Remedy (Estabilização Emergencial)',
+  'White Chestnut (Mente Tranquila)',
+  'Olive (Restauração de Exaustão)',
+  'Mimulus (Coragem & Segurança)',
+  'Larch (Autoconfiança)',
+];
+
+const QUICK_CRYSTALS = [
+  'Ametista (Transmutação & Coroa)',
+  'Turmalina Negra (Blindagem & Aterramento)',
+  'Quartzo Verde (Regeneração Orgânica)',
+  'Citrino (Plexo Solar & Vitalidade)',
+  'Quartzo Rosa (Pacificação Cardíaca)',
+  'Selenita (Assepsia Áurica)',
+];
+
+const QUICK_HABITS = [
+  '2L+ de água solarizada / pura por dia',
+  'Respiração 4-6 min antes do sono',
+  'Higiene digital 45 min antes de dormir',
+  'Exposição solar matinal (15 min)',
+  'Caminhada consciente e contato com a natureza',
+  'Oração ou prática diária de gratidão',
+];
+
 export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   anamnesis,
   sensitivity,
@@ -55,6 +103,11 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   generationError,
   isAnchored,
   selectedHz,
+  ansaeSheet,
+  sessionType = 'Avaliação Inicial',
+  previousSession,
+  selectedTherapeutics,
+  onUpdateTherapeutics,
   onRegenerateAI,
   onSelectHz,
   onAnchorAndCollapse,
@@ -67,7 +120,16 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(0.25);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [localTherapeutics, setLocalTherapeutics] = useState<SelectedTherapeutics>(
+    selectedTherapeutics || { florals: [], crystals: [], herbs: [], habits: [] }
+  );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (selectedTherapeutics) {
+      setLocalTherapeutics(selectedTherapeutics);
+    }
+  }, [selectedTherapeutics]);
 
   useEffect(() => {
     setActiveStageTab(protocol.mode === 'escalonado' ? 'stage1' : 'stage2');
@@ -162,6 +224,29 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
     }
   };
 
+  const toggleTherapeutic = (key: keyof SelectedTherapeutics, value: string) => {
+    const current = localTherapeutics[key];
+    const nextList = current.includes(value)
+      ? current.filter((x) => x !== value)
+      : [...current, value];
+    const nextState: SelectedTherapeutics = {
+      ...localTherapeutics,
+      [key]: nextList,
+    };
+    setLocalTherapeutics(nextState);
+    onUpdateTherapeutics?.(nextState);
+  };
+
+  const imbalancedOrgans = useMemo(
+    () => (ansaeSheet?.organs || []).filter((o) => o.isImbalanced),
+    [ansaeSheet]
+  );
+
+  const imbalancedChakras = useMemo(
+    () => (ansaeSheet?.chakras || []).filter((c) => c.status !== 'Normal'),
+    [ansaeSheet]
+  );
+
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
   const fallbackTestemunho = formatTestemunho(anamnesis);
 
@@ -171,7 +256,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
       <section className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
         <div>
           <p className="text-xs font-semibold tracking-wider uppercase text-[#B45309]">
-            Etapa Clínica 03 · Mesa Radiônica & Ressonância Harmônica
+            Etapa Clínica 03 · Mesa Radiônica & Ressonância Harmônica · {sessionType}
           </p>
           <h1 className="mt-1.5 font-serif text-3xl font-light text-[#0F172A]">
             {anamnesis.fullName}
@@ -182,7 +267,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             </span>
             <span aria-hidden="true">·</span>
             <span>
-              Hawkins {sensitivity.hawkins} ({hawkinsInfo.label})
+              Hawkins {sensitivity.hawkins} Hz ({hawkinsInfo.label})
             </span>
             <span aria-hidden="true">·</span>
             <span>Aura {sensitivity.auricProtection}%</span>
@@ -197,7 +282,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             onClick={onBackToSensitivity}
             className="px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-lg hover:border-[#D97706] transition-colors cursor-pointer whitespace-nowrap"
           >
-            Recalibrar Sintonia
+            Recalibrar Ficha ANSAE
           </button>
           <button
             type="button"
@@ -206,10 +291,179 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#B45309] bg-white border border-[#D97706] rounded-lg hover:bg-[#D97706]/5 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-            {isGenerating ? 'Sintetizando IA...' : 'Regerar Comandos IA'}
+            {isGenerating ? 'Sintetizando IA...' : 'Regerar Diagnóstico Cruzado IA'}
           </button>
         </div>
       </section>
+
+      {/* Síntese ANSAE / RHEN & Biômetros Consultados + Seleção Terapêutica */}
+      {ansaeSheet && (
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-3">
+            <div className="flex items-center gap-2">
+              <Compass className="w-4 h-4 text-[#B45309]" />
+              <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                Síntese Clínica ANSAE / RHEN & Apoios Aferidos na Mesa
+              </h2>
+            </div>
+            <span className="text-xs font-mono text-[#64748B]">
+              {ansaeSheet.spiritualPsycho.recommendedRadionicBoard}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+            <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1">
+              <p className="font-semibold text-[#0F172A]">Chakras & Campo Áurico</p>
+              <p className="text-[#45464D]">
+                {imbalancedChakras.length > 0
+                  ? imbalancedChakras
+                      .map((c) => `${c.name} (${c.status} ${c.imbalancePercent}%)`)
+                      .join(', ')
+                  : '7 chakras em homeostase'}
+              </p>
+              <p className="text-[#64748B] pt-1">
+                <strong className="text-[#B45309]">Falta:</strong>{' '}
+                {ansaeSheet.auricField.missingColors.join(', ') || '—'} ·{' '}
+                <strong className="text-[#0F172A]">Excesso:</strong>{' '}
+                {ansaeSheet.auricField.excessColors.join(', ') || '—'}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1">
+              <p className="font-semibold text-[#0F172A]">
+                Órgãos ANSAE em Alerta ({imbalancedOrgans.length})
+              </p>
+              <p className="text-[#45464D]">
+                {imbalancedOrgans.length > 0
+                  ? imbalancedOrgans
+                      .map(
+                        (o) =>
+                          `[${o.systemCode}] ${o.organName} (${o.imbalancePercent}% · ${o.durationValue}${o.durationUnit})`
+                      )
+                      .join('; ')
+                  : 'Nenhum órgão marcado em desequilíbrio na ficha ANSAE.'}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1">
+              <p className="font-semibold text-[#0F172A]">
+                Biômetros Virtuais Consultados ({ansaeSheet.biometerReadings.length})
+              </p>
+              <p className="text-[#45464D]">
+                {ansaeSheet.biometerReadings.length > 0
+                  ? ansaeSheet.biometerReadings
+                      .slice(0, 4)
+                      .map((b) => `${b.biometerName}: ${b.selectedItem}`)
+                      .join(' · ')
+                  : 'Nenhuma leitura extra registrada nos 22 biômetros.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Interactive Therapeutic Selectors fed directly to Gemini */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-2 border-t border-[#E2E8F0]">
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1">
+                <Leaf className="w-3.5 h-3.5" />
+                Florais de Bach Aferidos (Opcional)
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_FLORALS.map((f) => {
+                  const active = localTherapeutics.florals.includes(f);
+                  return (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => toggleTherapeutic('florals', f)}
+                      className={`px-2 py-1 text-[11px] rounded border cursor-pointer ${
+                        active
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                          : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
+                      }`}
+                    >
+                      {f.split(' (')[0]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1">
+                <Gem className="w-3.5 h-3.5" />
+                Cristais Terapêuticos Aferidos
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_CRYSTALS.map((c) => {
+                  const active = localTherapeutics.crystals.includes(c);
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => toggleTherapeutic('crystals', c)}
+                      className={`px-2 py-1 text-[11px] rounded border cursor-pointer ${
+                        active
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                          : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
+                      }`}
+                    >
+                      {c.split(' (')[0]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                Bons Hábitos Aferidos
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_HABITS.map((h) => {
+                  const active = localTherapeutics.habits.includes(h);
+                  return (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => toggleTherapeutic('habits', h)}
+                      className={`px-2 py-1 text-[11px] rounded border cursor-pointer ${
+                        active
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                          : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
+                      }`}
+                    >
+                      {h.slice(0, 26)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Previous Session Comparison Banner if Pós-Tratamento */}
+      {previousSession && (
+        <section className="bg-white border border-[#D97706]/40 rounded-xl p-5 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <TrendingUp className="w-5 h-5 text-[#B45309] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[#B45309]">
+                Reavaliação Evolutiva Conectada ({previousSession.sessionType} → {sessionType})
+              </p>
+              <p className="text-xs text-[#45464D] mt-1 font-mono">
+                Bovis: {previousSession.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å →{' '}
+                <strong>{sensitivity.bovis.toLocaleString('pt-BR')} Å</strong> · Hawkins:{' '}
+                {previousSession.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz →{' '}
+                <strong>{sensitivity.hawkins} Hz</strong> · Aura:{' '}
+                {previousSession.ansaeRhen.auricField.protectionPercent}% →{' '}
+                <strong>{sensitivity.auricProtection}%</strong>
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Banner de Alerta Anti-Catarse */}
       {protocol.riskTriggered ? (
@@ -421,11 +675,10 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-serif text-xl font-bold text-[#0F172A]">
-              Motor de Ressonância Harmônica
+              Motor de Ressonância Harmônica & Diagnóstico Cruzado
             </h2>
             <p className="text-xs text-[#64748B]">
-              Testemunhos informacionais, comandos quânticos em 1ª pessoa e prescrições integrativas
-              gerados dinamicamente
+              Análise da causa raiz, testemunhos informacionais, comandos quânticos e prescrições integrativas
             </p>
           </div>
         </div>
@@ -454,7 +707,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             <div className="flex items-center gap-3 text-sm font-medium text-[#0F172A]">
               <Sparkles className="w-5 h-5 text-[#D97706] animate-spin" />
               <span>
-                Sintetizando testemunhos, comandos quânticos e prescrições integrativas...
+                Cruzando órgãos ANSAE, chakras, aura e biômetros para sintetizar diagnóstico e comandos...
               </span>
             </div>
             <div className="space-y-2.5 animate-pulse">
@@ -535,8 +788,31 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
               </div>
             </div>
 
-            {/* Análise Psicossomática & Prescrições */}
+            {/* Causa Raiz, Análise Psicossomática, Comparativo Evolutivo & Prescrições */}
             <div className="lg:col-span-5 space-y-6">
+              {aiResult.analiseCausaRaiz && (
+                <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-3">
+                  <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-2.5">
+                    Análise da Causa Raiz (Órgãos × Chakras × Emoções)
+                  </h3>
+                  <p className="text-sm text-[#45464D] leading-relaxed whitespace-pre-line">
+                    {aiResult.analiseCausaRaiz}
+                  </p>
+                </div>
+              )}
+
+              {aiResult.comparativoEvolutivo && aiResult.comparativoEvolutivo.trim() !== '' && (
+                <div className="bg-[#FAF8F5] border border-[#D97706]/40 rounded-xl p-6 space-y-2.5">
+                  <h3 className="font-serif text-base font-bold text-[#0F172A] flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-[#B45309]" />
+                    Comparativo Evolutivo (Antes × Depois)
+                  </h3>
+                  <p className="text-sm text-[#45464D] leading-relaxed whitespace-pre-line">
+                    {aiResult.comparativoEvolutivo}
+                  </p>
+                </div>
+              )}
+
               <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-3">
                 <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-2.5">
                   Análise Psicossomática Integrativa
@@ -548,7 +824,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
 
               <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
                 <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-2.5">
-                  Prescrições Complementares
+                  Prescrições Terapêuticas & Bons Hábitos
                 </h3>
 
                 <div>
@@ -560,6 +836,19 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                   </ul>
                 </div>
 
+                {aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#B45309] mb-1">
+                      Cristais Terapêuticos
+                    </p>
+                    <ul className="text-xs text-[#45464D] space-y-1 list-disc list-inside">
+                      {aiResult.prescricoes.cristais.map((c) => (
+                        <li key={c}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <div>
                   <p className="text-xs font-semibold text-[#B45309] mb-1">
                     Fitoterapia & Infusões
@@ -570,6 +859,19 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                     ))}
                   </ul>
                 </div>
+
+                {aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-[#B45309] mb-1">
+                      Bons Hábitos Aferidos
+                    </p>
+                    <ul className="text-xs text-[#45464D] space-y-1 list-disc list-inside">
+                      {aiResult.prescricoes.bonsHabitos.map((h) => (
+                        <li key={h}>{h}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div>
                   <p className="text-xs font-semibold text-[#B45309] mb-1">
@@ -590,7 +892,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
         ) : (
           <div className="bg-white border border-[#E2E8F0] rounded-xl p-8 text-center space-y-3">
             <p className="font-serif text-base text-[#0F172A]">
-              Motor de Ressonância pronto para síntese.
+              Motor de Ressonância pronto para síntese com a Ficha ANSAE/RHEN.
             </p>
             <button
               type="button"
@@ -598,7 +900,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
               className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-[#F59E0B]" />
-              Gerar Testemunhos e Comandos via Gemini
+              Gerar Diagnóstico Cruzado e Comandos via Gemini
             </button>
           </div>
         )}
@@ -626,8 +928,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                 </h3>
                 <p className="text-sm text-[#45464D] leading-relaxed">
                   A sessão de <strong className="text-[#0F172A]">{anamnesis.fullName}</strong> está
-                  salva e ativa no Dashboard com cronômetro contínuo. Utilize o sintetizador
-                  Solfeggio ao lado durante a mentalização e o selamento do comando.
+                  salva e ativa no Dashboard com cronômetro contínuo e prontuário ANSAE/RHEN.
                 </p>
                 <div className="pt-2 flex flex-wrap items-center gap-3">
                   <button
@@ -686,7 +987,6 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
               </span>
             </div>
 
-            {/* Frequency selector */}
             <div className="grid grid-cols-3 gap-2">
               {SOLFEGGIO_OPTIONS.map((opt) => {
                 const active = selectedHz === opt.hz;
@@ -714,12 +1014,10 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
               })}
             </div>
 
-            {/* Waveform Canvas */}
             <div className="bg-white border border-[#E2E8F0] rounded-lg p-2">
               <canvas ref={canvasRef} width={440} height={54} className="w-full h-[54px]" />
             </div>
 
-            {/* Play/Stop + Volume */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <button
                 type="button"

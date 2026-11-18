@@ -14,8 +14,14 @@ import {
 } from 'docx';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
+import {
+  ClinicalAnsaeRhenSheet,
+  ClinicalSessionRecord,
+  SessionMilestoneType,
+} from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
 import { formatBirthDateBR, getHawkinsLevelInfo } from './antiCatharsis';
+import { getAnsaeDraftForSession, getPreviousSessionForPatient } from './storage';
 
 const NAVY_HEX = '0F172A';
 const AMBER_HEX = 'B45309';
@@ -25,6 +31,12 @@ const BORDER_HEX = 'CBD5E1';
 const LIGHT_BG_HEX = 'FAF8F5';
 const MAESTRO_LOGO_URL =
   './assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png';
+
+export interface DocumentExportContext {
+  ansaeSheet?: ClinicalAnsaeRhenSheet;
+  previousSession?: ClinicalSessionRecord | null;
+  sessionType?: SessionMilestoneType;
+}
 
 interface MaestroLogoAssets {
   bytes: Uint8Array;
@@ -76,6 +88,57 @@ function formatDateTimeBR(iso?: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function resolveDocContext(
+  session: QuantumRoomSession,
+  ctx?: DocumentExportContext
+): {
+  sheet: ClinicalAnsaeRhenSheet;
+  prev: ClinicalSessionRecord | null;
+  sessionType: SessionMilestoneType;
+} {
+  const sheet = ctx?.ansaeSheet || getAnsaeDraftForSession(session);
+  const prev =
+    ctx?.previousSession !== undefined
+      ? ctx.previousSession
+      : getPreviousSessionForPatient(session.anamnesis.id, session.id);
+  const sessionType = ctx?.sessionType || session.sessionType || 'Avaliação Inicial';
+  return { sheet, prev, sessionType };
+}
+
+function buildFallbackChakraAuraHabitsText(
+  session: QuantumRoomSession,
+  sheet: ClinicalAnsaeRhenSheet
+): string {
+  const attentionChakras = sheet.chakras.filter((c) => c.status !== 'Normal');
+  const chakrasSummary =
+    attentionChakras.length > 0
+      ? `Chakras em atenção (${attentionChakras
+          .map((c) => `${c.name} — ligado à glândula ${c.gland}`)
+          .join(', ')}): busque momentos de respiração calma levando atenção gentil a essas regiões.`
+      : 'Seus sete centros de força (chakras) apresentam boa harmonia geral nesta leitura.';
+
+  const missingColorsText =
+    sheet.auricField.missingColors.length > 0
+      ? `Cores que nutrem seu campo neste ciclo: ${sheet.auricField.missingColors.join(
+          ', '
+        )}. Utilize-as em detalhes de vestuário, objetos do ambiente ou visualizações suaves ao inspirar.`
+      : '';
+
+  const excessColorsText =
+    sheet.auricField.excessColors.length > 0
+      ? `Cores em excesso que pedem desaceleração e limpeza: ${sheet.auricField.excessColors.join(
+          ', '
+        )} (evite ambientes sobrecarregados e priorize iluminação amena à noite).`
+      : '';
+
+  const habits =
+    session.aiResult?.prescricoes.bonsHabitos && session.aiResult.prescricoes.bonsHabitos.length > 0
+      ? `Hábitos diários recomendados: ${session.aiResult.prescricoes.bonsHabitos.join(' • ')}.`
+      : 'Cultive pausas breves durante o dia, hidratação regular e silêncio antes de dormir.';
+
+  return [chakrasSummary, missingColorsText, excessColorsText, habits].filter(Boolean).join('\n\n');
 }
 
 // ---------- DOCX HELPERS ----------
@@ -254,12 +317,16 @@ function buildTableCell(text: string, bold = false, shaded = false): TableCell {
 
 // ---------- DOC 1: THERAPIST TECHNICAL REPORT (.DOCX) ----------
 
-export async function downloadTherapistDocx(session: QuantumRoomSession): Promise<void> {
+export async function downloadTherapistDocx(
+  session: QuantumRoomSession,
+  ctx?: DocumentExportContext
+): Promise<void> {
   const { anamnesis, sensitivity, protocol, aiResult } = session;
+  const { sheet, prev, sessionType } = resolveDocContext(session, ctx);
   const logo = await loadMaestroLogo();
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
-  const alertSystems = sensitivity.organicSystems.filter((s) => s.status === 'Em Alerta');
+  const imbalancedOrgans = sheet.organs.filter((o) => o.isImbalanced);
 
   const identificationTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -274,10 +341,18 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
       }),
       new TableRow({
         children: [
-          buildTableCell('Contato', true, true),
-          buildTableCell(anamnesis.phone || 'Não informado', false, false),
+          buildTableCell('Tipo de Sessão', true, true),
+          buildTableCell(sessionType, false, false),
           buildTableCell('Data do Registro', true, true),
           buildTableCell(formatDateTimeBR(session.activatedAt), false, false),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Contato', true, true),
+          buildTableCell(anamnesis.phone || 'Não informado', false, false),
+          buildTableCell('Mesa Indicada', true, true),
+          buildTableCell(sheet.spiritualPsycho.recommendedRadionicBoard, false, false),
         ],
       }),
       new TableRow({
@@ -310,106 +385,196 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
     ],
   });
 
-  const bioTable = new Table({
+  // Campos Eletromagnéticos Table
+  const emTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       new TableRow({
         children: [
-          buildTableCell('Parâmetro Radiestésico', true, true),
-          buildTableCell('Aferição', true, true),
-          buildTableCell('Leitura Clínica', true, true),
+          buildTableCell('Campo Eletromagnético', true, true),
+          buildTableCell('Desequilíbrio (%)', true, true),
+          buildTableCell('Chakras Afetados', true, true),
         ],
       }),
-      new TableRow({
-        children: [
-          buildTableCell('Biômetro de Bovis', true),
-          buildTableCell(`${sensitivity.bovis.toLocaleString('pt-BR')} Å`),
-          buildTableCell(
-            sensitivity.bovis < 6500
-              ? 'Abaixo do limiar de estabilidade (6.500 Å) — Risco de catarse'
-              : 'Campo vital estável (≥ 6.500 Å)'
-          ),
-        ],
-      }),
-      new TableRow({
-        children: [
-          buildTableCell('Escala de Hawkins', true),
-          buildTableCell(`${sensitivity.hawkins} (${hawkinsInfo.label})`),
-          buildTableCell(`${hawkinsInfo.zone} — ${hawkinsInfo.emotion}`),
-        ],
-      }),
-      new TableRow({
-        children: [
-          buildTableCell('Proteção Áurica', true),
-          buildTableCell(`${sensitivity.auricProtection}%`),
-          buildTableCell(
-            sensitivity.auricProtection < 50
-              ? 'Malha áurica permeável (< 50%) — Exige blindagem prévia'
-              : 'Contenção áurica satisfatória'
-          ),
-        ],
-      }),
-      new TableRow({
-        children: [
-          buildTableCell('Estresse / Sobrecarga Neural', true),
-          buildTableCell(`Nível ${sensitivity.stressLevel} / 9`),
-          buildTableCell(
-            sensitivity.stressLevel >= 4
-              ? 'Sobrecarga simpática elevada — Necessária descompressão gradual'
-              : 'Tônus adaptativo moderado/estável'
-          ),
-        ],
-      }),
-      new TableRow({
-        children: [
-          buildTableCell('Interferências Sutis', true),
-          buildTableCell(`${sensitivity.subtleInterferences} detectada(s)`),
-          buildTableCell(
-            sensitivity.interferenceTypes.length > 0
-              ? sensitivity.interferenceTypes.join(', ')
-              : 'Campo limpo de interferências densas'
-          ),
-        ],
-      }),
-      new TableRow({
-        children: [
-          buildTableCell('Sistemas Orgânicos em Alerta', true),
-          buildTableCell(`${alertSystems.length} de ${sensitivity.organicSystems.length}`),
-          buildTableCell(
-            alertSystems.length > 0
-              ? alertSystems.map((s) => `${s.name} (${s.note})`).join('; ')
-              : 'Todos os sistemas em equilíbrio'
-          ),
-        ],
-      }),
-    ],
-  });
-
-  const chakraTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        children: [
-          buildTableCell('Chakra', true, true),
-          buildTableCell('Centro Sânscrito', true, true),
-          buildTableCell('Vitalidade (%)', true, true),
-          buildTableCell('Estado', true, true),
-        ],
-      }),
-      ...sensitivity.chakras.map(
-        (c) =>
+      ...sheet.electromagneticFields.map(
+        (f) =>
           new TableRow({
             children: [
-              buildTableCell(c.name, true),
-              buildTableCell(c.sanskrit),
-              buildTableCell(`${c.percentage}%`),
-              buildTableCell(c.status),
+              buildTableCell(f.label, true),
+              buildTableCell(`${f.imbalancePercent}%`),
+              buildTableCell(f.affectedChakras.join(', ') || 'Sem comprometimento'),
             ],
           })
       ),
     ],
   });
 
+  // 7 Chakras + Glândulas Table
+  const chakraTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          buildTableCell('Chakra', true, true),
+          buildTableCell('Glândula Endócrina', true, true),
+          buildTableCell('Polaridade', true, true),
+          buildTableCell('Desequilíbrio', true, true),
+          buildTableCell('Afeta Físico', true, true),
+        ],
+      }),
+      ...sheet.chakras.map(
+        (c) =>
+          new TableRow({
+            children: [
+              buildTableCell(`${c.name} (${c.sanskrit})`, true),
+              buildTableCell(c.gland),
+              buildTableCell(c.status),
+              buildTableCell(`${c.imbalancePercent}%`),
+              buildTableCell(c.affectsPhysicalBody ? 'Sim' : 'Não'),
+            ],
+          })
+      ),
+    ],
+  });
+
+  // Campo Áurico + Dimensão Espiritual Table
+  const bioAuraTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          buildTableCell('Dimensão / Parâmetro', true, true),
+          buildTableCell('Aferição Exata', true, true),
+          buildTableCell('Observação Clínica', true, true),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Biômetro de Bovis (0–18.000+ Å)', true),
+          buildTableCell(`${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å`),
+          buildTableCell(
+            sheet.spiritualPsycho.bovis < 6500
+              ? 'Abaixo de 6.500 Å — Protocolo Anti-Catarse obrigatório'
+              : 'Campo estável em zona de coerência'
+          ),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Escala de Hawkins / Ágatha', true),
+          buildTableCell(`${sheet.spiritualPsycho.hawkinsAgathaHz} Hz (${hawkinsInfo.label})`),
+          buildTableCell(`${hawkinsInfo.zone} — ${hawkinsInfo.emotion}`),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Estresse Neural (0–9) & Polaridade', true),
+          buildTableCell(`Estresse ${sheet.spiritualPsycho.stressLevel}/9`),
+          buildTableCell(
+            `${sheet.spiritualPsycho.yinPercent}% Yin / ${sheet.spiritualPsycho.yangPercent}% Yang`
+          ),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Campo Áurico (Proteção & Tamanho)', true),
+          buildTableCell(
+            `${sheet.auricField.protectionLabel} (${sheet.auricField.protectionPercent}%)`
+          ),
+          buildTableCell(
+            `Tamanho: ${sheet.auricField.sizeLabel} (${sheet.auricField.sizePercent}%)`
+          ),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Cromoterapia Áurica', true),
+          buildTableCell(`Em falta: ${sheet.auricField.missingColors.join(', ') || '—'}`),
+          buildTableCell(`Em excesso: ${sheet.auricField.excessColors.join(', ') || '—'}`),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Varredura Espiritual & Cármica', true),
+          buildTableCell(
+            `${sheet.spiritualPsycho.spiritualDisturbances.length} distúrbio(s) · ${sheet.spiritualPsycho.implantsDetected.length} implante(s)`
+          ),
+          buildTableCell(
+            [
+              ...sheet.spiritualPsycho.spiritualDisturbances,
+              ...sheet.spiritualPsycho.implantsDetected,
+              ...sheet.spiritualPsycho.karmicCommitments,
+            ].join('; ') || 'Sem registros densos'
+          ),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Virtudes a Ancorar', true),
+          buildTableCell(`${sheet.spiritualPsycho.virtuesToAnchor.length} selecionada(s)`),
+          buildTableCell(sheet.spiritualPsycho.virtuesToAnchor.join(', ') || 'Serenidade'),
+        ],
+      }),
+    ],
+  });
+
+  // Áreas da Vida Table
+  const lifeAreasTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          buildTableCell('Familiar', true, true),
+          buildTableCell('Relac. Afetivo', true, true),
+          buildTableCell('Profissional', true, true),
+          buildTableCell('Financeiro', true, true),
+          buildTableCell('Missão de Vida', true, true),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell(sheet.lifeAreas.familiar),
+          buildTableCell(sheet.lifeAreas.relacionamentoAfetivo),
+          buildTableCell(sheet.lifeAreas.profissional),
+          buildTableCell(sheet.lifeAreas.financeiro),
+          buildTableCell(sheet.lifeAreas.missaoDeVida),
+        ],
+      }),
+    ],
+  });
+
+  // ANSAE Organs Table
+  const organsTable =
+    imbalancedOrgans.length > 0
+      ? new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: [
+                buildTableCell('Sigla', true, true),
+                buildTableCell('Sistema Orgânico', true, true),
+                buildTableCell('Órgão / Glândula', true, true),
+                buildTableCell('Desequilíbrio', true, true),
+                buildTableCell('Tempo', true, true),
+              ],
+            }),
+            ...imbalancedOrgans.map(
+              (o) =>
+                new TableRow({
+                  children: [
+                    buildTableCell(o.systemCode, true),
+                    buildTableCell(o.systemName),
+                    buildTableCell(o.organName),
+                    buildTableCell(`${o.imbalancePercent}%`),
+                    buildTableCell(`${o.durationValue}${o.durationUnit}`),
+                  ],
+                })
+            ),
+          ],
+        })
+      : null;
+
+  // Chronogram Stage Paragraphs
   const stageParagraphs: Paragraph[] = [];
   if (protocol.mode === 'escalonado' && protocol.stage1 && protocol.stage2) {
     stageParagraphs.push(
@@ -487,11 +652,31 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
       buildBodyParagraph(
         aiResult.prescricoes.floraisBach.join(' • '),
         'Florais de Bach Recomendados: '
-      ),
+      )
+    );
+    if (aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0) {
+      prescricaoParagraphs.push(
+        buildBodyParagraph(
+          aiResult.prescricoes.cristais.join(' • '),
+          'Cristais Terapêuticos: '
+        )
+      );
+    }
+    prescricaoParagraphs.push(
       buildBodyParagraph(
         aiResult.prescricoes.fitoterapiaChas.join(' • '),
         'Fitoterapia e Infusões: '
-      ),
+      )
+    );
+    if (aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0) {
+      prescricaoParagraphs.push(
+        buildBodyParagraph(
+          aiResult.prescricoes.bonsHabitos.join(' • '),
+          'Bons Hábitos Aferidos: '
+        )
+      );
+    }
+    prescricaoParagraphs.push(
       buildBodyParagraph(
         aiResult.prescricoes.frequenciasSolfeggio
           .map((f) => `${f.nome} (${f.indicacao})`)
@@ -499,6 +684,24 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
         'Frequências Solfeggio de Apoio: '
       )
     );
+  }
+
+  const comparisonParagraphs: Paragraph[] = [];
+  if (prev) {
+    const bovisDelta = sheet.spiritualPsycho.bovis - prev.ansaeRhen.spiritualPsycho.bovis;
+    const hawkinsDelta =
+      sheet.spiritualPsycho.hawkinsAgathaHz - prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz;
+    const auraDelta =
+      sheet.auricField.protectionPercent - prev.ansaeRhen.auricField.protectionPercent;
+    comparisonParagraphs.push(
+      buildBodyParagraph(
+        `Bovis: ${prev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å → ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å (${bovisDelta >= 0 ? `+${bovisDelta}` : bovisDelta} Å) | Hawkins: ${prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz → ${sheet.spiritualPsycho.hawkinsAgathaHz} Hz (${hawkinsDelta >= 0 ? `+${hawkinsDelta}` : hawkinsDelta} Hz) | Proteção Áurica: ${prev.ansaeRhen.auricField.protectionPercent}% → ${sheet.auricField.protectionPercent}% (${auraDelta >= 0 ? `+${auraDelta}` : auraDelta}%).`,
+        `Evolução (${prev.sessionType} × ${sessionType}): `
+      )
+    );
+  }
+  if (aiResult?.comparativoEvolutivo && aiResult.comparativoEvolutivo.trim() !== '') {
+    comparisonParagraphs.push(buildBodyParagraph(aiResult.comparativoEvolutivo));
   }
 
   const doc = new Document({
@@ -511,31 +714,84 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
         },
         children: [
           ...buildDocxOfficialHeader(
-            'Relatório Técnico e Protocolo Clínico Vibracional',
+            'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional',
             logo?.bytes ?? null
           ),
           buildSectionHeading('1. Quadro de Identificação e Anamnese'),
           identificationTable,
           new Paragraph({ spacing: { after: 100 } }),
-          buildBodyParagraph(anamnesis.emotionalHistory || 'Sem registros adicionais.', 'Histórico Emocional/Mental: '),
-          buildBodyParagraph(anamnesis.physicalSymptoms || 'Sem registros adicionais.', 'Sintomas Físicos Relatados: '),
-          buildBodyParagraph(anamnesis.medicalTreatments || 'Não informado.', 'Tratamentos Médicos Vigentes: '),
+          buildBodyParagraph(
+            `Domínios da Pergunta Raiz marcados: ${sheet.rootProblems.join(', ') || 'Avaliação Geral'}.`,
+            'Pergunta Raiz ("Onde Existem Problemas?"): '
+          ),
+          buildBodyParagraph(
+            anamnesis.emotionalHistory || 'Sem registros adicionais.',
+            'Histórico Emocional/Mental: '
+          ),
+          buildBodyParagraph(
+            anamnesis.physicalSymptoms || 'Sem registros adicionais.',
+            'Sintomas Físicos Relatados: '
+          ),
+          buildBodyParagraph(
+            anamnesis.medicalTreatments || 'Não informado.',
+            'Tratamentos Médicos Vigentes: '
+          ),
 
-          buildSectionHeading('2. Panorama Bioenergético e Radiestésico'),
-          bioTable,
-          new Paragraph({ spacing: { before: 140, after: 80 } }),
+          buildSectionHeading('2. Campos Eletromagnéticos (Corpos Sutis)'),
+          emTable,
+
+          buildSectionHeading('3. Sete Chakras & Glândulas Correspondentes'),
           chakraTable,
 
-          buildSectionHeading('3. Diagnóstico Psicossomático'),
+          buildSectionHeading('4. Campo Áurico, Cromoterapia & Dimensão Espiritual'),
+          bioAuraTable,
+          new Paragraph({ spacing: { before: 120, after: 60 } }),
+          lifeAreasTable,
+
+          buildSectionHeading('5. Sistemas Orgânicos e Órgãos/Glândulas (ANSAE)'),
+          ...(organsTable
+            ? [organsTable]
+            : [buildBodyParagraph('Nenhum dos 38 órgãos ANSAE foi sinalizado em desequilíbrio.')]),
+
+          buildSectionHeading('6. Biômetros Virtuais Consultados'),
+          ...(sheet.biometerReadings.length > 0
+            ? sheet.biometerReadings.map((b) =>
+                buildBodyParagraph(b.selectedItem, `${b.biometerName}: `)
+              )
+            : [buildBodyParagraph('Nenhuma leitura extra registrada nos 22 biômetros virtuais.')]),
+
+          ...(comparisonParagraphs.length > 0
+            ? [
+                buildSectionHeading('7. Comparativo Evolutivo (Antes × Depois)'),
+                ...comparisonParagraphs,
+              ]
+            : []),
+
+          buildSectionHeading(
+            comparisonParagraphs.length > 0
+              ? '8. Análise da Causa Raiz & Diagnóstico Psicossomático'
+              : '7. Análise da Causa Raiz & Diagnóstico Psicossomático'
+          ),
+          ...(aiResult?.analiseCausaRaiz
+            ? [buildBodyParagraph(aiResult.analiseCausaRaiz, 'Causa Raiz Cruzada: ')]
+            : []),
           buildBodyParagraph(
             aiResult?.analisePsicossomatica ||
               'Análise psicossomática pendente de processamento no Motor de Ressonância Harmônica.'
           ),
 
-          buildSectionHeading('4. Cronograma Anti-Catarse em Etapas'),
+          buildSectionHeading(
+            comparisonParagraphs.length > 0
+              ? '9. Cronograma Anti-Catarse em Etapas'
+              : '8. Cronograma Anti-Catarse em Etapas'
+          ),
           ...stageParagraphs,
 
-          buildSectionHeading('5. Painel de Testemunhos e Comandos Quânticos'),
+          buildSectionHeading(
+            comparisonParagraphs.length > 0
+              ? '10. Painel de Testemunhos e Comandos Quânticos'
+              : '9. Painel de Testemunhos e Comandos Quânticos'
+          ),
           ...(testemunhoParagraphs.length > 0
             ? testemunhoParagraphs
             : [buildBodyParagraph('Nenhum testemunho gerado até o momento.')]),
@@ -543,14 +799,22 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
             ? comandoParagraphs
             : [buildBodyParagraph('Nenhum comando quântico gerado até o momento.')]),
 
-          buildSectionHeading('6. Prescrições Integrativas'),
+          buildSectionHeading(
+            comparisonParagraphs.length > 0
+              ? '11. Prescrições Integrativas & Hábitos'
+              : '10. Prescrições Integrativas & Hábitos'
+          ),
           ...(prescricaoParagraphs.length > 0
             ? prescricaoParagraphs
             : [buildBodyParagraph('Sem prescrições registradas.')]),
 
-          buildSectionHeading('7. Ressalva Ética e Responsabilidade Terapêutica'),
+          buildSectionHeading(
+            comparisonParagraphs.length > 0
+              ? '12. Ressalva Ética e Responsabilidade Terapêutica'
+              : '11. Ressalva Ética e Responsabilidade Terapêutica'
+          ),
           buildBodyParagraph(
-            'Este relatório documenta procedimentos de Radiestesia Terapêutica, Ressonância Harmônica e Terapias Vibracionais Integrativas. Os atendimentos têm caráter estritamente complementar, educativo e harmonizador do campo bioenergético, não substituindo consultas médicas, exames diagnósticos, prescrições farmacológicas ou acompanhamentos psicoterápicos convencionais.'
+            'Este relatório documenta procedimentos de Radiestesia Terapêutica (ANSAE/RHEN), Ressonância Harmônica e Terapias Vibracionais Integrativas. Os atendimentos têm caráter estritamente complementar, educativo e harmonizador do campo bioenergético, não substituindo consultas médicas, exames diagnósticos, prescrições farmacológicas ou acompanhamentos psicoterápicos convencionais.'
           ),
         ],
       },
@@ -563,10 +827,16 @@ export async function downloadTherapistDocx(session: QuantumRoomSession): Promis
 
 // ---------- DOC 2: PATIENT ORIENTATION GUIDE (.DOCX) ----------
 
-export async function downloadPatientGuideDocx(session: QuantumRoomSession): Promise<void> {
+export async function downloadPatientGuideDocx(
+  session: QuantumRoomSession,
+  ctx?: DocumentExportContext
+): Promise<void> {
   const { anamnesis, aiResult, protocol } = session;
+  const { sheet, prev } = resolveDocContext(session, ctx);
   const logo = await loadMaestroLogo();
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
+  const chakrasAuraGuide =
+    aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
 
   const doc = new Document({
     sections: [
@@ -607,6 +877,22 @@ export async function downloadPatientGuideDocx(session: QuantumRoomSession): Pro
               'Seu campo energético passou por uma avaliação cuidadosa para identificar onde há acúmulo de cansaço emocional e onde precisamos fortalecer sua vitalidade. Nosso objetivo é restaurar seu equilíbrio natural com suavidade, respeitando o tempo do seu corpo e das suas emoções.'
           ),
 
+          ...(prev || aiResult?.comparativoEvolutivo
+            ? [
+                buildSectionHeading('Sua Evolução Neste Ciclo'),
+                buildBodyParagraph(
+                  aiResult?.comparativoEvolutivo ||
+                    `Sua vitalidade avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e sua proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
+                ),
+              ]
+            : []),
+
+          buildSectionHeading('Chakras, Cores da Aura & Hábitos na Prática'),
+          ...chakrasAuraGuide
+            .split('\n\n')
+            .filter(Boolean)
+            .map((p) => buildBodyParagraph(p)),
+
           buildSectionHeading('A Relação entre Mente, Emoção e Corpo'),
           buildBodyParagraph(
             'Pensamentos recorrentes, preocupações prolongadas e emoções guardadas funcionam como sinais que influenciam diretamente o ritmo do nosso sistema nervoso, do sono, da digestão e da imunidade. Quando organizamos o campo vibracional e cultivamos hábitos tranquilos no dia a dia, o organismo encontra espaço para se autorregular com mais leveza.'
@@ -636,15 +922,32 @@ export async function downloadPatientGuideDocx(session: QuantumRoomSession): Pro
 
           ...(aiResult?.prescricoes
             ? [
-                buildSectionHeading('Sugestões Naturais e Sonoras de Apoio'),
+                buildSectionHeading('Apoios Naturais, Cristais e Frequências'),
                 buildBodyParagraph(
                   aiResult.prescricoes.floraisBach.join(' • '),
                   'Florais de Bach sugeridos: '
                 ),
+                ...(aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0
+                  ? [
+                      buildBodyParagraph(
+                        aiResult.prescricoes.cristais.join(' • '),
+                        'Cristais de apoio: '
+                      ),
+                    ]
+                  : []),
                 buildBodyParagraph(
                   aiResult.prescricoes.fitoterapiaChas.join(' • '),
                   'Chás e Infusões acolhedoras: '
                 ),
+                ...(aiResult.prescricoes.bonsHabitos &&
+                aiResult.prescricoes.bonsHabitos.length > 0
+                  ? [
+                      buildBodyParagraph(
+                        aiResult.prescricoes.bonsHabitos.join(' • '),
+                        'Hábitos práticos recomendados: '
+                      ),
+                    ]
+                  : []),
                 buildBodyParagraph(
                   aiResult.prescricoes.frequenciasSolfeggio
                     .map((f) => `${f.nome} — ${f.indicacao}`)
@@ -701,13 +1004,13 @@ class MaestroPdfBuilder {
 
     this.doc.setFont('times', 'bold');
     this.doc.setFontSize(15);
-    this.doc.setTextColor(15, 23, 42); // #0F172A
+    this.doc.setTextColor(15, 23, 42);
     this.doc.text('MAESTRO TERAPIAS VIBRACIONAIS', center, this.y, { align: 'center' });
     this.y += 6.5;
 
     this.doc.setFont('times', 'italic');
     this.doc.setFontSize(11.5);
-    this.doc.setTextColor(180, 83, 9); // #B45309
+    this.doc.setTextColor(180, 83, 9);
     this.doc.text(subtitle, center, this.y, { align: 'center' });
     this.y += 6;
 
@@ -733,8 +1036,7 @@ class MaestroPdfBuilder {
     );
     this.y += 4;
 
-    // Gold horizontal divider line
-    this.doc.setDrawColor(180, 83, 9); // #B45309
+    this.doc.setDrawColor(180, 83, 9);
     this.doc.setLineWidth(0.7);
     this.doc.line(this.margin, this.y, this.pageWidth - this.margin, this.y);
     this.y += 8;
@@ -791,7 +1093,6 @@ class MaestroPdfBuilder {
       const rowHeight = Math.max(7.5, valueLines.length * 4.5 + 3);
       this.ensureSpace(rowHeight + 2);
 
-      // Left cell background
       this.doc.setFillColor(250, 248, 245);
       this.doc.setDrawColor(203, 213, 225);
       this.doc.setLineWidth(0.25);
@@ -819,67 +1120,138 @@ class MaestroPdfBuilder {
   }
 }
 
-export async function downloadTherapistPdf(session: QuantumRoomSession): Promise<void> {
+export async function downloadTherapistPdf(
+  session: QuantumRoomSession,
+  ctx?: DocumentExportContext
+): Promise<void> {
   const { anamnesis, sensitivity, protocol, aiResult } = session;
+  const { sheet, prev, sessionType } = resolveDocContext(session, ctx);
   const logo = await loadMaestroLogo();
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
   const birthBR = formatBirthDateBR(anamnesis.birthDate);
-  const alertSystems = sensitivity.organicSystems.filter((s) => s.status === 'Em Alerta');
+  const imbalancedOrgans = sheet.organs.filter((o) => o.isImbalanced);
 
   const pdf = new MaestroPdfBuilder();
   pdf.addOfficialHeader(
-    'Relatório Técnico e Protocolo Clínico Vibracional',
+    'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional',
     logo?.dataUrl ?? null
   );
 
   pdf.addSectionTitle('1. Quadro de Identificação e Anamnese');
   pdf.addKeyValueTable([
     ['Paciente', anamnesis.fullName],
+    ['Tipo de Sessão', sessionType],
     ['Data de Nascimento', birthBR || 'Não informado'],
     ['Contato', anamnesis.phone || 'Não informado'],
     ['Data do Registro', formatDateTimeBR(session.activatedAt)],
     ['Foco Terapêutico', anamnesis.therapeuticFocus],
+    ['Pergunta Raiz', sheet.rootProblems.join(', ') || 'Avaliação Geral'],
     ['Histórico Emocional', anamnesis.emotionalHistory || 'Sem observações adicionais'],
     ['Sintomas Físicos', anamnesis.physicalSymptoms || 'Sem sintomas registrados'],
     ['Tratamento Médico', anamnesis.medicalTreatments || 'Não informado'],
   ]);
 
-  pdf.addSectionTitle('2. Panorama Bioenergético e Radiestésico');
+  pdf.addSectionTitle('2. Campos Eletromagnéticos & Sete Chakras + Glândulas');
+  pdf.addKeyValueTable(
+    sheet.electromagneticFields.map((f) => [
+      f.label,
+      `${f.imbalancePercent}% de desequilíbrio · Chakras: ${
+        f.affectedChakras.join(', ') || 'Nenhum'
+      }`,
+    ])
+  );
+  pdf.addKeyValueTable(
+    sheet.chakras.map((c) => [
+      `${c.name} (${c.gland})`,
+      `${c.status} · ${c.imbalancePercent}% desequilíbrio · Afeta físico: ${
+        c.affectsPhysicalBody ? 'Sim' : 'Não'
+      }`,
+    ])
+  );
+
+  pdf.addSectionTitle('3. Campo Áurico, Cromoterapia, Dimensão Espiritual & Áreas da Vida');
   pdf.addKeyValueTable([
     [
       'Biômetro de Bovis',
-      `${sensitivity.bovis.toLocaleString('pt-BR')} Å (${
-        sensitivity.bovis < 6500 ? 'Abaixo de 6.500 Å — Alerta Anti-Catarse' : 'Estável'
-      })`,
-    ],
-    ['Escala de Hawkins', `${sensitivity.hawkins} — ${hawkinsInfo.label} (${hawkinsInfo.zone})`],
-    ['Proteção Áurica', `${sensitivity.auricProtection}%`],
-    ['Estresse / Sobrecarga', `Nível ${sensitivity.stressLevel} de 9`],
-    [
-      'Interferências Sutis',
-      `${sensitivity.subtleInterferences} (${
-        sensitivity.interferenceTypes.join(', ') || 'Nenhuma'
+      `${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å (${
+        sheet.spiritualPsycho.bovis < 6500 ? 'Abaixo de 6.500 Å — Alerta Anti-Catarse' : 'Estável'
       })`,
     ],
     [
-      'Chakras',
-      sensitivity.chakras.map((c) => `${c.name}: ${c.percentage}% (${c.status})`).join(' | '),
+      'Hawkins / Ágatha',
+      `${sheet.spiritualPsycho.hawkinsAgathaHz} Hz — ${hawkinsInfo.label} (${hawkinsInfo.zone})`,
     ],
     [
-      'Sistemas em Alerta',
-      alertSystems.length > 0
-        ? alertSystems.map((s) => `${s.name} — ${s.note}`).join('; ')
-        : 'Todos os sistemas equilibrados',
+      'Estresse & Yin/Yang',
+      `Estresse ${sheet.spiritualPsycho.stressLevel}/9 · ${sheet.spiritualPsycho.yinPercent}% Yin / ${sheet.spiritualPsycho.yangPercent}% Yang`,
     ],
+    [
+      'Campo Áurico',
+      `Proteção: ${sheet.auricField.protectionLabel} (${sheet.auricField.protectionPercent}%) · Tamanho: ${sheet.auricField.sizeLabel} (${sheet.auricField.sizePercent}%)`,
+    ],
+    [
+      'Cores da Aura',
+      `Em falta: ${sheet.auricField.missingColors.join(', ') || '—'} | Em excesso: ${
+        sheet.auricField.excessColors.join(', ') || '—'
+      }`,
+    ],
+    [
+      'Áreas da Vida',
+      `Familiar: ${sheet.lifeAreas.familiar} | Afetivo: ${sheet.lifeAreas.relacionamentoAfetivo} | Profissional: ${sheet.lifeAreas.profissional} | Financeiro: ${sheet.lifeAreas.financeiro} | Missão: ${sheet.lifeAreas.missaoDeVida}`,
+    ],
+    [
+      'Espiritual & Carma',
+      [
+        ...sheet.spiritualPsycho.spiritualDisturbances,
+        ...sheet.spiritualPsycho.implantsDetected,
+        ...sheet.spiritualPsycho.karmicCommitments,
+      ].join('; ') || 'Sem registros densos',
+    ],
+    ['Virtudes a Ancorar', sheet.spiritualPsycho.virtuesToAnchor.join(', ') || 'Serenidade'],
+    ['Mesa Radiônica Indicada', sheet.spiritualPsycho.recommendedRadionicBoard],
   ]);
 
-  pdf.addSectionTitle('3. Diagnóstico Psicossomático');
+  pdf.addSectionTitle('4. Órgãos ANSAE em Alerta & Biômetros Consultados');
+  if (imbalancedOrgans.length > 0) {
+    pdf.addKeyValueTable(
+      imbalancedOrgans.map((o) => [
+        `[${o.systemCode}] ${o.organName}`,
+        `${o.systemName} · ${o.imbalancePercent}% desequilíbrio · Tempo: ${o.durationValue}${o.durationUnit}`,
+      ])
+    );
+  } else {
+    pdf.addParagraph('Nenhum órgão dos 15 sistemas ANSAE sinalizado em desequilíbrio.');
+  }
+
+  if (sheet.biometerReadings.length > 0) {
+    pdf.addKeyValueTable(
+      sheet.biometerReadings.map((b) => [b.biometerName, b.selectedItem])
+    );
+  }
+
+  if (prev || aiResult?.comparativoEvolutivo) {
+    pdf.addSectionTitle('5. Comparativo Evolutivo (Antes × Depois)');
+    if (prev) {
+      pdf.addParagraph(
+        `Bovis: ${prev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å → ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å | Hawkins: ${prev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz → ${sheet.spiritualPsycho.hawkinsAgathaHz} Hz | Proteção Áurica: ${prev.ansaeRhen.auricField.protectionPercent}% → ${sheet.auricField.protectionPercent}%.`,
+        `${prev.sessionType} × ${sessionType}: `
+      );
+    }
+    if (aiResult?.comparativoEvolutivo) {
+      pdf.addParagraph(aiResult.comparativoEvolutivo);
+    }
+  }
+
+  pdf.addSectionTitle('6. Análise da Causa Raiz & Diagnóstico Psicossomático');
+  if (aiResult?.analiseCausaRaiz) {
+    pdf.addParagraph(aiResult.analiseCausaRaiz, 'Causa Raiz Cruzada: ');
+  }
   pdf.addParagraph(
     aiResult?.analisePsicossomatica ||
       'Processe o Motor de Ressonância Harmônica na Tela 4 para preencher este diagnóstico.'
   );
 
-  pdf.addSectionTitle('4. Cronograma Anti-Catarse em Etapas');
+  pdf.addSectionTitle('7. Cronograma Anti-Catarse em Etapas');
   if (protocol.mode === 'escalonado' && protocol.stage1 && protocol.stage2) {
     pdf.addParagraph(
       `Motivos técnicos: ${protocol.riskReasons.join('; ')}.`,
@@ -910,7 +1282,7 @@ export async function downloadTherapistPdf(session: QuantumRoomSession): Promise
     );
   }
 
-  pdf.addSectionTitle('5. Testemunhos e Comandos Quânticos');
+  pdf.addSectionTitle('8. Testemunhos e Comandos Quânticos');
   (aiResult?.testemunhos || []).forEach((t) => {
     pdf.addParagraph(`${t.testemunhoFormatado} (${t.etapa})`, `${t.geometria}: `);
   });
@@ -919,9 +1291,15 @@ export async function downloadTherapistPdf(session: QuantumRoomSession): Promise
   });
 
   if (aiResult?.prescricoes) {
-    pdf.addSectionTitle('6. Prescrições Integrativas');
+    pdf.addSectionTitle('9. Prescrições Integrativas, Cristais & Bons Hábitos');
     pdf.addParagraph(aiResult.prescricoes.floraisBach.join(' • '), 'Florais de Bach: ');
+    if (aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0) {
+      pdf.addParagraph(aiResult.prescricoes.cristais.join(' • '), 'Cristais Terapêuticos: ');
+    }
     pdf.addParagraph(aiResult.prescricoes.fitoterapiaChas.join(' • '), 'Fitoterapia / Chás: ');
+    if (aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0) {
+      pdf.addParagraph(aiResult.prescricoes.bonsHabitos.join(' • '), 'Bons Hábitos: ');
+    }
     pdf.addParagraph(
       aiResult.prescricoes.frequenciasSolfeggio
         .map((f) => `${f.nome} (${f.indicacao})`)
@@ -930,18 +1308,24 @@ export async function downloadTherapistPdf(session: QuantumRoomSession): Promise
     );
   }
 
-  pdf.addSectionTitle('7. Ressalva Ética');
+  pdf.addSectionTitle('10. Ressalva Ética');
   pdf.addParagraph(
-    'Este protocolo integra Radiestesia Terapêutica e Ressonância Harmônica em caráter complementar e educativo, não substituindo diagnósticos, consultas ou tratamentos médicos e psicológicos convencionais.'
+    'Este protocolo integra Radiestesia Terapêutica (ANSAE/RHEN) e Ressonância Harmônica em caráter complementar e educativo, não substituindo diagnósticos, consultas ou tratamentos médicos e psicológicos convencionais.'
   );
 
   pdf.save(`relatorio_tecnico_${sanitizeFileName(anamnesis.fullName)}.pdf`);
 }
 
-export async function downloadPatientGuidePdf(session: QuantumRoomSession): Promise<void> {
+export async function downloadPatientGuidePdf(
+  session: QuantumRoomSession,
+  ctx?: DocumentExportContext
+): Promise<void> {
   const { anamnesis, aiResult, protocol } = session;
+  const { sheet, prev } = resolveDocContext(session, ctx);
   const logo = await loadMaestroLogo();
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
+  const chakrasAuraGuide =
+    aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
 
   const pdf = new MaestroPdfBuilder();
   pdf.addOfficialHeader(
@@ -965,6 +1349,20 @@ export async function downloadPatientGuidePdf(session: QuantumRoomSession): Prom
     aiResult?.orientacaoPacienteResumo ||
       'Realizamos uma leitura cuidadosa do seu campo energético para acolher sinais de cansaço e organizar sua vitalidade com suavidade.'
   );
+
+  if (prev || aiResult?.comparativoEvolutivo) {
+    pdf.addSectionTitle('Sua Evolução Neste Ciclo');
+    pdf.addParagraph(
+      aiResult?.comparativoEvolutivo ||
+        `Sua vitalidade avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e sua proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
+    );
+  }
+
+  pdf.addSectionTitle('Chakras, Cores da Aura & Hábitos na Prática');
+  chakrasAuraGuide
+    .split('\n\n')
+    .filter(Boolean)
+    .forEach((p) => pdf.addParagraph(p));
 
   pdf.addSectionTitle('A Conexão entre Mente, Emoção e Corpo');
   pdf.addParagraph(
@@ -994,9 +1392,15 @@ export async function downloadPatientGuidePdf(session: QuantumRoomSession): Prom
   );
 
   if (aiResult?.prescricoes) {
-    pdf.addSectionTitle('Apoios Naturais e Frequências Recomendadas');
+    pdf.addSectionTitle('Apoios Naturais, Cristais e Frequências');
     pdf.addParagraph(aiResult.prescricoes.floraisBach.join(' • '), 'Florais de Bach: ');
+    if (aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0) {
+      pdf.addParagraph(aiResult.prescricoes.cristais.join(' • '), 'Cristais Terapêuticos: ');
+    }
     pdf.addParagraph(aiResult.prescricoes.fitoterapiaChas.join(' • '), 'Chás e Infusões: ');
+    if (aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0) {
+      pdf.addParagraph(aiResult.prescricoes.bonsHabitos.join(' • '), 'Bons Hábitos Diários: ');
+    }
     pdf.addParagraph(
       aiResult.prescricoes.frequenciasSolfeggio
         .map((f) => `${f.nome} — ${f.indicacao}`)
@@ -1008,10 +1412,16 @@ export async function downloadPatientGuidePdf(session: QuantumRoomSession): Prom
   pdf.save(`guia_paciente_${sanitizeFileName(anamnesis.fullName)}.pdf`);
 }
 
-export function buildWhatsAppShareUrl(session: QuantumRoomSession): string {
+export function buildWhatsAppShareUrl(
+  session: QuantumRoomSession,
+  ctx?: DocumentExportContext
+): string {
   const { anamnesis, aiResult, protocol } = session;
+  const { sheet } = resolveDocContext(session, ctx);
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
-  const freqs = aiResult?.prescricoes.frequenciasSolfeggio.map((f) => `${f.hz} Hz`).join(', ') || '432 Hz';
+  const freqs =
+    aiResult?.prescricoes.frequenciasSolfeggio.map((f) => `${f.hz} Hz`).join(', ') || '432 Hz';
+  const missingColors = sheet.auricField.missingColors.join(', ');
 
   const text = [
     `*MAESTRO TERAPIAS VIBRACIONAIS*`,
@@ -1026,6 +1436,7 @@ export function buildWhatsAppShareUrl(session: QuantumRoomSession): string {
         ? 'Protocolo Suave em 2 Etapas (Limpeza & Blindagem -> Pausa 12h -> Vitalização)'
         : 'Harmonização Direta (7 a 10 dias)'
     }`,
+    missingColors ? `*Cores da Aura para nutrir seu campo:* ${missingColors}` : '',
     ``,
     `*4 Pilares Diários:*`,
     `1. Hidratação/Chás: ${pilares?.hidratacaoFitoterapia || 'Beber 2L de água pura e chás suaves.'}`,
@@ -1037,7 +1448,9 @@ export function buildWhatsAppShareUrl(session: QuantumRoomSession): string {
     ``,
     `_Giovani Caetano • Terapeuta Vibracional_`,
     `_(68) 99247-6436 | (11) 95056-5215_`,
-  ].join('\n');
+  ]
+    .filter((line) => line !== undefined)
+    .join('\n');
 
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }

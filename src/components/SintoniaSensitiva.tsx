@@ -1,7 +1,31 @@
-import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Compass, ShieldAlert, Sparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Compass,
+  HeartHandshake,
+  Layers,
+  Plus,
+  ShieldAlert,
+  Sparkles,
+  Sun,
+} from 'lucide-react';
+import {
+  AnsaeChakraReading,
+  AnsaeOrganReading,
+  AnsaeSystemCode,
+  AuraProtectionLevel,
+  AuraSizeLevel,
+  BiometerDefinition,
+  ChakraPolarityStatus,
+  ClinicalAnsaeRhenSheet,
+  LifeAreaRating,
+  RootProblemDomain,
+} from '../types/clinical';
 import {
   ChakraReading,
+  OrganicSystemStatus,
   PatientAnamnesis,
   SensitivityReading,
 } from '../types/quantum';
@@ -10,6 +34,15 @@ import {
   evaluateAntiCatharsis,
   getHawkinsLevelInfo,
 } from '../utils/antiCatharsis';
+import {
+  ANSAE_SYSTEMS_META,
+  createDefaultAnsaeRhenSheet,
+  loadClinicalDatabase,
+  loadCustomBiometers,
+  saveClinicalDatabase,
+  saveCustomBiometers,
+} from '../utils/storage';
+import { BiometrosModal } from './BiometrosModal';
 
 interface SintoniaSensitivaProps {
   anamnesis: PatientAnamnesis;
@@ -19,8 +52,118 @@ interface SintoniaSensitivaProps {
   onBackToAnamnesis: () => void;
 }
 
+const ROOT_DOMAIN_OPTIONS: Array<{
+  id: RootProblemDomain;
+  title: string;
+  hint: string;
+}> = [
+  { id: 'Físico', title: 'Físico', hint: 'Vitalidade somática e campo físico' },
+  { id: 'Emocional', title: 'Emocional', hint: 'Eixo afetivo, traumas e plexo' },
+  { id: 'Mental', title: 'Mental', hint: 'Sobrecarga psíquica e crenças' },
+  { id: 'Espiritual', title: 'Espiritual', hint: 'Distúrbios, implantes e carmas' },
+  { id: 'Aura', title: 'Aura', hint: 'Proteção, tamanho e cromoterapia' },
+  { id: 'Órgãos', title: 'Órgãos', hint: '15 sistemas ANSAE e 38 órgãos' },
+];
+
+const CHAKRA_SHORT_NAMES = [
+  'Coronário',
+  'Frontal',
+  'Laríngeo',
+  'Cardíaco',
+  'Plexo Solar',
+  'Sacro',
+  'Básico',
+];
+
+const MISSING_COLOR_OPTIONS = [
+  'Violeta',
+  'Índigo',
+  'Azul Celeste',
+  'Verde Esmeralda',
+  'Amarelo Ouro',
+  'Dourado',
+  'Laranja',
+  'Rosa',
+  'Branco Cristalino',
+  'Magenta',
+];
+
+const EXCESS_COLOR_OPTIONS = [
+  'Vermelho Denso',
+  'Cinza',
+  'Marrom Lodoso',
+  'Laranja Escuro',
+  'Preto Opaco',
+  'Amarelo Ácido',
+  'Verde Turvo',
+];
+
+const LIFE_AREAS_CONFIG: Array<{
+  key: keyof ClinicalAnsaeRhenSheet['lifeAreas'];
+  label: string;
+}> = [
+  { key: 'familiar', label: 'Familiar' },
+  { key: 'relacionamentoAfetivo', label: 'Relacionamento Afetivo' },
+  { key: 'profissional', label: 'Profissional' },
+  { key: 'financeiro', label: 'Financeiro' },
+  { key: 'missaoDeVida', label: 'Missão de Vida' },
+];
+
+const LIFE_AREA_RATINGS: LifeAreaRating[] = ['Péssimo', 'Ruim', 'Bom', 'Excelente'];
+
+const IMPLANT_OPTIONS = [
+  'Chip / Dispositivo Astral',
+  'Selo de Limitação Mental',
+  'Implante Emocional no Plexo',
+  'Bloqueio Vocal / Laríngeo',
+];
+
+const KARMIC_OPTIONS = [
+  'Voto de Escassez / Pobreza',
+  'Contrato de Autossacrifício',
+  'Pendência Ancestral Familiar',
+  'Pacto de Culpa / Expiação',
+];
+
+const VIRTUE_OPTIONS = [
+  'Serenidade',
+  'Discernimento',
+  'Vitalidade',
+  'Perdão',
+  'Coragem',
+  'Prosperidade Ética',
+  'Amor Incondicional',
+  'Fé & Entrega',
+];
+
+const RADIONIC_BOARD_OPTIONS = [
+  'Mesa de Assepsia & Blindagem Anti-Catarse',
+  'Mesa Radiônica Quântica de Alta Vitalidade',
+  'Mesa Radiônica Espiritual & Cármica (RHEN)',
+  'Mesa Apométrica & Desobsessão Sutil',
+  'Mesa de Prosperidade & Alinhamento de Missão',
+];
+
+const SYSTEM_CODES_ORDER: AnsaeSystemCode[] = [
+  'SC',
+  'SD',
+  'SEnd',
+  'SExc',
+  'SI',
+  'SL',
+  'SNC',
+  'SNP',
+  'SRep',
+  'SResp',
+  'SS',
+  'SU',
+  'SEsq',
+  'SM',
+  'ST',
+];
+
 const BovisGauge: React.FC<{ bovis: number }> = ({ bovis }) => {
-  const maxVal = 15000;
+  const maxVal = 18000;
   const clamped = Math.max(0, Math.min(maxVal, bovis));
   const angleDeg = -90 + (clamped / maxVal) * 180;
   const thresholdRad = ((-90 + (6500 / maxVal) * 180) * Math.PI) / 180;
@@ -34,7 +177,7 @@ const BovisGauge: React.FC<{ bovis: number }> = ({ bovis }) => {
   const tx2 = cx + (radius + 9) * Math.sin(thresholdRad);
   const ty2 = cy - (radius + 9) * Math.cos(thresholdRad);
 
-  const ticks = Array.from({ length: 16 }, (_, i) => {
+  const ticks = Array.from({ length: 19 }, (_, i) => {
     const val = i * 1000;
     const rad = ((-90 + (val / maxVal) * 180) * Math.PI) / 180;
     const isMajor = i % 3 === 0;
@@ -113,8 +256,8 @@ const BovisGauge: React.FC<{ bovis: number }> = ({ bovis }) => {
 
         <line x1={tx1} y1={ty1} x2={tx2} y2={ty2} stroke="#B45309" strokeWidth="2.5" />
         <text
-          x={cx + (radius + 22) * Math.sin(thresholdRad)}
-          y={cy - (radius + 22) * Math.cos(thresholdRad)}
+          x={cx + (radius + 24) * Math.sin(thresholdRad)}
+          y={cy - (radius + 24) * Math.cos(thresholdRad)}
           textAnchor="middle"
           className="fill-[#B45309] text-[9px] font-mono font-semibold"
         >
@@ -148,12 +291,77 @@ const BovisGauge: React.FC<{ bovis: number }> = ({ bovis }) => {
         <p className={`mt-1 text-xs font-medium ${bovis < 6500 ? 'text-[#BA1A1A]' : 'text-[#B45309]'}`}>
           {bovis < 6500
             ? 'Abaixo de 6.500 Å — Campo vulnerável (Modo Escalonado será ativado)'
+            : bovis >= 18000
+            ? '≥ 18.000 Å — Padrão vibracional supranormal'
             : 'Acima de 6.500 Å — Padrão energético em estabilidade'}
         </p>
       </div>
     </div>
   );
 };
+
+function getSheetStorageKey(patientId: string): string {
+  return `maestro_quantico_ansae_draft_${patientId || 'default'}`;
+}
+
+function loadInitialSheet(
+  anamnesis: PatientAnamnesis,
+  sensitivity: SensitivityReading
+): ClinicalAnsaeRhenSheet {
+  try {
+    const raw = localStorage.getItem(getSheetStorageKey(anamnesis.id));
+    if (raw) {
+      const parsed = JSON.parse(raw) as ClinicalAnsaeRhenSheet;
+      if (parsed && Array.isArray(parsed.organs) && parsed.organs.length === 38) {
+        return {
+          ...parsed,
+          spiritualPsycho: {
+            ...parsed.spiritualPsycho,
+            bovis: sensitivity.bovis,
+            hawkinsAgathaHz: sensitivity.hawkins,
+            stressLevel: sensitivity.stressLevel,
+            spiritualDisturbances: sensitivity.interferenceTypes,
+          },
+          auricField: {
+            ...parsed.auricField,
+            protectionPercent: sensitivity.auricProtection,
+          },
+        };
+      }
+    }
+  } catch {
+    // Fallback to default
+  }
+
+  const db = loadClinicalDatabase();
+  const matched = db.sessions.find(
+    (s) => s.patientId === anamnesis.id && s.phase !== 'completed'
+  );
+  if (matched) {
+    return {
+      ...matched.ansaeRhen,
+      spiritualPsycho: {
+        ...matched.ansaeRhen.spiritualPsycho,
+        bovis: sensitivity.bovis,
+        hawkinsAgathaHz: sensitivity.hawkins,
+        stressLevel: sensitivity.stressLevel,
+        spiritualDisturbances: sensitivity.interferenceTypes,
+      },
+      auricField: {
+        ...matched.ansaeRhen.auricField,
+        protectionPercent: sensitivity.auricProtection,
+      },
+    };
+  }
+
+  const base = createDefaultAnsaeRhenSheet();
+  base.spiritualPsycho.bovis = sensitivity.bovis;
+  base.spiritualPsycho.hawkinsAgathaHz = sensitivity.hawkins;
+  base.spiritualPsycho.stressLevel = sensitivity.stressLevel;
+  base.spiritualPsycho.spiritualDisturbances = sensitivity.interferenceTypes;
+  base.auricField.protectionPercent = sensitivity.auricProtection;
+  return base;
+}
 
 export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   anamnesis,
@@ -162,375 +370,1558 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   onProcessProtocol,
   onBackToAnamnesis,
 }) => {
-  // Polaridade Yin/Yang (0 = Yin extremo, 50 = Equilíbrio Tao, 100 = Yang extremo)
-  const [yinYangRatio, setYinYangRatio] = useState<number>(50);
+  const [sheet, setSheet] = useState<ClinicalAnsaeRhenSheet>(() =>
+    loadInitialSheet(anamnesis, sensitivity)
+  );
+  const [showAllBlocks, setShowAllBlocks] = useState<boolean>(false);
+  const [isBiometersOpen, setIsBiometersOpen] = useState<boolean>(false);
+  const [customBiometers, setCustomBiometers] = useState<BiometerDefinition[]>(() =>
+    loadCustomBiometers()
+  );
+  const [activeSystemTab, setActiveSystemTab] = useState<AnsaeSystemCode | 'ALL'>('ALL');
+  const [customDisturbance, setCustomDisturbance] = useState<string>('');
+  const [customImplant, setCustomImplant] = useState<string>('');
+  const [customKarmic, setCustomKarmic] = useState<string>('');
 
-  const hawkinsInfo = useMemo(() => getHawkinsLevelInfo(sensitivity.hawkins), [sensitivity.hawkins]);
+  // Re-sync when switching patients
+  useEffect(() => {
+    setSheet(loadInitialSheet(anamnesis, sensitivity));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anamnesis.id]);
+
+  // Persist ANSAE/RHEN working sheet locally & into matching clinical DB record
+  useEffect(() => {
+    try {
+      localStorage.setItem(getSheetStorageKey(anamnesis.id), JSON.stringify(sheet));
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex(
+        (s) => s.patientId === anamnesis.id && s.phase !== 'completed'
+      );
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          ansaeRhen: sheet,
+          updatedAt: new Date().toISOString(),
+        };
+        saveClinicalDatabase(db);
+      }
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [anamnesis.id, sheet]);
+
+  const mapAnsaeSystemsToLegacy = (organs: AnsaeOrganReading[]): OrganicSystemStatus[] => {
+    const codeGroups: Array<{
+      legacyId: string;
+      codes: AnsaeSystemCode[];
+    }> = [
+      { legacyId: 'nervoso', codes: ['SNC', 'SNP'] },
+      { legacyId: 'endocrino', codes: ['SEnd'] },
+      { legacyId: 'imunologico', codes: ['SI', 'SL'] },
+      { legacyId: 'cardiovascular', codes: ['SC'] },
+      { legacyId: 'digestivo', codes: ['SD', 'SExc'] },
+      { legacyId: 'respiratorio', codes: ['SResp'] },
+      { legacyId: 'osteomuscular', codes: ['SEsq', 'SM'] },
+      { legacyId: 'renal', codes: ['SU'] },
+    ];
+
+    return sensitivity.organicSystems.map((sys) => {
+      const group = codeGroups.find((g) => g.legacyId === sys.id);
+      if (!group) return sys;
+      const imbalancedOrgans = organs.filter(
+        (o) => group.codes.includes(o.systemCode) && o.isImbalanced
+      );
+      if (imbalancedOrgans.length > 0) {
+        return {
+          ...sys,
+          status: 'Em Alerta',
+          note: imbalancedOrgans
+            .map((o) => `${o.organName} (${o.imbalancePercent}% · ${o.durationValue}${o.durationUnit})`)
+            .join(', '),
+        };
+      }
+      return {
+        ...sys,
+        status: 'Equilibrado',
+        note: 'Tônus estável na varredura ANSAE',
+      };
+    });
+  };
+
+  const mapAnsaeChakrasToLegacy = (chakras: AnsaeChakraReading[]): ChakraReading[] => {
+    return sensitivity.chakras.map((legacy) => {
+      const found = chakras.find(
+        (c) => c.id === legacy.id || (legacy.id === 'umbilical' && c.id === 'sacro')
+      );
+      if (!found) return legacy;
+      const pct = Math.max(0, Math.min(100, 100 - found.imbalancePercent));
+      const status: ChakraReading['status'] =
+        found.status === 'Nulo'
+          ? 'Bloqueado'
+          : found.status === 'Hipo'
+          ? 'Hipo-ativo'
+          : found.status === 'Hiper'
+          ? 'Hiper-ativo'
+          : 'Equilibrado';
+      return {
+        ...legacy,
+        percentage: pct,
+        status,
+      };
+    });
+  };
+
+  const updateSheetAndSync = (
+    updater: (prev: ClinicalAnsaeRhenSheet) => ClinicalAnsaeRhenSheet,
+    syncOrgans = false,
+    syncChakras = false
+  ) => {
+    const next = updater(sheet);
+    try {
+      localStorage.setItem(getSheetStorageKey(anamnesis.id), JSON.stringify(next));
+    } catch {
+      // Ignore storage quota errors
+    }
+    setSheet(next);
+    const nextSensitivity: SensitivityReading = {
+      ...sensitivity,
+      bovis: next.spiritualPsycho.bovis,
+      hawkins: next.spiritualPsycho.hawkinsAgathaHz,
+      auricProtection: next.auricField.protectionPercent,
+      stressLevel: next.spiritualPsycho.stressLevel,
+      interferenceTypes: next.spiritualPsycho.spiritualDisturbances,
+      subtleInterferences:
+        next.spiritualPsycho.spiritualDisturbances.length +
+        next.spiritualPsycho.implantsDetected.length,
+      ...(syncChakras ? { chakras: mapAnsaeChakrasToLegacy(next.chakras) } : {}),
+      ...(syncOrgans ? { organicSystems: mapAnsaeSystemsToLegacy(next.organs) } : {}),
+    };
+    onChange(nextSensitivity);
+  };
+
+  const hawkinsInfo = useMemo(
+    () => getHawkinsLevelInfo(sheet.spiritualPsycho.hawkinsAgathaHz),
+    [sheet.spiritualPsycho.hawkinsAgathaHz]
+  );
+
   const previewProtocol = useMemo(
     () => evaluateAntiCatharsis(anamnesis, sensitivity),
     [anamnesis, sensitivity]
   );
 
-  const yinYangLabel = useMemo(() => {
-    if (yinYangRatio < 40) return `Predomínio Yin (${100 - yinYangRatio}% Yin / ${yinYangRatio}% Yang) — Retração / Hipofunção`;
-    if (yinYangRatio > 60) return `Predomínio Yang (${100 - yinYangRatio}% Yin / ${yinYangRatio}% Yang) — Hiperatividade / Inflamação`;
-    return `Equilíbrio Dinâmico (${100 - yinYangRatio}% Yin / ${yinYangRatio}% Yang) — Homeostase Polar`;
-  }, [yinYangRatio]);
-
-  const toggleInterference = (label: string) => {
-    const exists = sensitivity.interferenceTypes.includes(label);
-    const nextTypes = exists
-      ? sensitivity.interferenceTypes.filter((t) => t !== label)
-      : [...sensitivity.interferenceTypes, label];
-    onChange({
-      ...sensitivity,
-      interferenceTypes: nextTypes,
-      subtleInterferences: nextTypes.length,
+  const toggleRootDomain = (domain: RootProblemDomain) => {
+    updateSheetAndSync((prev) => {
+      const exists = prev.rootProblems.includes(domain);
+      return {
+        ...prev,
+        rootProblems: exists
+          ? prev.rootProblems.filter((d) => d !== domain)
+          : [...prev.rootProblems, domain],
+      };
     });
   };
 
-  const updateChakra = (id: string, percentage: number) => {
-    const nextStatus: ChakraReading['status'] =
-      percentage < 45
-        ? 'Bloqueado'
-        : percentage < 62
-        ? 'Hipo-ativo'
-        : percentage > 88
-        ? 'Hiper-ativo'
-        : 'Equilibrado';
-    onChange({
-      ...sensitivity,
-      chakras: sensitivity.chakras.map((c) =>
-        c.id === id ? { ...c, percentage, status: nextStatus } : c
-      ),
+  const isDomainVisible = (domain: RootProblemDomain) =>
+    showAllBlocks || sheet.rootProblems.length === 0 || sheet.rootProblems.includes(domain);
+
+  const imbalancedOrgansCount = sheet.organs.filter((o) => o.isImbalanced).length;
+  const affectedSystemsCount = new Set(
+    sheet.organs.filter((o) => o.isImbalanced).map((o) => o.systemCode)
+  ).size;
+
+  const filteredOrgans = useMemo(() => {
+    if (activeSystemTab === 'ALL') return sheet.organs;
+    return sheet.organs.filter((o) => o.systemCode === activeSystemTab);
+  }, [activeSystemTab, sheet.organs]);
+
+  const handleSaveCustomBiometer = (bio: BiometerDefinition) => {
+    const next = [...customBiometers, bio];
+    setCustomBiometers(next);
+    saveCustomBiometers(next);
+  };
+
+  const handleDeleteCustomBiometer = (id: string) => {
+    const next = customBiometers.filter((b) => b.id !== id);
+    setCustomBiometers(next);
+    saveCustomBiometers(next);
+  };
+
+  const handleRecordBiometerReading = (bio: BiometerDefinition, selectedItem: string) => {
+    updateSheetAndSync((prev) => ({
+      ...prev,
+      biometerReadings: [
+        {
+          biometerId: bio.id,
+          biometerName: `${String(bio.number).padStart(2, '0')}. ${bio.name}`,
+          selectedItem,
+          recordedAt: new Date().toISOString(),
+        },
+        ...prev.biometerReadings.slice(0, 19),
+      ],
+    }));
+  };
+
+  const toggleListValue = (
+    field: 'spiritualDisturbances' | 'implantsDetected' | 'karmicCommitments' | 'virtuesToAnchor',
+    value: string
+  ) => {
+    updateSheetAndSync((prev) => {
+      const current = prev.spiritualPsycho[field];
+      const nextList = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return {
+        ...prev,
+        spiritualPsycho: {
+          ...prev.spiritualPsycho,
+          [field]: nextList,
+        },
+      };
     });
   };
 
-  const toggleOrganicSystem = (id: string) => {
-    onChange({
-      ...sensitivity,
-      organicSystems: sensitivity.organicSystems.map((s) =>
-        s.id === id
-          ? {
-              ...s,
-              status: s.status === 'Equilibrado' ? 'Em Alerta' : 'Equilibrado',
-              note:
-                s.status === 'Equilibrado'
-                  ? 'Sensibilidade detectada na varredura pendular'
-                  : 'Tônus estável',
-            }
-          : s
-      ),
+  const toggleColorTag = (field: 'missingColors' | 'excessColors', color: string) => {
+    updateSheetAndSync((prev) => {
+      const current = prev.auricField[field];
+      const next = current.includes(color)
+        ? current.filter((c) => c !== color)
+        : [...current, color];
+      return {
+        ...prev,
+        auricField: {
+          ...prev.auricField,
+          [field]: next,
+        },
+      };
     });
   };
 
-  const alertSystemsCount = sensitivity.organicSystems.filter((s) => s.status === 'Em Alerta').length;
+  const setAuraProtectionPreset = (label: AuraProtectionLevel) => {
+    const pct = label === 'Aberta 0%' ? 0 : label === 'Média 50%' ? 50 : 100;
+    updateSheetAndSync((prev) => ({
+      ...prev,
+      auricField: {
+        ...prev.auricField,
+        protectionLabel: label,
+        protectionPercent: pct,
+      },
+    }));
+  };
+
+  const setAuraSizePreset = (label: AuraSizeLevel) => {
+    const pct = label === 'Encolhida' ? 60 : label === 'Regular' ? 100 : 145;
+    updateSheetAndSync((prev) => ({
+      ...prev,
+      auricField: {
+        ...prev.auricField,
+        sizeLabel: label,
+        sizePercent: pct,
+      },
+    }));
+  };
 
   return (
     <div className="space-y-8">
       {/* Header */}
-      <section className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
+      <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
         <div>
           <p className="text-xs font-semibold tracking-wider uppercase text-[#B45309]">
-            Etapa Clínica 02 · Sintonia Sensitiva & Varredura Radiestésica
+            Etapa Clínica 02 · Ficha Completa ANSAE & RHEN · 22 Biômetros
           </p>
           <h1 className="mt-1.5 font-serif text-3xl font-light text-[#0F172A]">
-            {anamnesis.fullName || 'Aferição Bioenergética'}
+            {anamnesis.fullName || 'Aferição Bioenergética Completa'}
           </h1>
           <p className="mt-1.5 text-sm text-[#45464D]">
-            Foco: <span className="font-medium text-[#0F172A]">{anamnesis.therapeuticFocus}</span>
+            Foco: <span className="font-medium text-[#0F172A]">{anamnesis.therapeuticFocus || 'Não definido'}</span>
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onBackToAnamnesis}
-          className="px-4 py-2 text-xs font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-lg hover:border-[#D97706] transition-colors cursor-pointer whitespace-nowrap self-start md:self-auto"
-        >
-          Editar Anamnese
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsBiometersOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Compass className="w-4 h-4 text-[#F59E0B]" />
+            Abrir 22 Biômetros Virtuais
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAllBlocks((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-lg hover:border-[#D97706] transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Layers className="w-3.5 h-3.5 text-[#B45309]" />
+            {showAllBlocks ? 'Filtrar pela Pergunta Raiz' : 'Exibir Todos os Blocos'}
+          </button>
+          <button
+            type="button"
+            onClick={onBackToAnamnesis}
+            className="px-4 py-2 text-xs font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-lg hover:border-[#D97706] transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Editar Anamnese
+          </button>
+        </div>
       </section>
 
+      {/* Pergunta Raiz: ONDE EXISTEM PROBLEMAS? */}
+      <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
+              Varredura Inicial de Abertura (Pergunta Raiz)
+            </p>
+            <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+              ONDE EXISTEM PROBLEMAS?
+            </h2>
+          </div>
+          <span className="text-xs text-[#64748B]">
+            Marque os domínios positivos para destacar e expandir os blocos clínicos correspondentes
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {ROOT_DOMAIN_OPTIONS.map((opt) => {
+            const active = sheet.rootProblems.includes(opt.id);
+            return (
+              <label
+                key={opt.id}
+                className={`flex flex-col justify-between gap-2 p-3.5 rounded-lg border cursor-pointer transition-colors ${
+                  active
+                    ? 'bg-[#FAF8F5] border-[#D97706] text-[#0F172A]'
+                    : 'bg-white border-[#E2E8F0] text-[#45464D] hover:border-[#CBD5E1]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#0F172A]">{opt.title}</span>
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={() => toggleRootDomain(opt.id)}
+                    className="w-4 h-4 accent-[#0F172A] rounded cursor-pointer"
+                  />
+                </div>
+                <span className="text-[11px] text-[#64748B] leading-snug">{opt.hint}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* Recorded readings from 22 Virtual Biometers */}
+        {sheet.biometerReadings.length > 0 && (
+          <div className="pt-3 border-t border-[#E2E8F0] space-y-2">
+            <p className="text-xs font-semibold text-[#0F172A]">
+              Leituras Registradas nos Biômetros Virtuais ({sheet.biometerReadings.length}):
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {sheet.biometerReadings.map((r, i) => (
+                <span
+                  key={`${r.biometerId}-${i}`}
+                  className="text-xs bg-[#FAF8F5] border border-[#E2E8F0] rounded-lg px-3 py-1.5 text-[#0F172A]"
+                >
+                  <strong className="text-[#B45309]">{r.biometerName}:</strong> {r.selectedItem}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Main Split: Core Spiritual/Psycho + Electromagnetic/Chakras + Aura + Life Areas */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Biometer, Hawkins, Aura, Stress 1-9, Yin/Yang */}
+        {/* Left Column: Bovis 0-18.000+, Hawkins/Agatha 20-800 Hz, Stress 0-9, Polaridade Yin/Yang */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Bovis Card */}
           <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
               <h2 className="font-serif text-lg font-bold text-[#0F172A]">Biômetro de Bovis</h2>
-              <span className="text-xs font-mono text-[#64748B]">0 – 15.000 Å</span>
+              <span className="text-xs font-mono text-[#64748B]">0 – 18.000+ Å</span>
             </div>
 
-            <BovisGauge bovis={sensitivity.bovis} />
+            <BovisGauge bovis={sheet.spiritualPsycho.bovis} />
 
-            <div>
-              <input
-                aria-label="Calibrar Biômetro de Bovis"
-                type="range"
-                min={2000}
-                max={14000}
-                step={100}
-                value={sensitivity.bovis}
-                onChange={(e) => onChange({ ...sensitivity, bovis: Number(e.target.value) })}
-                className="w-full clinical-slider"
-              />
-              <div className="mt-1.5 flex justify-between text-[11px] font-mono text-[#64748B]">
-                <span>2.000 Å</span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <input
+                  aria-label="Calibrar Biômetro de Bovis por barra"
+                  type="range"
+                  min={0}
+                  max={18000}
+                  step={100}
+                  value={Math.min(18000, sheet.spiritualPsycho.bovis)}
+                  onChange={(e) =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        bovis: Number(e.target.value),
+                      },
+                    }))
+                  }
+                  className="flex-1 clinical-slider"
+                />
+                <input
+                  aria-label="Valor numérico exato em Ångströms"
+                  type="number"
+                  min={0}
+                  max={30000}
+                  step={100}
+                  value={sheet.spiritualPsycho.bovis}
+                  onChange={(e) =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        bovis: Math.max(0, Number(e.target.value) || 0),
+                      },
+                    }))
+                  }
+                  className="w-24 px-2.5 py-1.5 text-xs font-mono tabular-nums text-right bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A]"
+                />
+              </div>
+              <div className="flex justify-between text-[11px] font-mono text-[#64748B]">
+                <span>0 Å</span>
                 <span className="text-[#B45309] font-semibold">6.500 Å (Limiar)</span>
-                <span>14.000 Å</span>
+                <span>18.000+ Å</span>
               </div>
             </div>
           </div>
 
-          {/* Core Calibrators */}
+          {/* Hawkins/Ágatha, Stress 0-9, Yin/Yang */}
           <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-6">
             <h2 className="font-serif text-lg font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-3">
-              Calibradores Bioenergéticos
+              Dimensão Espiritual & Psicoemocional
             </h2>
 
-            {/* Hawkins */}
+            {/* Hawkins / Ágatha */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs gap-2">
                 <label htmlFor="hawkinsSlider" className="font-semibold text-[#0F172A]">
-                  Escala de Consciência (Hawkins)
+                  Escala de Hawkins / Ágatha (20–800 Hz)
                 </label>
                 <span className="font-mono tabular-nums font-semibold text-[#B45309]">
-                  {sensitivity.hawkins} · {hawkinsInfo.label}
+                  {sheet.spiritualPsycho.hawkinsAgathaHz} Hz · {hawkinsInfo.label}
                 </span>
               </div>
-              <input
-                id="hawkinsSlider"
-                type="range"
-                min={20}
-                max={700}
-                step={5}
-                value={sensitivity.hawkins}
-                onChange={(e) => onChange({ ...sensitivity, hawkins: Number(e.target.value) })}
-                className="w-full clinical-slider"
-              />
+              <div className="flex items-center gap-3">
+                <input
+                  id="hawkinsSlider"
+                  type="range"
+                  min={20}
+                  max={800}
+                  step={5}
+                  value={sheet.spiritualPsycho.hawkinsAgathaHz}
+                  onChange={(e) =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        hawkinsAgathaHz: Number(e.target.value),
+                      },
+                    }))
+                  }
+                  className="flex-1 clinical-slider"
+                />
+                <input
+                  aria-label="Valor numérico exato Hawkins/Ágatha"
+                  type="number"
+                  min={20}
+                  max={800}
+                  value={sheet.spiritualPsycho.hawkinsAgathaHz}
+                  onChange={(e) =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        hawkinsAgathaHz: Math.max(20, Math.min(800, Number(e.target.value) || 20)),
+                      },
+                    }))
+                  }
+                  className="w-20 px-2.5 py-1.5 text-xs font-mono tabular-nums text-right bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A]"
+                />
+              </div>
               <p className="text-xs text-[#64748B]">
-                Zona: <span className="font-medium text-[#0F172A]">{hawkinsInfo.zone}</span> —{' '}
-                {hawkinsInfo.emotion}
+                Zona: <strong className="text-[#0F172A]">{hawkinsInfo.zone}</strong> — {hawkinsInfo.emotion}
               </p>
             </div>
 
-            {/* Proteção Áurica */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <label htmlFor="auraSlider" className="font-semibold text-[#0F172A]">
-                  Integridade / Proteção Áurica
-                </label>
-                <span
-                  className={`font-mono tabular-nums font-semibold ${
-                    sensitivity.auricProtection < 50 ? 'text-[#BA1A1A]' : 'text-[#0F172A]'
-                  }`}
-                >
-                  {sensitivity.auricProtection}%
-                </span>
-              </div>
-              <input
-                id="auraSlider"
-                type="range"
-                min={10}
-                max={100}
-                step={1}
-                value={sensitivity.auricProtection}
-                onChange={(e) =>
-                  onChange({ ...sensitivity, auricProtection: Number(e.target.value) })
-                }
-                className="w-full clinical-slider"
-              />
-              <p className="text-xs text-[#64748B]">
-                Valores abaixo de 50% acionam blindagem áurica prévia.
-              </p>
-            </div>
-
-            {/* Estresse 1-9 */}
+            {/* Estresse 0-9 */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <label htmlFor="stressSlider" className="font-semibold text-[#0F172A]">
-                  Nível de Estresse & Sobrecarga Neural (1–9)
+                  Nível de Estresse & Sobrecarga Neural (0–9)
                 </label>
                 <span
                   className={`font-mono tabular-nums font-semibold ${
-                    sensitivity.stressLevel >= 4 ? 'text-[#BA1A1A]' : 'text-[#0F172A]'
+                    sheet.spiritualPsycho.stressLevel >= 4 ? 'text-[#BA1A1A]' : 'text-[#0F172A]'
                   }`}
                 >
-                  {sensitivity.stressLevel} / 9
+                  {sheet.spiritualPsycho.stressLevel} / 9
                 </span>
               </div>
-              <input
-                id="stressSlider"
-                type="range"
-                min={1}
-                max={9}
-                step={1}
-                value={sensitivity.stressLevel}
-                onChange={(e) =>
-                  onChange({ ...sensitivity, stressLevel: Number(e.target.value) })
-                }
-                className="w-full clinical-slider"
-              />
+              <div className="flex items-center gap-3">
+                <input
+                  id="stressSlider"
+                  type="range"
+                  min={0}
+                  max={9}
+                  step={1}
+                  value={sheet.spiritualPsycho.stressLevel}
+                  onChange={(e) =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        stressLevel: Number(e.target.value),
+                      },
+                    }))
+                  }
+                  className="flex-1 clinical-slider"
+                />
+                <input
+                  aria-label="Valor numérico de estresse de 0 a 9"
+                  type="number"
+                  min={0}
+                  max={9}
+                  value={sheet.spiritualPsycho.stressLevel}
+                  onChange={(e) =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        stressLevel: Math.max(0, Math.min(9, Number(e.target.value) || 0)),
+                      },
+                    }))
+                  }
+                  className="w-20 px-2.5 py-1.5 text-xs font-mono tabular-nums text-right bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A]"
+                />
+              </div>
               <p className="text-xs text-[#64748B]">
-                Nível ≥ 4 indica hiperatividade simpática e requer protocolo anti-catarse.
+                Nível ≥ 4 indica hiperatividade simpática e aciona contenção Anti-Catarse.
               </p>
             </div>
 
-            {/* Polaridade Yin / Yang */}
-            <div className="space-y-2 pt-2 border-t border-[#E2E8F0]">
+            {/* Polaridade Yin / Yang (%) */}
+            <div className="space-y-2 pt-3 border-t border-[#E2E8F0]">
               <div className="flex items-center justify-between text-xs">
                 <label htmlFor="yinYangSlider" className="font-semibold text-[#0F172A]">
-                  Polaridade Energética Yin / Yang
+                  Polaridade Yin / Yang (%)
                 </label>
                 <span className="font-mono tabular-nums font-semibold text-[#B45309]">
-                  {100 - yinYangRatio}% Yin · {yinYangRatio}% Yang
+                  {sheet.spiritualPsycho.yinPercent}% Yin · {sheet.spiritualPsycho.yangPercent}% Yang
                 </span>
               </div>
               <input
                 id="yinYangSlider"
                 type="range"
-                min={10}
-                max={90}
+                min={0}
+                max={100}
                 step={5}
-                value={yinYangRatio}
-                onChange={(e) => setYinYangRatio(Number(e.target.value))}
+                value={sheet.spiritualPsycho.yangPercent}
+                onChange={(e) => {
+                  const yang = Number(e.target.value);
+                  updateSheetAndSync((prev) => ({
+                    ...prev,
+                    spiritualPsycho: {
+                      ...prev.spiritualPsycho,
+                      yangPercent: yang,
+                      yinPercent: 100 - yang,
+                    },
+                  }));
+                }}
                 className="w-full clinical-slider"
               />
-              <p className="text-xs text-[#64748B]">{yinYangLabel}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-[#64748B] mb-1">% Yin (Retração)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={sheet.spiritualPsycho.yinPercent}
+                    onChange={(e) => {
+                      const yin = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                      updateSheetAndSync((prev) => ({
+                        ...prev,
+                        spiritualPsycho: {
+                          ...prev.spiritualPsycho,
+                          yinPercent: yin,
+                          yangPercent: 100 - yin,
+                        },
+                      }));
+                    }}
+                    className="w-full px-2.5 py-1.5 text-xs font-mono bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-[#64748B] mb-1">% Yang (Expansão)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={sheet.spiritualPsycho.yangPercent}
+                    onChange={(e) => {
+                      const yang = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                      updateSheetAndSync((prev) => ({
+                        ...prev,
+                        spiritualPsycho: {
+                          ...prev.spiritualPsycho,
+                          yangPercent: yang,
+                          yinPercent: 100 - yang,
+                        },
+                      }));
+                    }}
+                    className="w-full px-2.5 py-1.5 text-xs font-mono bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Mesa Radiônica Indicada */}
+            <div className="space-y-1.5 pt-3 border-t border-[#E2E8F0]">
+              <label htmlFor="radionicBoard" className="block text-xs font-semibold text-[#0F172A]">
+                Mesa Radiônica Indicada (Pêndulo)
+              </label>
+              <select
+                id="radionicBoard"
+                value={sheet.spiritualPsycho.recommendedRadionicBoard}
+                onChange={(e) =>
+                  updateSheetAndSync((prev) => ({
+                    ...prev,
+                    spiritualPsycho: {
+                      ...prev.spiritualPsycho,
+                      recommendedRadionicBoard: e.target.value,
+                    },
+                  }))
+                }
+                className="w-full px-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A]"
+              >
+                {RADIONIC_BOARD_OPTIONS.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
 
-        {/* Right Column: Checklists (Interferências, Chakras, Sistemas Orgânicos) */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* Interferências Sutis */}
+          {/* Áreas da Vida */}
           <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-              <h2 className="font-serif text-lg font-bold text-[#0F172A]">
-                Varredura de Interferências Sutis
-              </h2>
-              <span className="font-mono tabular-nums text-xs font-semibold text-[#B45309]">
-                {sensitivity.subtleInterferences} selecionada(s)
-              </span>
+              <div className="flex items-center gap-2">
+                <HeartHandshake className="w-4 h-4 text-[#B45309]" />
+                <h2 className="font-serif text-lg font-bold text-[#0F172A]">Áreas da Vida</h2>
+              </div>
+              <span className="text-xs text-[#64748B]">RHEN · 5 Pilares</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {INTERFERENCE_OPTIONS.map((option) => {
-                const checked = sensitivity.interferenceTypes.includes(option);
+            <div className="space-y-3">
+              {LIFE_AREAS_CONFIG.map((area) => {
+                const current = sheet.lifeAreas[area.key];
                 return (
-                  <label
-                    key={option}
-                    className={`flex items-center gap-3 p-3 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
-                      checked
-                        ? 'bg-[#FAF8F5] border-[#D97706] text-[#0F172A]'
-                        : 'bg-white border-[#E2E8F0] text-[#45464D] hover:border-[#CBD5E1]'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleInterference(option)}
-                      className="w-4 h-4 accent-[#0F172A] rounded cursor-pointer"
-                    />
-                    <span>{option}</span>
-                  </label>
+                  <div key={area.key} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-[#0F172A]">{area.label}</span>
+                      <span
+                        className={`font-medium ${
+                          current === 'Péssimo' || current === 'Ruim'
+                            ? 'text-[#BA1A1A]'
+                            : 'text-[#B45309]'
+                        }`}
+                      >
+                        {current}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {LIFE_AREA_RATINGS.map((rating) => {
+                        const active = current === rating;
+                        return (
+                          <button
+                            key={rating}
+                            type="button"
+                            onClick={() =>
+                              updateSheetAndSync((prev) => ({
+                                ...prev,
+                                lifeAreas: {
+                                  ...prev.lifeAreas,
+                                  [area.key]: rating,
+                                },
+                              }))
+                            }
+                            className={`py-1.5 text-[11px] font-medium rounded-md border transition-colors cursor-pointer ${
+                              active
+                                ? rating === 'Péssimo' || rating === 'Ruim'
+                                  ? 'bg-[#BA1A1A] text-white border-[#BA1A1A]'
+                                  : 'bg-[#0F172A] text-white border-[#0F172A]'
+                                : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0] hover:border-[#CBD5E1]'
+                            }`}
+                          >
+                            {rating}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
           </div>
+        </div>
 
-          {/* 7 Chakras */}
+        {/* Right Column: Electromagnetic Fields, 7 Chakras + Glands, Auric Field, Spiritual Disturbances */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Campos Eletromagnéticos */}
+          {(isDomainVisible('Mental') ||
+            isDomainVisible('Emocional') ||
+            isDomainVisible('Espiritual') ||
+            isDomainVisible('Físico')) && (
+            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+              <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+                <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                  Campos Eletromagnéticos (Corpos Sutis)
+                </h2>
+                <span className="text-xs text-[#64748B]">% de desequilíbrio + chakras afetados</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {sheet.electromagneticFields.map((field) => (
+                  <div
+                    key={field.id}
+                    className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-[#0F172A]">{field.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          aria-label={`Desequilíbrio % ${field.label}`}
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={field.imbalancePercent}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                            updateSheetAndSync((prev) => ({
+                              ...prev,
+                              electromagneticFields: prev.electromagneticFields.map((f) =>
+                                f.id === field.id ? { ...f, imbalancePercent: val } : f
+                              ),
+                            }));
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono text-right bg-white border border-[#CBD5E1] rounded-md"
+                        />
+                        <span className="text-xs font-mono text-[#64748B]">%</span>
+                      </div>
+                    </div>
+
+                    <input
+                      aria-label={`Barra de desequilíbrio ${field.label}`}
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={field.imbalancePercent}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        updateSheetAndSync((prev) => ({
+                          ...prev,
+                          electromagneticFields: prev.electromagneticFields.map((f) =>
+                            f.id === field.id ? { ...f, imbalancePercent: val } : f
+                          ),
+                        }));
+                      }}
+                      className="w-full clinical-slider"
+                    />
+
+                    <div>
+                      <p className="text-[11px] font-medium text-[#64748B] mb-1.5">
+                        Chakras afetados:
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {CHAKRA_SHORT_NAMES.map((ch) => {
+                          const checked = field.affectedChakras.includes(ch);
+                          return (
+                            <button
+                              key={ch}
+                              type="button"
+                              onClick={() =>
+                                updateSheetAndSync((prev) => ({
+                                  ...prev,
+                                  electromagneticFields: prev.electromagneticFields.map((f) => {
+                                    if (f.id !== field.id) return f;
+                                    const next = f.affectedChakras.includes(ch)
+                                      ? f.affectedChakras.filter((x) => x !== ch)
+                                      : [...f.affectedChakras, ch];
+                                    return { ...f, affectedChakras: next };
+                                  }),
+                                }))
+                              }
+                              className={`px-2 py-0.5 text-[10px] font-medium rounded border cursor-pointer ${
+                                checked
+                                  ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                  : 'bg-white text-[#64748B] border-[#E2E8F0] hover:border-[#D97706]'
+                              }`}
+                            >
+                              {ch}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 7 Chakras + Glândulas */}
           <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
               <h2 className="font-serif text-lg font-bold text-[#0F172A]">
-                Alinhamento dos Sete Chakras
+                7 Chakras & Glândulas Endócrinas Correspondentes
               </h2>
-              <span className="text-xs text-[#64748B]">Vitalidade individual (%)</span>
+              <span className="text-xs text-[#64748B]">Polaridade · % Desequilíbrio · Corpo Físico</span>
             </div>
 
-            <div className="space-y-3.5">
-              {sensitivity.chakras.map((chakra) => (
-                <div key={chakra.id} className="grid grid-cols-1 sm:grid-cols-12 items-center gap-3">
-                  <div className="sm:col-span-4">
-                    <p className="text-xs font-semibold text-[#0F172A]">
-                      {chakra.name}{' '}
-                      <span className="font-normal text-[#64748B]">({chakra.sanskrit})</span>
+            <div className="space-y-3">
+              {sheet.chakras.map((ch) => (
+                <div
+                  key={ch.id}
+                  className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] grid grid-cols-1 md:grid-cols-12 items-center gap-3"
+                >
+                  <div className="md:col-span-4">
+                    <p className="text-xs font-bold text-[#0F172A]">
+                      {ch.name}{' '}
+                      <span className="font-normal text-[#64748B]">({ch.sanskrit})</span>
+                    </p>
+                    <p className="text-[11px] font-medium text-[#B45309]">
+                      Glândula: {ch.gland}
                     </p>
                   </div>
-                  <div className="sm:col-span-5">
+
+                  {/* Status selector */}
+                  <div className="md:col-span-3 flex gap-1">
+                    {(['Hipo', 'Normal', 'Hiper', 'Nulo'] as ChakraPolarityStatus[]).map((st) => {
+                      const active = ch.status === st;
+                      return (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() =>
+                            updateSheetAndSync(
+                              (prev) => ({
+                                ...prev,
+                                chakras: prev.chakras.map((item) =>
+                                  item.id === ch.id ? { ...item, status: st } : item
+                                ),
+                              }),
+                              false,
+                              true
+                            )
+                          }
+                          className={`flex-1 py-1 text-[10px] font-semibold rounded border cursor-pointer ${
+                            active
+                              ? st === 'Normal'
+                                ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                                : 'bg-[#B45309] text-white border-[#B45309]'
+                              : 'bg-white text-[#45464D] border-[#CBD5E1]'
+                          }`}
+                        >
+                          {st}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* % Desequilíbrio */}
+                  <div className="md:col-span-3 flex items-center gap-2">
                     <input
-                      aria-label={`Vitalidade do chakra ${chakra.name}`}
+                      aria-label={`Desequilíbrio % ${ch.name}`}
                       type="range"
-                      min={10}
+                      min={0}
                       max={100}
                       step={5}
-                      value={chakra.percentage}
-                      onChange={(e) => updateChakra(chakra.id, Number(e.target.value))}
-                      className="w-full clinical-slider"
+                      value={ch.imbalancePercent}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        updateSheetAndSync(
+                          (prev) => ({
+                            ...prev,
+                            chakras: prev.chakras.map((item) =>
+                              item.id === ch.id ? { ...item, imbalancePercent: val } : item
+                            ),
+                          }),
+                          false,
+                          true
+                        );
+                      }}
+                      className="flex-1 clinical-slider"
                     />
+                    <input
+                      aria-label={`Número % desequilíbrio ${ch.name}`}
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={ch.imbalancePercent}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                        updateSheetAndSync(
+                          (prev) => ({
+                            ...prev,
+                            chakras: prev.chakras.map((item) =>
+                              item.id === ch.id ? { ...item, imbalancePercent: val } : item
+                            ),
+                          }),
+                          false,
+                          true
+                        );
+                      }}
+                      className="w-14 px-1.5 py-1 text-xs font-mono text-right bg-white border border-[#CBD5E1] rounded"
+                    />
+                    <span className="text-[11px] font-mono text-[#64748B]">%</span>
                   </div>
-                  <div className="sm:col-span-3 flex items-center justify-between sm:justify-end gap-2 text-xs">
-                    <span className="font-mono tabular-nums font-semibold text-[#0F172A]">
-                      {chakra.percentage}%
-                    </span>
-                    <span
-                      className={`font-medium ${
-                        chakra.status === 'Equilibrado' ? 'text-[#B45309]' : 'text-[#BA1A1A]'
-                      }`}
-                    >
-                      {chakra.status}
-                    </span>
-                  </div>
+
+                  {/* Afeta o corpo físico? */}
+                  <label className="md:col-span-2 flex items-center justify-end gap-1.5 text-[11px] font-medium text-[#0F172A] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={ch.affectsPhysicalBody}
+                      onChange={(e) =>
+                        updateSheetAndSync((prev) => ({
+                          ...prev,
+                          chakras: prev.chakras.map((item) =>
+                            item.id === ch.id
+                              ? { ...item, affectsPhysicalBody: e.target.checked }
+                              : item
+                          ),
+                        }))
+                      }
+                      className="w-3.5 h-3.5 accent-[#0F172A] cursor-pointer"
+                    />
+                    <span>Afeta físico</span>
+                  </label>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Sistemas Orgânicos */}
-          <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-              <h2 className="font-serif text-lg font-bold text-[#0F172A]">
-                Sistemas Orgânicos (Checklist Pêndulo)
-              </h2>
-              <span
-                className={`font-mono tabular-nums text-xs font-semibold ${
-                  alertSystemsCount >= 3 ? 'text-[#BA1A1A]' : 'text-[#0F172A]'
-                }`}
-              >
-                {alertSystemsCount} em alerta
-              </span>
-            </div>
+          {/* Campo Áurico */}
+          {isDomainVisible('Aura') && (
+            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+              <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+                <div className="flex items-center gap-2">
+                  <Sun className="w-4 h-4 text-[#B45309]" />
+                  <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                    Campo Áurico & Cromoterapia
+                  </h2>
+                </div>
+                <span
+                  className={`font-mono text-xs font-semibold ${
+                    sheet.auricField.protectionPercent < 50 ? 'text-[#BA1A1A]' : 'text-[#B45309]'
+                  }`}
+                >
+                  Proteção: {sheet.auricField.protectionPercent}%
+                </span>
+              </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {sensitivity.organicSystems.map((sys) => {
-                const isAlert = sys.status === 'Em Alerta';
-                return (
-                  <button
-                    key={sys.id}
-                    type="button"
-                    onClick={() => toggleOrganicSystem(sys.id)}
-                    className={`flex items-center justify-between gap-3 p-3 rounded-lg border text-left transition-colors cursor-pointer ${
-                      isAlert
-                        ? 'bg-[#BA1A1A]/5 border-[#BA1A1A]/40 text-[#0F172A]'
-                        : 'bg-white border-[#E2E8F0] text-[#45464D] hover:border-[#CBD5E1]'
-                    }`}
-                  >
-                    <div>
-                      <p className="text-xs font-semibold text-[#0F172A]">{sys.name}</p>
-                      <p className="text-[11px] text-[#64748B]">{sys.status}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Proteção */}
+                <div className="space-y-2.5 p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0]">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-[#0F172A]">Proteção da Aura</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        aria-label="Porcentagem de proteção áurica"
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={sheet.auricField.protectionPercent}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                          const label: AuraProtectionLevel =
+                            val < 35 ? 'Aberta 0%' : val < 75 ? 'Média 50%' : 'Fechada 100%';
+                          updateSheetAndSync((prev) => ({
+                            ...prev,
+                            auricField: {
+                              ...prev.auricField,
+                              protectionPercent: val,
+                              protectionLabel: label,
+                            },
+                          }));
+                        }}
+                        className="w-16 px-2 py-1 text-xs font-mono text-right bg-white border border-[#CBD5E1] rounded"
+                      />
+                      <span className="text-xs font-mono text-[#64748B]">%</span>
                     </div>
-                    {isAlert ? (
-                      <AlertTriangle className="w-4 h-4 text-[#BA1A1A] shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4 text-[#B45309] shrink-0" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['Aberta 0%', 'Média 50%', 'Fechada 100%'] as AuraProtectionLevel[]).map(
+                      (lvl) => (
+                        <button
+                          key={lvl}
+                          type="button"
+                          onClick={() => setAuraProtectionPreset(lvl)}
+                          className={`py-1.5 text-[11px] font-semibold rounded border cursor-pointer ${
+                            sheet.auricField.protectionLabel === lvl
+                              ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                              : 'bg-white text-[#45464D] border-[#CBD5E1]'
+                          }`}
+                        >
+                          {lvl}
+                        </button>
+                      )
                     )}
-                  </button>
-                );
-              })}
+                  </div>
+                  <input
+                    aria-label="Slider proteção áurica"
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={sheet.auricField.protectionPercent}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const label: AuraProtectionLevel =
+                        val < 35 ? 'Aberta 0%' : val < 75 ? 'Média 50%' : 'Fechada 100%';
+                      updateSheetAndSync((prev) => ({
+                        ...prev,
+                        auricField: {
+                          ...prev.auricField,
+                          protectionPercent: val,
+                          protectionLabel: label,
+                        },
+                      }));
+                    }}
+                    className="w-full clinical-slider"
+                  />
+                </div>
+
+                {/* Tamanho */}
+                <div className="space-y-2.5 p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0]">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-[#0F172A]">Tamanho do Campo Áurico</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        aria-label="Porcentagem do tamanho da aura"
+                        type="number"
+                        min={0}
+                        max={200}
+                        value={sheet.auricField.sizePercent}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(200, Number(e.target.value) || 0));
+                          const label: AuraSizeLevel =
+                            val < 80 ? 'Encolhida' : val > 120 ? 'Expandida' : 'Regular';
+                          updateSheetAndSync((prev) => ({
+                            ...prev,
+                            auricField: {
+                              ...prev.auricField,
+                              sizePercent: val,
+                              sizeLabel: label,
+                            },
+                          }));
+                        }}
+                        className="w-16 px-2 py-1 text-xs font-mono text-right bg-white border border-[#CBD5E1] rounded"
+                      />
+                      <span className="text-xs font-mono text-[#64748B]">%</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['Encolhida', 'Regular', 'Expandida'] as AuraSizeLevel[]).map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setAuraSizePreset(sz)}
+                        className={`py-1.5 text-[11px] font-semibold rounded border cursor-pointer ${
+                          sheet.auricField.sizeLabel === sz
+                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                            : 'bg-white text-[#45464D] border-[#CBD5E1]'
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    aria-label="Slider tamanho da aura"
+                    type="range"
+                    min={20}
+                    max={200}
+                    step={5}
+                    value={sheet.auricField.sizePercent}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      const label: AuraSizeLevel =
+                        val < 80 ? 'Encolhida' : val > 120 ? 'Expandida' : 'Regular';
+                      updateSheetAndSync((prev) => ({
+                        ...prev,
+                        auricField: {
+                          ...prev.auricField,
+                          sizePercent: val,
+                          sizeLabel: label,
+                        },
+                      }));
+                    }}
+                    className="w-full clinical-slider"
+                  />
+                </div>
+              </div>
+
+              {/* Cores em Falta (mín. 3) & Cores em Excesso (mín. 3) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-[#0F172A]">Cores em Falta (mín. 3)</span>
+                    <span
+                      className={`font-mono font-semibold ${
+                        sheet.auricField.missingColors.length < 3
+                          ? 'text-[#BA1A1A]'
+                          : 'text-[#B45309]'
+                      }`}
+                    >
+                      {sheet.auricField.missingColors.length}/3 mín.
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MISSING_COLOR_OPTIONS.map((c) => {
+                      const selected = sheet.auricField.missingColors.includes(c);
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => toggleColorTag('missingColors', c)}
+                          className={`px-2.5 py-1 text-[11px] font-medium rounded-md border cursor-pointer ${
+                            selected
+                              ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                              : 'bg-white text-[#45464D] border-[#E2E8F0]'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-[#0F172A]">Cores em Excesso (mín. 3)</span>
+                    <span
+                      className={`font-mono font-semibold ${
+                        sheet.auricField.excessColors.length < 3
+                          ? 'text-[#BA1A1A]'
+                          : 'text-[#B45309]'
+                      }`}
+                    >
+                      {sheet.auricField.excessColors.length}/3 mín.
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EXCESS_COLOR_OPTIONS.map((c) => {
+                      const selected = sheet.auricField.excessColors.includes(c);
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => toggleColorTag('excessColors', c)}
+                          className={`px-2.5 py-1 text-[11px] font-medium rounded-md border cursor-pointer ${
+                            selected
+                              ? 'bg-[#B45309] text-white border-[#B45309]'
+                              : 'bg-white text-[#45464D] border-[#E2E8F0]'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Distúrbios Espirituais, Implantes, Carma e Virtudes */}
+          {isDomainVisible('Espiritual') && (
+            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+              <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+                <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                  Varredura Espiritual, Implantes, Carma & Virtudes
+                </h2>
+                <span className="font-mono text-xs font-semibold text-[#B45309]">
+                  {sheet.spiritualPsycho.spiritualDisturbances.length +
+                    sheet.spiritualPsycho.implantsDetected.length}{' '}
+                  interferências
+                </span>
+              </div>
+
+              {/* Distúrbios Espirituais */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-[#0F172A]">
+                  Distúrbios Espirituais & Interferências Sutis
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {Array.from(
+                    new Set([...INTERFERENCE_OPTIONS, ...sheet.spiritualPsycho.spiritualDisturbances])
+                  ).map((opt) => {
+                    const checked = sheet.spiritualPsycho.spiritualDisturbances.includes(opt);
+                    return (
+                      <label
+                        key={opt}
+                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-xs cursor-pointer ${
+                          checked
+                            ? 'bg-[#FAF8F5] border-[#D97706] text-[#0F172A] font-medium'
+                            : 'bg-white border-[#E2E8F0] text-[#45464D]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleListValue('spiritualDisturbances', opt)}
+                          className="w-4 h-4 accent-[#0F172A]"
+                        />
+                        <span>{opt}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={customDisturbance}
+                    onChange={(e) => setCustomDisturbance(e.target.value)}
+                    placeholder="Adicionar outro distúrbio espiritual..."
+                    className="flex-1 px-3 py-1.5 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!customDisturbance.trim()) return;
+                      toggleListValue('spiritualDisturbances', customDisturbance.trim());
+                      setCustomDisturbance('');
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-[#0F172A] text-white rounded-lg cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Incluir
+                  </button>
+                </div>
+              </div>
+
+              {/* Implantes & Comprometimentos Cármicos */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-[#E2E8F0]">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#0F172A]">Implantes Detectados</p>
+                  <div className="space-y-1.5">
+                    {Array.from(
+                      new Set([...IMPLANT_OPTIONS, ...sheet.spiritualPsycho.implantsDetected])
+                    ).map((imp) => {
+                      const checked = sheet.spiritualPsycho.implantsDetected.includes(imp);
+                      return (
+                        <label
+                          key={imp}
+                          className="flex items-center gap-2 text-xs text-[#0F172A] cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleListValue('implantsDetected', imp)}
+                            className="w-3.5 h-3.5 accent-[#0F172A]"
+                          />
+                          <span>{imp}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      value={customImplant}
+                      onChange={(e) => setCustomImplant(e.target.value)}
+                      placeholder="Outro implante..."
+                      className="flex-1 px-2.5 py-1 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!customImplant.trim()) return;
+                        toggleListValue('implantsDetected', customImplant.trim());
+                        setCustomImplant('');
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold bg-[#0F172A] text-white rounded cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#0F172A]">Comprometimentos Cármicos</p>
+                  <div className="space-y-1.5">
+                    {Array.from(
+                      new Set([...KARMIC_OPTIONS, ...sheet.spiritualPsycho.karmicCommitments])
+                    ).map((k) => {
+                      const checked = sheet.spiritualPsycho.karmicCommitments.includes(k);
+                      return (
+                        <label
+                          key={k}
+                          className="flex items-center gap-2 text-xs text-[#0F172A] cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleListValue('karmicCommitments', k)}
+                            className="w-3.5 h-3.5 accent-[#0F172A]"
+                          />
+                          <span>{k}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      value={customKarmic}
+                      onChange={(e) => setCustomKarmic(e.target.value)}
+                      placeholder="Outro registro cármico..."
+                      className="flex-1 px-2.5 py-1 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!customKarmic.trim()) return;
+                        toggleListValue('karmicCommitments', customKarmic.trim());
+                        setCustomKarmic('');
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold bg-[#0F172A] text-white rounded cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Virtudes */}
+              <div className="space-y-2 pt-2 border-t border-[#E2E8F0]">
+                <p className="text-xs font-semibold text-[#0F172A]">Virtudes a Ancorar na Sessão</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {VIRTUE_OPTIONS.map((v) => {
+                    const selected = sheet.spiritualPsycho.virtuesToAnchor.includes(v);
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => toggleListValue('virtuesToAnchor', v)}
+                        className={`px-3 py-1 text-xs font-medium rounded-md border cursor-pointer ${
+                          selected
+                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                            : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Full-Width Section: 15 Sistemas Orgânicos & 38 Órgãos/Glândulas (ANSAE) */}
+      {isDomainVisible('Órgãos') && (
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+            <div className="flex items-center gap-2.5">
+              <Activity className="w-5 h-5 text-[#B45309]" />
+              <div>
+                <h2 className="font-serif text-xl font-bold text-[#0F172A]">
+                  15 Sistemas Orgânicos e 38 Órgãos / Glândulas (ANSAE)
+                </h2>
+                <p className="text-xs text-[#64748B]">
+                  Marque os órgãos sensibilizados na varredura, informe o % de desequilíbrio e o tempo estimado (h/d/m).
+                </p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <span
+                className={`font-mono tabular-nums text-xs font-semibold ${
+                  affectedSystemsCount >= 3 ? 'text-[#BA1A1A]' : 'text-[#0F172A]'
+                }`}
+              >
+                {imbalancedOrgansCount} órgão(s) · {affectedSystemsCount} sistema(s) em alerta
+              </span>
+            </div>
+          </div>
+
+          {/* Filter by System Sigla */}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setActiveSystemTab('ALL')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg border cursor-pointer ${
+                activeSystemTab === 'ALL'
+                  ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                  : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
+              }`}
+            >
+              Todos os 15 Sistemas (38)
+            </button>
+            {SYSTEM_CODES_ORDER.map((code) => {
+              const countInSys = sheet.organs.filter(
+                (o) => o.systemCode === code && o.isImbalanced
+              ).length;
+              const active = activeSystemTab === code;
+              return (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setActiveSystemTab(code)}
+                  title={ANSAE_SYSTEMS_META[code]}
+                  className={`px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border cursor-pointer ${
+                    active
+                      ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                      : countInSys > 0
+                      ? 'bg-[#BA1A1A]/8 text-[#BA1A1A] border-[#BA1A1A]/40'
+                      : 'bg-white text-[#45464D] border-[#E2E8F0] hover:border-[#D97706]'
+                  }`}
+                >
+                  {code}
+                  {countInSys > 0 ? ` (${countInSys})` : ''}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Organs Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {filteredOrgans.map((organ) => (
+              <div
+                key={organ.id}
+                className={`p-3.5 rounded-xl border transition-colors space-y-2.5 ${
+                  organ.isImbalanced
+                    ? 'bg-[#BA1A1A]/5 border-[#BA1A1A]/40'
+                    : 'bg-[#FAF8F5] border-[#E2E8F0]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={organ.isImbalanced}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        updateSheetAndSync(
+                          (prev) => ({
+                            ...prev,
+                            organs: prev.organs.map((o) =>
+                              o.id === organ.id
+                                ? {
+                                    ...o,
+                                    isImbalanced: checked,
+                                    imbalancePercent:
+                                      checked && o.imbalancePercent === 0 ? 35 : checked ? o.imbalancePercent : 0,
+                                    durationValue:
+                                      checked && o.durationValue === 0 ? 7 : checked ? o.durationValue : 0,
+                                  }
+                                : o
+                            ),
+                          }),
+                          true,
+                          false
+                        );
+                      }}
+                      className="w-4 h-4 mt-0.5 accent-[#0F172A] cursor-pointer"
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-[#0F172A]">{organ.organName}</p>
+                      <p className="text-[11px] font-mono text-[#64748B]">
+                        {organ.systemCode} · {organ.systemName}
+                      </p>
+                    </div>
+                  </label>
+                  {organ.isImbalanced ? (
+                    <AlertTriangle className="w-4 h-4 text-[#BA1A1A] shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-[#94A3B8] shrink-0" />
+                  )}
+                </div>
+
+                {organ.isImbalanced && (
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[#BA1A1A]/15">
+                    <div>
+                      <label className="block text-[10px] text-[#64748B] mb-0.5">Desequil. %</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={organ.imbalancePercent}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                          updateSheetAndSync(
+                            (prev) => ({
+                              ...prev,
+                              organs: prev.organs.map((o) =>
+                                o.id === organ.id ? { ...o, imbalancePercent: val } : o
+                              ),
+                            }),
+                            true,
+                            false
+                          );
+                        }}
+                        className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-[#64748B] mb-0.5">Tempo</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={365}
+                        value={organ.durationValue}
+                        onChange={(e) => {
+                          const val = Math.max(0, Number(e.target.value) || 0);
+                          updateSheetAndSync(
+                            (prev) => ({
+                              ...prev,
+                              organs: prev.organs.map((o) =>
+                                o.id === organ.id ? { ...o, durationValue: val } : o
+                              ),
+                            }),
+                            true,
+                            false
+                          );
+                        }}
+                        className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-[#64748B] mb-0.5">Unidade</label>
+                      <select
+                        value={organ.durationUnit}
+                        onChange={(e) => {
+                          const unit = e.target.value as 'h' | 'd' | 'm';
+                          updateSheetAndSync(
+                            (prev) => ({
+                              ...prev,
+                              organs: prev.organs.map((o) =>
+                                o.id === organ.id ? { ...o, durationUnit: unit } : o
+                              ),
+                            }),
+                            true,
+                            false
+                          );
+                        }}
+                        className="w-full px-2 py-1 text-xs font-mono bg-white border border-[#CBD5E1] rounded"
+                      >
+                        <option value="h">horas</option>
+                        <option value="d">dias</option>
+                        <option value="m">meses</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Live Anti-Catharsis Preview & Processing Action */}
       <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -571,6 +1962,17 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           Processar Protocolo Anti-Catarse
         </button>
       </section>
+
+      <BiometrosModal
+        isOpen={isBiometersOpen}
+        onClose={() => setIsBiometersOpen(false)}
+        patientName={anamnesis.fullName}
+        birthDate={anamnesis.birthDate}
+        customBiometers={customBiometers}
+        onSaveCustomBiometer={handleSaveCustomBiometer}
+        onDeleteCustomBiometer={handleDeleteCustomBiometer}
+        onRecordReading={handleRecordBiometerReading}
+      />
     </div>
   );
 };

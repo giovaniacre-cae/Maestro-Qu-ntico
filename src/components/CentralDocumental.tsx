@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Download, FileText, MessageCircle, Radio } from 'lucide-react';
+import {
+  ClinicalAnsaeRhenSheet,
+  ClinicalSessionRecord,
+  SessionMilestoneType,
+} from '../types/clinical';
 import { QuantumRoomSession } from '../types/quantum';
 import { formatBirthDateBR, getHawkinsLevelInfo } from '../utils/antiCatharsis';
 import {
+  DocumentExportContext,
   buildWhatsAppShareUrl,
   downloadPatientGuideDocx,
   downloadPatientGuidePdf,
   downloadTherapistDocx,
   downloadTherapistPdf,
 } from '../utils/documentGenerator';
+import { getAnsaeDraftForSession, getPreviousSessionForPatient } from '../utils/storage';
 
 interface CentralDocumentalProps {
   sessions: QuantumRoomSession[];
   activeSession: QuantumRoomSession;
+  ansaeSheet?: ClinicalAnsaeRhenSheet;
+  sessionType?: SessionMilestoneType;
+  previousSession?: ClinicalSessionRecord | null;
   onSelectSession: (sessionId: string) => void;
   onGoToTable: () => void;
 }
@@ -20,6 +30,9 @@ interface CentralDocumentalProps {
 export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   sessions,
   activeSession,
+  ansaeSheet,
+  sessionType,
+  previousSession,
   onSelectSession,
   onGoToTable,
 }) => {
@@ -28,8 +41,27 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const { anamnesis, sensitivity, protocol, aiResult } = activeSession;
+  const resolvedSheet = useMemo(
+    () => ansaeSheet || getAnsaeDraftForSession(activeSession),
+    [ansaeSheet, activeSession]
+  );
+  const resolvedPrev = useMemo(
+    () =>
+      previousSession !== undefined
+        ? previousSession
+        : getPreviousSessionForPatient(activeSession.anamnesis.id, activeSession.id),
+    [previousSession, activeSession]
+  );
+  const resolvedSessionType = sessionType || activeSession.sessionType || 'Avaliação Inicial';
+
+  const exportCtx: DocumentExportContext = {
+    ansaeSheet: resolvedSheet,
+    previousSession: resolvedPrev,
+    sessionType: resolvedSessionType,
+  };
+
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
-  const alertSystems = sensitivity.organicSystems.filter((s) => s.status === 'Em Alerta');
+  const imbalancedOrgans = resolvedSheet.organs.filter((o) => o.isImbalanced);
 
   const handleDownload = async (key: string, fn: () => Promise<void> | void) => {
     setBusyAction(key);
@@ -44,7 +76,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
     }
   };
 
-  const whatsappUrl = buildWhatsAppShareUrl(activeSession);
+  const whatsappUrl = buildWhatsAppShareUrl(activeSession, exportCtx);
 
   return (
     <div className="space-y-8">
@@ -52,14 +84,14 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
       <section className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
         <div>
           <p className="text-xs font-semibold tracking-wider uppercase text-[#B45309]">
-            Etapa Clínica 04 · Central Documental Padrão Maestro
+            Etapa Clínica 04 · Central Documental Padrão Maestro v2.0
           </p>
           <h1 className="mt-1.5 font-serif text-3xl font-light text-[#0F172A]">
             Emissão de Documentos Oficiais
           </h1>
           <p className="mt-2 text-sm text-[#45464D] max-w-2xl">
-            Exporte o Relatório Técnico completo em Word (.DOCX editável) ou PDF para arquivo clínico
-            e o Guia Humanizado para envio direto ao paciente.
+            Exporte o Relatório Técnico completo (ANSAE + RHEN + Biômetros + Anti-Catarse) em Word
+            (.DOCX editável) ou PDF e o Guia Humanizado para envio direto ao paciente.
           </p>
         </div>
 
@@ -136,7 +168,9 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               <button
                 type="button"
                 disabled={busyAction !== null}
-                onClick={() => handleDownload('t-docx', () => downloadTherapistDocx(activeSession))}
+                onClick={() =>
+                  handleDownload('t-docx', () => downloadTherapistDocx(activeSession, exportCtx))
+                }
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] disabled:opacity-50 cursor-pointer whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5 text-[#F59E0B]" />
@@ -145,7 +179,9 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               <button
                 type="button"
                 disabled={busyAction !== null}
-                onClick={() => handleDownload('t-pdf', () => downloadTherapistPdf(activeSession))}
+                onClick={() =>
+                  handleDownload('t-pdf', () => downloadTherapistPdf(activeSession, exportCtx))
+                }
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#B45309] bg-white border border-[#D97706] rounded-lg hover:bg-[#D97706]/5 disabled:opacity-50 cursor-pointer whitespace-nowrap"
               >
                 <FileText className="w-3.5 h-3.5" />
@@ -158,7 +194,9 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                 type="button"
                 disabled={busyAction !== null}
                 onClick={() =>
-                  handleDownload('p-docx', () => downloadPatientGuideDocx(activeSession))
+                  handleDownload('p-docx', () =>
+                    downloadPatientGuideDocx(activeSession, exportCtx)
+                  )
                 }
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] disabled:opacity-50 cursor-pointer whitespace-nowrap"
               >
@@ -169,7 +207,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                 type="button"
                 disabled={busyAction !== null}
                 onClick={() =>
-                  handleDownload('p-pdf', () => downloadPatientGuidePdf(activeSession))
+                  handleDownload('p-pdf', () => downloadPatientGuidePdf(activeSession, exportCtx))
                 }
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#B45309] bg-white border border-[#D97706] rounded-lg hover:bg-[#D97706]/5 disabled:opacity-50 cursor-pointer whitespace-nowrap"
               >
@@ -205,7 +243,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
           </h2>
           <p className="font-serif italic text-base font-semibold text-[#B45309]">
             {docTab === 'therapist'
-              ? 'Relatório Técnico e Protocolo Clínico Vibracional'
+              ? 'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional'
               : 'Guia de Orientação e Conscientização Vibracional'}
           </p>
           <p className="text-xs sm:text-sm text-[#0F172A] pt-1">
@@ -222,7 +260,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
             {/* 1. Identificação */}
             <section className="space-y-3">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                1. Quadro de Identificação
+                1. Quadro de Identificação ({resolvedSessionType})
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-[#FAF8F5] p-4 rounded-lg border border-[#E2E8F0]">
                 <p>
@@ -237,88 +275,163 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                   {anamnesis.phone || 'Não informado'}
                 </p>
                 <p>
+                  <strong className="text-[#0F172A]">Mesa Indicada:</strong>{' '}
+                  {resolvedSheet.spiritualPsycho.recommendedRadionicBoard}
+                </p>
+                <p className="sm:col-span-2">
                   <strong className="text-[#0F172A]">Foco Terapêutico:</strong>{' '}
                   {anamnesis.therapeuticFocus}
+                </p>
+                <p className="sm:col-span-2">
+                  <strong className="text-[#0F172A]">Pergunta Raiz:</strong>{' '}
+                  {resolvedSheet.rootProblems.join(', ') || 'Avaliação Geral'}
                 </p>
               </div>
             </section>
 
-            {/* 2. Panorama Bioenergético */}
-            <section className="space-y-3">
+            {/* 2. Campos Eletromagnéticos & 7 Chakras + Glândulas */}
+            <section className="space-y-4">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                2. Panorama Bioenergético
+                2. Campos Eletromagnéticos & Sete Chakras + Glândulas
               </h3>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse border border-[#E2E8F0]">
                   <thead>
                     <tr className="bg-[#FAF8F5] text-left text-[#0F172A]">
-                      <th className="p-2.5 border border-[#E2E8F0]">Parâmetro</th>
-                      <th className="p-2.5 border border-[#E2E8F0]">Aferição</th>
-                      <th className="p-2.5 border border-[#E2E8F0]">Interpretação Clínica</th>
+                      <th className="p-2 border border-[#E2E8F0]">Campo</th>
+                      <th className="p-2 border border-[#E2E8F0]">Desequilíbrio</th>
+                      <th className="p-2 border border-[#E2E8F0]">Chakras Afetados</th>
                     </tr>
                   </thead>
                   <tbody>
+                    {resolvedSheet.electromagneticFields.map((f) => (
+                      <tr key={f.id}>
+                        <td className="p-2 border border-[#E2E8F0] font-semibold text-[#0F172A]">
+                          {f.label}
+                        </td>
+                        <td className="p-2 border border-[#E2E8F0] font-mono tabular-nums">
+                          {f.imbalancePercent}%
+                        </td>
+                        <td className="p-2 border border-[#E2E8F0]">
+                          {f.affectedChakras.join(', ') || 'Sem comprometimento'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse border border-[#E2E8F0]">
+                  <thead>
+                    <tr className="bg-[#FAF8F5] text-left text-[#0F172A]">
+                      <th className="p-2 border border-[#E2E8F0]">Chakra</th>
+                      <th className="p-2 border border-[#E2E8F0]">Glândula</th>
+                      <th className="p-2 border border-[#E2E8F0]">Polaridade</th>
+                      <th className="p-2 border border-[#E2E8F0]">Desequilíbrio</th>
+                      <th className="p-2 border border-[#E2E8F0]">Afeta Físico</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resolvedSheet.chakras.map((c) => (
+                      <tr key={c.id}>
+                        <td className="p-2 border border-[#E2E8F0] font-semibold text-[#0F172A]">
+                          {c.name} ({c.sanskrit})
+                        </td>
+                        <td className="p-2 border border-[#E2E8F0]">{c.gland}</td>
+                        <td className="p-2 border border-[#E2E8F0] font-semibold text-[#B45309]">
+                          {c.status}
+                        </td>
+                        <td className="p-2 border border-[#E2E8F0] font-mono tabular-nums">
+                          {c.imbalancePercent}%
+                        </td>
+                        <td className="p-2 border border-[#E2E8F0]">
+                          {c.affectsPhysicalBody ? 'Sim' : 'Não'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* 3. Campo Áurico, Cores, Áreas da Vida & Dimensão Espiritual */}
+            <section className="space-y-3">
+              <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
+                3. Campo Áurico, Cromoterapia, Áreas da Vida & Dimensão Espiritual
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse border border-[#E2E8F0]">
+                  <tbody>
                     <tr>
-                      <td className="p-2.5 border border-[#E2E8F0] font-semibold text-[#0F172A]">
+                      <td className="p-2.5 border border-[#E2E8F0] bg-[#FAF8F5] font-semibold text-[#0F172A] w-52">
                         Biômetro de Bovis
                       </td>
-                      <td className="p-2.5 border border-[#E2E8F0] font-mono tabular-nums">
-                        {sensitivity.bovis.toLocaleString('pt-BR')} Å
-                      </td>
-                      <td className="p-2.5 border border-[#E2E8F0]">
-                        {sensitivity.bovis < 6500
-                          ? 'Abaixo de 6.500 Å — Exige limpeza prévia anti-catarse'
-                          : 'Campo estável em zona de coerência'}
+                      <td className="p-2.5 border border-[#E2E8F0] font-mono">
+                        {resolvedSheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å
                       </td>
                     </tr>
                     <tr>
-                      <td className="p-2.5 border border-[#E2E8F0] font-semibold text-[#0F172A]">
-                        Escala de Hawkins
-                      </td>
-                      <td className="p-2.5 border border-[#E2E8F0] font-mono tabular-nums">
-                        {sensitivity.hawkins} ({hawkinsInfo.label})
+                      <td className="p-2.5 border border-[#E2E8F0] bg-[#FAF8F5] font-semibold text-[#0F172A]">
+                        Hawkins / Ágatha
                       </td>
                       <td className="p-2.5 border border-[#E2E8F0]">
-                        {hawkinsInfo.zone} — {hawkinsInfo.emotion}
+                        {resolvedSheet.spiritualPsycho.hawkinsAgathaHz} Hz ({hawkinsInfo.label} ·{' '}
+                        {hawkinsInfo.zone})
                       </td>
                     </tr>
                     <tr>
-                      <td className="p-2.5 border border-[#E2E8F0] font-semibold text-[#0F172A]">
-                        Proteção Áurica
+                      <td className="p-2.5 border border-[#E2E8F0] bg-[#FAF8F5] font-semibold text-[#0F172A]">
+                        Estresse & Polaridade
                       </td>
-                      <td className="p-2.5 border border-[#E2E8F0] font-mono tabular-nums">
-                        {sensitivity.auricProtection}%
-                      </td>
-                      <td className="p-2.5 border border-[#E2E8F0]">
-                        {sensitivity.auricProtection < 50
-                          ? 'Permeabilidade elevada — Blindagem obrigatória'
-                          : 'Contenção áurica íntegra'}
+                      <td className="p-2.5 border border-[#E2E8F0] font-mono">
+                        Estresse {resolvedSheet.spiritualPsycho.stressLevel}/9 ·{' '}
+                        {resolvedSheet.spiritualPsycho.yinPercent}% Yin /{' '}
+                        {resolvedSheet.spiritualPsycho.yangPercent}% Yang
                       </td>
                     </tr>
                     <tr>
-                      <td className="p-2.5 border border-[#E2E8F0] font-semibold text-[#0F172A]">
-                        Chakras Principais
-                      </td>
-                      <td className="p-2.5 border border-[#E2E8F0] font-mono tabular-nums">
-                        7 centros aferidos
+                      <td className="p-2.5 border border-[#E2E8F0] bg-[#FAF8F5] font-semibold text-[#0F172A]">
+                        Campo Áurico & Cores
                       </td>
                       <td className="p-2.5 border border-[#E2E8F0]">
-                        {sensitivity.chakras
-                          .map((c) => `${c.name} ${c.percentage}% (${c.status})`)
-                          .join(' · ')}
+                        Proteção: {resolvedSheet.auricField.protectionLabel} (
+                        {resolvedSheet.auricField.protectionPercent}%) · Tamanho:{' '}
+                        {resolvedSheet.auricField.sizeLabel} ({resolvedSheet.auricField.sizePercent}
+                        %) <br />
+                        <strong>Cores em falta:</strong>{' '}
+                        {resolvedSheet.auricField.missingColors.join(', ') || '—'} ·{' '}
+                        <strong>Em excesso:</strong>{' '}
+                        {resolvedSheet.auricField.excessColors.join(', ') || '—'}
                       </td>
                     </tr>
                     <tr>
-                      <td className="p-2.5 border border-[#E2E8F0] font-semibold text-[#0F172A]">
-                        Sistemas em Alerta
-                      </td>
-                      <td className="p-2.5 border border-[#E2E8F0] font-mono tabular-nums">
-                        {alertSystems.length} de {sensitivity.organicSystems.length}
+                      <td className="p-2.5 border border-[#E2E8F0] bg-[#FAF8F5] font-semibold text-[#0F172A]">
+                        Áreas da Vida (RHEN)
                       </td>
                       <td className="p-2.5 border border-[#E2E8F0]">
-                        {alertSystems.length > 0
-                          ? alertSystems.map((s) => s.name).join(', ')
-                          : 'Todos os sistemas equilibrados'}
+                        Familiar: {resolvedSheet.lifeAreas.familiar} · Afetivo:{' '}
+                        {resolvedSheet.lifeAreas.relacionamentoAfetivo} · Profissional:{' '}
+                        {resolvedSheet.lifeAreas.profissional} · Financeiro:{' '}
+                        {resolvedSheet.lifeAreas.financeiro} · Missão:{' '}
+                        {resolvedSheet.lifeAreas.missaoDeVida}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 border border-[#E2E8F0] bg-[#FAF8F5] font-semibold text-[#0F172A]">
+                        Varredura Espiritual & Virtudes
+                      </td>
+                      <td className="p-2.5 border border-[#E2E8F0]">
+                        Distúrbios:{' '}
+                        {resolvedSheet.spiritualPsycho.spiritualDisturbances.join(', ') || 'Nenhum'}{' '}
+                        · Implantes:{' '}
+                        {resolvedSheet.spiritualPsycho.implantsDetected.join(', ') || 'Nenhum'} ·
+                        Carma:{' '}
+                        {resolvedSheet.spiritualPsycho.karmicCommitments.join(', ') || 'Nenhum'}{' '}
+                        <br />
+                        <strong>Virtudes a ancorar:</strong>{' '}
+                        {resolvedSheet.spiritualPsycho.virtuesToAnchor.join(', ')}
                       </td>
                     </tr>
                   </tbody>
@@ -326,21 +439,102 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               </div>
             </section>
 
-            {/* 3. Diagnóstico Psicossomático */}
-            <section className="space-y-2">
+            {/* 4. Sistemas & Órgãos ANSAE + Biômetros Consultados */}
+            <section className="space-y-3">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                3. Diagnóstico Psicossomático
+                4. Sistemas & Órgãos ANSAE em Alerta ({imbalancedOrgans.length}) e Biômetros
               </h3>
+              {imbalancedOrgans.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse border border-[#E2E8F0]">
+                    <thead>
+                      <tr className="bg-[#FAF8F5] text-left text-[#0F172A]">
+                        <th className="p-2 border border-[#E2E8F0]">Sigla</th>
+                        <th className="p-2 border border-[#E2E8F0]">Sistema</th>
+                        <th className="p-2 border border-[#E2E8F0]">Órgão / Glândula</th>
+                        <th className="p-2 border border-[#E2E8F0]">%</th>
+                        <th className="p-2 border border-[#E2E8F0]">Tempo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {imbalancedOrgans.map((o) => (
+                        <tr key={o.id}>
+                          <td className="p-2 border border-[#E2E8F0] font-mono font-bold text-[#B45309]">
+                            {o.systemCode}
+                          </td>
+                          <td className="p-2 border border-[#E2E8F0]">{o.systemName}</td>
+                          <td className="p-2 border border-[#E2E8F0] font-semibold text-[#0F172A]">
+                            {o.organName}
+                          </td>
+                          <td className="p-2 border border-[#E2E8F0] font-mono">
+                            {o.imbalancePercent}%
+                          </td>
+                          <td className="p-2 border border-[#E2E8F0] font-mono">
+                            {o.durationValue}
+                            {o.durationUnit}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-[#64748B]">
+                  Nenhum dos 38 órgãos ANSAE foi marcado em desequilíbrio.
+                </p>
+              )}
+
+              {resolvedSheet.biometerReadings.length > 0 && (
+                <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] text-xs space-y-1">
+                  <p className="font-semibold text-[#0F172A]">Biômetros Virtuais Consultados:</p>
+                  <p>
+                    {resolvedSheet.biometerReadings
+                      .map((b) => `${b.biometerName}: ${b.selectedItem}`)
+                      .join(' · ')}
+                  </p>
+                </div>
+              )}
+            </section>
+
+            {/* 5. Causa Raiz, Comparativo & Diagnóstico Psicossomático */}
+            <section className="space-y-3">
+              <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
+                5. Análise da Causa Raiz & Diagnóstico Psicossomático
+              </h3>
+              {(resolvedPrev || aiResult?.comparativoEvolutivo) && (
+                <div className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#D97706]/40 text-xs space-y-1">
+                  <p className="font-bold text-[#B45309]">Comparativo Evolutivo (Antes × Depois):</p>
+                  {resolvedPrev && (
+                    <p className="font-mono text-[#0F172A]">
+                      Bovis: {resolvedPrev.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å →{' '}
+                      {resolvedSheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å · Hawkins:{' '}
+                      {resolvedPrev.ansaeRhen.spiritualPsycho.hawkinsAgathaHz} Hz →{' '}
+                      {resolvedSheet.spiritualPsycho.hawkinsAgathaHz} Hz · Aura:{' '}
+                      {resolvedPrev.ansaeRhen.auricField.protectionPercent}% →{' '}
+                      {resolvedSheet.auricField.protectionPercent}%
+                    </p>
+                  )}
+                  {aiResult?.comparativoEvolutivo && (
+                    <p className="text-[#334155] pt-1">{aiResult.comparativoEvolutivo}</p>
+                  )}
+                </div>
+              )}
+              {aiResult?.analiseCausaRaiz && (
+                <p className="whitespace-pre-line">
+                  <strong className="text-[#0F172A]">Causa Raiz Cruzada: </strong>
+                  {aiResult.analiseCausaRaiz}
+                </p>
+              )}
               <p className="whitespace-pre-line">
                 {aiResult?.analisePsicossomatica ||
                   'Gere a análise na Tela 4 (Mesa Radiônica) para incluir o diagnóstico psicossomático completo.'}
               </p>
             </section>
 
-            {/* 4. Cronograma Anti-Catarse */}
+            {/* 6. Cronograma Anti-Catarse */}
             <section className="space-y-2">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                4. Cronograma Anti-Catarse em Etapas
+                6. Cronograma Anti-Catarse em Etapas
               </h3>
               {protocol.mode === 'escalonado' && protocol.stage1 && protocol.stage2 ? (
                 <div className="space-y-2 text-xs sm:text-sm">
@@ -365,15 +559,18 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               )}
             </section>
 
-            {/* 5. Testemunhos e Comandos Quânticos */}
+            {/* 7. Testemunhos e Comandos Quânticos */}
             <section className="space-y-3">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                5. Painel de Testemunhos e Comandos Quânticos
+                7. Painel de Testemunhos e Comandos Quânticos
               </h3>
               {aiResult ? (
                 <div className="space-y-3">
                   {aiResult.testemunhos.map((t, i) => (
-                    <p key={i} className="text-xs font-mono bg-[#FAF8F5] p-2.5 rounded border border-[#E2E8F0]">
+                    <p
+                      key={i}
+                      className="text-xs font-mono bg-[#FAF8F5] p-2.5 rounded border border-[#E2E8F0]"
+                    >
                       <strong>{t.geometria}:</strong> {t.testemunhoFormatado}
                     </p>
                   ))}
@@ -394,20 +591,33 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               )}
             </section>
 
-            {/* 6. Prescrições & Ressalva */}
+            {/* 8. Prescrições & Ressalva */}
             <section className="space-y-2">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                6. Prescrições Integrativas e Ressalva Ética
+                8. Prescrições Integrativas, Cristais, Bons Hábitos & Ressalva Ética
               </h3>
               {aiResult?.prescricoes && (
                 <div className="space-y-1.5 text-xs sm:text-sm">
                   <p>
                     <strong>Florais de Bach:</strong> {aiResult.prescricoes.floraisBach.join(' • ')}
                   </p>
+                  {aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0 && (
+                    <p>
+                      <strong>Cristais Terapêuticos:</strong>{' '}
+                      {aiResult.prescricoes.cristais.join(' • ')}
+                    </p>
+                  )}
                   <p>
                     <strong>Fitoterapia / Chás:</strong>{' '}
                     {aiResult.prescricoes.fitoterapiaChas.join(' • ')}
                   </p>
+                  {aiResult.prescricoes.bonsHabitos &&
+                    aiResult.prescricoes.bonsHabitos.length > 0 && (
+                      <p>
+                        <strong>Bons Hábitos:</strong>{' '}
+                        {aiResult.prescricoes.bonsHabitos.join(' • ')}
+                      </p>
+                    )}
                   <p>
                     <strong>Frequências Solfeggio:</strong>{' '}
                     {aiResult.prescricoes.frequenciasSolfeggio
@@ -447,13 +657,13 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
 
             <section className="space-y-2">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                Como Mente, Emoção e Corpo Conversam
+                Seus Chakras, Cores da Aura & Hábitos na Prática
               </h3>
-              <p>
-                Quando acumulamos preocupações ou tensões emocionais por muito tempo, o corpo
-                responde alterando a qualidade do sono, a digestão e o nível de energia diária. Ao
-                harmonizar seu campo e adotar pequenas pausas conscientes, todo o organismo reencontra
-                seu ritmo natural de equilíbrio.
+              <p className="whitespace-pre-line">
+                {aiResult?.orientacaoChakrasAuraHabitos ||
+                  `Cores que nutrem seu campo neste ciclo: ${
+                    resolvedSheet.auricField.missingColors.join(', ') || 'Dourado e Verde Esmeralda'
+                  }. Busque incluir esses tons no vestuário ou na visualização diária durante respirações tranquilas.`}
               </p>
             </section>
 

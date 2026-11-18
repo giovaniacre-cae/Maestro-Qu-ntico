@@ -98,7 +98,9 @@ export interface SolfeggioRecommendation {
 
 export interface PrescricoesIntegrativas {
   floraisBach: string[];
+  cristais?: string[];
   fitoterapiaChas: string[];
+  bonsHabitos?: string[];
   frequenciasSolfeggio: SolfeggioRecommendation[];
   pilaresAutocuidado: {
     hidratacaoFitoterapia: string;
@@ -111,14 +113,18 @@ export interface PrescricoesIntegrativas {
 export interface QuantumGenerationResult {
   testemunhos: TestemunhoItem[];
   comandosQuanticos: ComandoQuanticoItem[];
+  analiseCausaRaiz?: string;
   analisePsicossomatica: string;
+  comparativoEvolutivo?: string | null;
   orientacaoPacienteResumo: string;
+  orientacaoChakrasAuraHabitos?: string;
   prescricoes: PrescricoesIntegrativas;
   generatedAt: string;
 }
 
 export interface QuantumRoomSession {
   id: string;
+  sessionType?: 'Avaliação Inicial' | 'Pós-Tratamento 1' | 'Pós-Tratamento 2' | 'Novo Ciclo';
   anamnesis: PatientAnamnesis;
   sensitivity: SensitivityReading;
   protocol: AntiCatharsisProtocol;
