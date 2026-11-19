@@ -221,7 +221,7 @@ function buildDocxOfficialHeader(
         children: [
           new ImageRun({
             data: logoBytes,
-            transformation: { width: 88, height: 88 },
+            transformation: { width: 68, height: 68 },
             type: 'png',
           }),
         ],
@@ -289,7 +289,7 @@ function buildDocxOfficialHeader(
       },
       children: [
         new TextRun({
-          text: 'Atendimentos Integrativos • Contatos: (68) 99247-6436 | (11) 95056-5215',
+          text: 'Consultoria Holística Integrativa • Contatos: (68) 99247-6436 | (11) 95056-5215',
           size: 19,
           color: MUTED_HEX,
           font: 'Calibri',
@@ -820,52 +820,121 @@ export async function downloadTherapistDocx(
         )
       : aiResult;
 
-  const testemunhoParagraphs: Paragraph[] = (effectiveResult?.testemunhos || []).map((t) => {
-    const cr =
-      t.cristalAncorado || resolveCrystalForChart(session.chartCrystals, t.etapa, t.geometria);
-    const metaTags: string[] = [t.etapa];
-    if (t.origem === 'therapist') metaTags.push('Pendulado pelo Terapeuta');
-    if (cr) metaTags.push(`Cristal: ${cr}`);
-    return buildBodyParagraph(
-      `${t.testemunhoFormatado} (${metaTags.join(' · ')})`,
-      `${t.geometria}: `
-    );
-  });
+  const testimonyCommandTables: Table[] = (effectiveResult?.testemunhos || []).map((t, idx) => {
+    const c = (effectiveResult?.comandosQuanticos || []).find(
+      (cmd) => cmd.geometria === t.geometria && cmd.etapa === t.etapa
+    ) || (effectiveResult?.comandosQuanticos || [])[idx];
 
-  const comandoParagraphs: Paragraph[] = [];
-  (effectiveResult?.comandosQuanticos || []).forEach((cmd) => {
     const cr =
-      cmd.cristalAncorado ||
-      resolveCrystalForChart(session.chartCrystals, cmd.etapa, cmd.geometria);
-    const headerTags: string[] = [cmd.geometria, cmd.etapa];
-    if (cmd.origem === 'therapist') headerTags.push('Pendulado pelo Terapeuta');
-    if (cr) headerTags.push(`Cristal: ${cr}`);
-    comandoParagraphs.push(
+      t.cristalAncorado ||
+      c?.cristalAncorado ||
+      resolveCrystalForChart(session.chartCrystals, t.etapa, t.geometria);
+    const isTherapist = t.origem === 'therapist' || c?.origem === 'therapist';
+
+    const cellChildren: any[] = [
       new Paragraph({
-        spacing: { before: 120, after: 40 },
+        spacing: { after: 60 },
         children: [
           new TextRun({
-            text: `${cmd.tituloComando} (${headerTags.join(' • ')})`,
+            text: `${t.geometria} — ${t.etapa}`,
             bold: true,
-            size: 21,
-            color: AMBER_HEX,
+            size: 22,
+            color: NAVY_HEX,
+            font: 'Georgia',
+          }),
+          ...(isTherapist
+            ? [
+                new TextRun({
+                  text: ' [Pendulado pelo Terapeuta]',
+                  bold: true,
+                  size: 18,
+                  color: AMBER_HEX,
+                }),
+              ]
+            : []),
+          ...(cr
+            ? [
+                new TextRun({
+                  text: ` | Cristal Ancorado: ${cr}`,
+                  bold: true,
+                  size: 18,
+                  color: '92400E',
+                }),
+              ]
+            : []),
+        ],
+      }),
+      new Paragraph({
+        spacing: { before: 40, after: 20 },
+        children: [
+          new TextRun({
+            text: 'TESTEMUNHO INFORMACIONAL:',
+            bold: true,
+            size: 18,
+            color: MUTED_HEX,
             font: 'Calibri',
           }),
         ],
       }),
       new Paragraph({
-        spacing: { after: 120, line: 276 },
+        spacing: { after: 80, line: 276 },
+        shading: { fill: 'F8FAFC', type: ShadingType.CLEAR },
         children: [
           new TextRun({
-            text: `"${cmd.comandoTexto}"`,
-            italics: true,
-            size: 21,
+            text: t.testemunhoFormatado,
+            size: 20,
             color: NAVY_HEX,
-            font: 'Georgia',
+            font: 'Courier New',
           }),
         ],
-      })
-    );
+      }),
+    ];
+
+    if (c) {
+      cellChildren.push(
+        new Paragraph({
+          spacing: { before: 60, after: 20 },
+          children: [
+            new TextRun({
+              text: `COMANDO DE ATIVAÇÃO: ${c.tituloComando}`,
+              bold: true,
+              size: 20,
+              color: AMBER_HEX,
+              font: 'Calibri',
+            }),
+          ],
+        }),
+        new Paragraph({
+          spacing: { after: 40, line: 276 },
+          children: [
+            new TextRun({
+              text: `"${c.comandoTexto}"`,
+              italics: true,
+              size: 21,
+              color: '1E293B',
+              font: 'Georgia',
+            }),
+          ],
+        })
+      );
+    }
+
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          cantSplit: true,
+          children: [
+            new TableCell({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              shading: { fill: LIGHT_BG_HEX, type: ShadingType.CLEAR },
+              margins: { top: 160, bottom: 160, left: 200, right: 200 },
+              children: cellChildren,
+            }),
+          ],
+        }),
+      ],
+    });
   });
 
   const energeticRemediesList = session.energeticRemedies || [];
@@ -1070,12 +1139,9 @@ export async function downloadTherapistDocx(
               ? '10. Painel de Testemunhos e Comandos Quânticos'
               : '9. Painel de Testemunhos e Comandos Quânticos'
           ),
-          ...(testemunhoParagraphs.length > 0
-            ? testemunhoParagraphs
-            : [buildBodyParagraph('Nenhum testemunho gerado até o momento.')]),
-          ...(comandoParagraphs.length > 0
-            ? comandoParagraphs
-            : [buildBodyParagraph('Nenhum comando quântico gerado até o momento.')]),
+          ...(testimonyCommandTables.length > 0
+            ? testimonyCommandTables
+            : [buildBodyParagraph('Nenhum testemunho ou comando gerado até o momento.')]),
 
           buildSectionHeading(
             comparisonParagraphs.length > 0
@@ -1344,7 +1410,7 @@ class MaestroPdfBuilder {
     this.doc.setFontSize(9);
     this.doc.setTextColor(100, 116, 139);
     this.doc.text(
-      'Atendimentos Integrativos • Contatos: (68) 99247-6436 | (11) 95056-5215',
+      'Consultoria Holística Integrativa • Contatos: (68) 99247-6436 | (11) 95056-5215',
       center,
       this.y,
       { align: 'center' }
@@ -1465,6 +1531,91 @@ class MaestroPdfBuilder {
         textY += 4.9;
       });
       textY += 2.2;
+    });
+
+    this.y += cardHeight + 6;
+  }
+
+  public addTestimonyCommandCard(
+    geometria: string,
+    etapa: string,
+    isTherapist: boolean,
+    crystal: string | undefined,
+    testemunho: string,
+    commandTitle: string,
+    commandText: string
+  ): void {
+    this.doc.setFont('times', 'bold');
+    this.doc.setFontSize(10.5);
+    const titleLines = this.doc.splitTextToSize(`${geometria} — ${etapa}`, this.contentWidth - 12) as string[];
+    const testLines = this.doc.splitTextToSize(testemunho, this.contentWidth - 16) as string[];
+    const cmdLines = this.doc.splitTextToSize(`"${commandText}"`, this.contentWidth - 16) as string[];
+
+    const cardHeight =
+      titleLines.length * 4.5 +
+      (crystal || isTherapist ? 5 : 0) +
+      6 +
+      testLines.length * 4.2 +
+      8 +
+      cmdLines.length * 4.5 +
+      16;
+
+    this.ensureSpace(cardHeight + 6);
+
+    this.doc.setFillColor(250, 248, 245);
+    this.doc.setDrawColor(203, 213, 225);
+    this.doc.setLineWidth(0.3);
+    this.doc.rect(this.margin, this.y, this.contentWidth, cardHeight, 'FD');
+    this.doc.setFillColor(180, 83, 9);
+    this.doc.rect(this.margin, this.y, 1.8, cardHeight, 'F');
+
+    let currentY = this.y + 6;
+    this.doc.setFont('times', 'bold');
+    this.doc.setFontSize(10.5);
+    this.doc.setTextColor(15, 23, 42);
+    titleLines.forEach((l) => {
+      this.doc.text(l, this.margin + 5, currentY);
+      currentY += 4.5;
+    });
+
+    if (isTherapist || crystal) {
+      this.doc.setFont('helvetica', 'bold');
+      this.doc.setFontSize(8);
+      let metaStr = '';
+      if (isTherapist) metaStr += 'Pendulado pelo Terapeuta';
+      if (crystal) metaStr += (metaStr ? ' | ' : '') + `Cristal Ancorado: ${crystal}`;
+      this.doc.setTextColor(180, 83, 9);
+      this.doc.text(metaStr, this.margin + 5, currentY);
+      currentY += 5;
+    }
+
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.setFontSize(8);
+    this.doc.setTextColor(100, 116, 139);
+    this.doc.text('TESTEMUNHO INFORMACIONAL:', this.margin + 5, currentY);
+    currentY += 4.5;
+
+    this.doc.setFont('courier', 'normal');
+    this.doc.setFontSize(8);
+    this.doc.setTextColor(15, 23, 42);
+    testLines.forEach((l) => {
+      this.doc.text(l, this.margin + 7, currentY);
+      currentY += 4.2;
+    });
+    currentY += 4;
+
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.setFontSize(8.5);
+    this.doc.setTextColor(180, 83, 9);
+    this.doc.text(`COMANDO DE ATIVAÇÃO: ${commandTitle}`, this.margin + 5, currentY);
+    currentY += 4.5;
+
+    this.doc.setFont('times', 'italic');
+    this.doc.setFontSize(9.5);
+    this.doc.setTextColor(30, 41, 59);
+    cmdLines.forEach((l) => {
+      this.doc.text(l, this.margin + 7, currentY);
+      currentY += 4.5;
     });
 
     this.y += cardHeight + 6;
@@ -1792,30 +1943,34 @@ export async function downloadTherapistPdf(
       : aiResult;
 
   pdf.addSectionTitle('8. Testemunhos e Comandos Quânticos');
-  (effectivePdfResult?.testemunhos || []).forEach((t) => {
-    const cr =
-      t.cristalAncorado || resolveCrystalForChart(session.chartCrystals, t.etapa, t.geometria);
-    const metaTags: string[] = [t.etapa];
-    if (t.origem === 'therapist') metaTags.push('Pendulado pelo Terapeuta');
-    if (cr) metaTags.push(`Cristal: ${cr}`);
-    pdf.addParagraph(
-      `${t.testemunhoFormatado} (${metaTags.join(' · ')})`,
-      `${t.geometria}: `
-    );
-  });
-  (effectivePdfResult?.comandosQuanticos || []).forEach((cmd) => {
-    const cr =
-      cmd.cristalAncorado ||
-      resolveCrystalForChart(session.chartCrystals, cmd.etapa, cmd.geometria);
-    const headerTags: string[] = [cmd.etapa];
-    if (cmd.origem === 'therapist') headerTags.push('Pendulado pelo Terapeuta');
-    if (cr) headerTags.push(`Cristal: ${cr}`);
-    pdf.addParagraph(
-      `"${cmd.comandoTexto}"`,
-      `${cmd.tituloComando} (${headerTags.join(' · ')}): `,
-      true
-    );
-  });
+  const pdfTestemunhos = effectivePdfResult?.testemunhos || [];
+  const pdfComandos = effectivePdfResult?.comandosQuanticos || [];
+
+  if (pdfTestemunhos.length > 0) {
+    pdfTestemunhos.forEach((t, idx) => {
+      const c = pdfComandos.find(
+        (cmd) => cmd.geometria === t.geometria && cmd.etapa === t.etapa
+      ) || pdfComandos[idx];
+
+      const cr =
+        t.cristalAncorado ||
+        c?.cristalAncorado ||
+        resolveCrystalForChart(session.chartCrystals, t.etapa, t.geometria);
+      const isTherapist = t.origem === 'therapist' || c?.origem === 'therapist';
+
+      pdf.addTestimonyCommandCard(
+        t.geometria,
+        t.etapa,
+        isTherapist,
+        cr,
+        t.testemunhoFormatado,
+        c?.tituloComando || 'Ativação Quântica',
+        c?.comandoTexto || ''
+      );
+    });
+  } else {
+    pdf.addParagraph('Nenhum testemunho ou comando gerado até o momento.');
+  }
 
   pdf.addSectionTitle(
     '9. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)'

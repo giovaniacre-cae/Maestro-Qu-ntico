@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Compass, Plus, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, Compass, Plus, Search, Sparkles, Trash2, X, ZoomIn, ZoomOut, Image as ImageIcon, Sliders } from 'lucide-react';
 import {
   BiometerDefinition,
   HAWKINS_SCALE_TABLE,
   getHawkinsEntryByHz,
 } from '../types/clinical';
-import { BUILTIN_22_BIOMETERS } from '../data/biometrosData';
+import { BUILTIN_32_BIOMETERS } from '../data/biometrosData';
 import { formatBirthDateBR } from '../utils/antiCatharsis';
 
 interface BiometrosModalProps {
@@ -23,11 +23,12 @@ interface BiometrosModalProps {
 
 const CATEGORY_FILTERS: Array<'Todos' | BiometerDefinition['category']> = [
   'Todos',
-  'Chakras',
-  'Saúde & ANSAE',
-  'Psicoemocional',
-  'Radiestesia & Gráficos',
-  'Florais & Terapias',
+  'Triagem & Geral',
+  'Chakras & Corpos Sutis',
+  'Saúde Física & ANSAE',
+  'Emocional, Mental & Consciência',
+  'Prosperidade & Hábitos',
+  'Protocolos & Terapêuticas',
   'Personalizado',
 ];
 
@@ -44,11 +45,11 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   onSelectHawkinsHz,
 }) => {
   const allBiometers = useMemo(
-    () => [...BUILTIN_22_BIOMETERS, ...customBiometers],
+    () => [...BUILTIN_32_BIOMETERS, ...customBiometers],
     [customBiometers]
   );
 
-  const [selectedId, setSelectedId] = useState<string>(BUILTIN_22_BIOMETERS[0].id);
+  const [selectedId, setSelectedId] = useState<string>(BUILTIN_32_BIOMETERS[0].id);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<'Todos' | BiometerDefinition['category']>(
     'Todos'
@@ -59,8 +60,12 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   const [customItemsText, setCustomItemsText] = useState<string>('');
   const [recordedNotice, setRecordedNotice] = useState<string | null>(null);
 
+  // High-Definition PNG Viewer & Zoom state
+  const [viewMode, setViewMode] = useState<'png' | 'dial'>('png');
+  const [zoomLevel, setZoomLevel] = useState<number>(1); // 1 = 100%, 1.5 = 150%, 2 = 200%
+
   useEffect(() => {
-    if (isOpen && selectedId === 'bio-10' && typeof currentHawkinsHz === 'number') {
+    if (isOpen && selectedId === 'bio-23' && typeof currentHawkinsHz === 'number') {
       const entry = getHawkinsEntryByHz(currentHawkinsHz);
       const idx = HAWKINS_SCALE_TABLE.findIndex((item) => item.hz === entry.hz);
       if (idx >= 0) {
@@ -97,72 +102,69 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   const count = Math.max(1, items.length);
   const anglePerSector = 180 / count;
 
-  // Needle angle: -90 deg (far left) to +90 deg (far right)
-  const needleAngleDeg = -90 + (safeIdx + 0.5) * anglePerSector;
-
-  const polarToCartesian = (r: number, degFromTop: number) => {
-    const rad = (degFromTop * Math.PI) / 180;
+  const polarToCartesian = (r: number, angleDeg: number) => {
+    const rad = ((angleDeg - 90) * Math.PI) / 180.0;
     return {
-      x: cx + r * Math.sin(rad),
-      y: cy - r * Math.cos(rad),
+      x: cx + r * Math.cos(rad),
+      y: cy + r * Math.sin(rad),
     };
   };
 
   const buildSectorPath = (index: number) => {
-    const startDeg = -90 + index * anglePerSector;
-    const endDeg = startDeg + anglePerSector;
-    const p1 = polarToCartesian(outerR, startDeg);
-    const p2 = polarToCartesian(outerR, endDeg);
-    const p3 = polarToCartesian(innerR, endDeg);
-    const p4 = polarToCartesian(innerR, startDeg);
-    return `M ${p1.x} ${p1.y} A ${outerR} ${outerR} 0 0 1 ${p2.x} ${p2.y} L ${p3.x} ${p3.y} A ${innerR} ${innerR} 0 0 0 ${p4.x} ${p4.y} Z`;
+    const startAngle = -90 + index * anglePerSector;
+    const endAngle = -90 + (index + 1) * anglePerSector;
+    const outerStart = polarToCartesian(outerR, startAngle);
+    const outerEnd = polarToCartesian(outerR, endAngle);
+    const innerStart = polarToCartesian(innerR, startAngle);
+    const innerEnd = polarToCartesian(innerR, endAngle);
+    const largeArcFlag = anglePerSector > 180 ? 1 : 0;
+
+    return `M ${innerStart.x} ${innerStart.y} L ${outerStart.x} ${outerStart.y} A ${outerR} ${outerR} 0 ${largeArcFlag} 1 ${outerEnd.x} ${outerEnd.y} L ${innerEnd.x} ${innerEnd.y} A ${innerR} ${innerR} 0 ${largeArcFlag} 0 ${innerStart.x} ${innerStart.y} Z`;
   };
 
-  const extractHawkinsHz = (item: string, idx: number): number | null => {
-    if (HAWKINS_SCALE_TABLE[idx] && HAWKINS_SCALE_TABLE[idx].label === item) {
-      return HAWKINS_SCALE_TABLE[idx].hz;
-    }
-    const match = item.match(/(\d+)\s*Hz/i);
-    return match ? Number(match[1]) : null;
-  };
+  const needleAngleDeg = -90 + (safeIdx + 0.5) * anglePerSector;
 
   const handleSelectBiometer = (bio: BiometerDefinition) => {
     setSelectedId(bio.id);
-    if (bio.id === 'bio-10' && typeof currentHawkinsHz === 'number') {
-      const entry = getHawkinsEntryByHz(currentHawkinsHz);
-      const idx = HAWKINS_SCALE_TABLE.findIndex((item) => item.hz === entry.hz);
-      setSelectedSectorIndex(idx >= 0 ? idx : 0);
-    } else {
-      setSelectedSectorIndex(0);
-    }
+    setSelectedSectorIndex(0);
     setShowCustomCreator(false);
     setRecordedNotice(null);
   };
 
   const handlePickSector = (idx: number) => {
     setSelectedSectorIndex(idx);
-    if (activeBiometer.id === 'bio-10' && onSelectHawkinsHz) {
-      const hz = extractHawkinsHz(items[idx] || '', idx);
-      if (hz !== null) {
-        onSelectHawkinsHz(hz);
+    if (activeBiometer.id === 'bio-23' && onSelectHawkinsHz) {
+      const hawkinsEntry = HAWKINS_SCALE_TABLE[idx];
+      if (hawkinsEntry) {
+        onSelectHawkinsHz(hawkinsEntry.hz);
       }
+    }
+  };
+
+  const handleConfirmReading = () => {
+    if (onRecordReading) {
+      onRecordReading(activeBiometer, selectedItem);
+      setRecordedNotice(`✓ Registrado com sucesso: "${selectedItem}"`);
+      setTimeout(() => setRecordedNotice(null), 3500);
     }
   };
 
   const handleCreateCustom = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!customName.trim() || !customItemsText.trim()) return;
     const parsedItems = customItemsText
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    if (!customName.trim() || parsedItems.length < 2) return;
+
+    if (parsedItems.length < 2) return;
 
     const newBio: BiometerDefinition = {
       id: `custom-${Date.now()}`,
       number: allBiometers.length + 1,
       name: customName.trim(),
       category: 'Personalizado',
-      description: 'Biômetro personalizado criado pelo terapeuta para aferição direta.',
+      description: 'Biômetro personalizado criado pelo terapeuta para emissão quântica.',
       items: parsedItems,
       isCustom: true,
     };
@@ -170,67 +172,53 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
     onSaveCustomBiometer(newBio);
     setSelectedId(newBio.id);
     setSelectedSectorIndex(0);
+    setShowCustomCreator(false);
     setCustomName('');
     setCustomItemsText('');
-    setShowCustomCreator(false);
   };
 
-  const handleConfirmReading = () => {
-    if (activeBiometer.id === 'bio-10' && onSelectHawkinsHz) {
-      const hz = extractHawkinsHz(selectedItem, safeIdx);
-      if (hz !== null) {
-        onSelectHawkinsHz(hz);
-      }
-    }
-    if (onRecordReading && selectedItem) {
-      onRecordReading(activeBiometer, selectedItem);
-      setRecordedNotice(`Registrado: ${activeBiometer.name} → ${selectedItem}`);
-      setTimeout(() => setRecordedNotice(null), 2600);
-    }
-  };
-
-  const witnessShort = patientName.trim()
-    ? `${patientName.trim().split(' ').slice(0, 2).join(' ')}`
-    : 'Testemunho';
-  const birthShort = formatBirthDateBR(birthDate);
+  const witnessShort = patientName.trim() ? patientName : 'Testemunho Padrão';
+  const birthShort = birthDate ? `Nasc.: ${formatBirthDateBR(birthDate)}` : '';
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0F172A]/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-[#0F172A]/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-hidden"
       role="dialog"
       aria-modal="true"
-      aria-label="Biblioteca de 22 Biômetros Radiestésicos Virtuais"
+      aria-label="Biblioteca de Biômetros e Consulta Radiestésica"
     >
-      <div className="bg-[#FAF8F5] border border-[#E2E8F0] rounded-2xl max-w-[1220px] w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
-        {/* Modal Header */}
-        <div className="bg-white border-b border-[#E2E8F0] px-6 py-4 flex items-center justify-between gap-4">
+      <div className="bg-[#FAF8F5] w-full max-w-7xl h-[92vh] rounded-2xl shadow-2xl border border-[#E2E8F0] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        
+        {/* Header */}
+        <div className="px-6 py-4 bg-[#0F172A] text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <Compass className="w-5 h-5 text-[#B45309] shrink-0" />
+            <div className="w-10 h-10 rounded-xl bg-[#D97706]/20 border border-[#D97706]/40 flex items-center justify-center">
+              <Compass className="w-5 h-5 text-[#F59E0B]" />
+            </div>
             <div>
-              <h2 className="font-serif text-lg sm:text-xl font-bold text-[#0F172A]">
-                Biblioteca de 22 Biômetros Radiestésicos Virtuais
+              <h2 className="font-serif text-lg font-bold tracking-wide">
+                Mesa Quântica · Biblioteca de 32 Biômetros Oficiais
               </h2>
-              <p className="text-xs text-[#64748B]">
-                Testemunho ativo: <strong className="text-[#0F172A]">{patientName || 'Paciente'}</strong>{' '}
-                {birthShort ? `· ${birthShort}` : ''}
+              <p className="text-xs text-[#CBD5E1]">
+                Consulente Ativo: <span className="font-semibold text-white">{witnessShort}</span> {birthShort && `(${birthShort})`}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setShowCustomCreator((v) => !v)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer whitespace-nowrap"
+              onClick={() => setShowCustomCreator(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-[#D97706] text-white rounded-lg hover:bg-[#B45309] transition-colors cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 text-[#F59E0B]" />
-              + Criar Biômetro Personalizado
+              <Plus className="w-4 h-4" />
+              Novo Biômetro
             </button>
             <button
               type="button"
               onClick={onClose}
-              aria-label="Fechar biblioteca de biômetros"
-              className="p-2 text-[#64748B] hover:text-[#0F172A] rounded-lg cursor-pointer"
+              className="p-2 text-[#94A3B8] hover:text-white transition-colors rounded-lg hover:bg-white/10 cursor-pointer"
+              aria-label="Fechar"
             >
               <X className="w-5 h-5" />
             </button>
@@ -239,7 +227,8 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
 
         {/* Body Split */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
-          {/* Left Sidebar: 22 Biometers List */}
+          
+          {/* Left Sidebar: 32 Biometers List */}
           <aside className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-[#E2E8F0] bg-white p-4 flex flex-col gap-3 overflow-y-auto max-h-[300px] lg:max-h-none">
             <div className="relative">
               <Search className="w-4 h-4 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -247,7 +236,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar biômetro (ex.: Bach, Ágatha, Dímeros...)"
+                placeholder="Buscar biômetro (ex.: Chakras, Florais, Causa Raiz...)"
                 className="w-full pl-9 pr-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
               />
             </div>
@@ -293,7 +282,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                         {bio.name}
                       </p>
                       <p className="text-[11px] text-[#64748B] mt-0.5">
-                        {bio.category} · {bio.items.length} divisões
+                        {bio.category} · {bio.items.length} setores
                       </p>
                     </button>
                     {bio.isCustom && (
@@ -312,7 +301,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
             </div>
           </aside>
 
-          {/* Right Stage: Interactive Semicircular SVG Biometer or Custom Creator */}
+          {/* Right Stage: High-Definition PNG Viewer & Interactive Dial */}
           <div className="lg:col-span-8 p-6 overflow-y-auto space-y-6">
             {showCustomCreator ? (
               <form
@@ -324,16 +313,12 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                     Criar Biômetro Semicircular Personalizado
                   </h3>
                   <p className="text-xs text-[#64748B] mt-1">
-                    Defina o título do gráfico e os setores separados por vírgula. O biômetro será
-                    gerado instantaneamente e salvo no armazenamento local.
+                    Defina o título do gráfico e os setores separados por vírgula.
                   </p>
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="customBioName"
-                    className="block text-xs font-semibold text-[#0F172A] mb-1.5"
-                  >
+                  <label htmlFor="customBioName" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
                     Nome do Biômetro *
                   </label>
                   <input
@@ -348,10 +333,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="customBioItems"
-                    className="block text-xs font-semibold text-[#0F172A] mb-1.5"
-                  >
+                  <label htmlFor="customBioItems" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
                     Itens / Setores (separados por vírgula, mínimo 2) *
                   </label>
                   <textarea
@@ -360,7 +342,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                     required
                     value={customItemsText}
                     onChange={(e) => setCustomItemsText(e.target.value)}
-                    placeholder="Ex.: Lavanda, Alecrim, Hortelã-Pimenta, Olíbano, Copaíba, Limão Siciliano"
+                    placeholder="Ex.: Lavanda, Alecrim, Hortelã-Pimenta, Olíbano"
                     className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
                   />
                 </div>
@@ -384,173 +366,259 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
               </form>
             ) : (
               <>
-                <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-3">
+                <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-4 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
-                        Biômetro {String(activeBiometer.number).padStart(2, '0')} ·{' '}
-                        {activeBiometer.category}
+                        Biômetro {String(activeBiometer.number).padStart(2, '0')} · {activeBiometer.category}
                       </p>
                       <h3 className="font-serif text-xl font-bold text-[#0F172A]">
                         {activeBiometer.name}
                       </h3>
                     </div>
-                    <span className="text-xs font-mono text-[#64748B]">
-                      {items.length} setores radiais
-                    </span>
+
+                    <div className="flex items-center gap-2">
+                      {/* View Mode Toggle */}
+                      {activeBiometer.imageUrl && (
+                        <div className="inline-flex bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setViewMode('png')}
+                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                              viewMode === 'png'
+                                ? 'bg-[#0F172A] text-white'
+                                : 'text-[#64748B] hover:text-[#0F172A]'
+                            }`}
+                          >
+                            <ImageIcon className="w-3.5 h-3.5 inline mr-1" />
+                            Imagem HD
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setViewMode('dial')}
+                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                              viewMode === 'dial'
+                                ? 'bg-[#0F172A] text-white'
+                                : 'text-[#64748B] hover:text-[#0F172A]'
+                            }`}
+                          >
+                            <Sliders className="w-3.5 h-3.5 inline mr-1" />
+                            Dial SVG
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Zoom Controls (when in PNG mode) */}
+                      {viewMode === 'png' && activeBiometer.imageUrl && (
+                        <div className="inline-flex items-center bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel(Math.max(1, zoomLevel - 0.5))}
+                            className="p-1.5 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                            title="Reduzir Zoom (100%)"
+                          >
+                            <ZoomOut className="w-4 h-4" />
+                          </button>
+                          <span className="px-2 text-xs font-mono font-semibold text-[#0F172A]">
+                            {Math.round(zoomLevel * 100)}%
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel(Math.min(2, zoomLevel + 0.5))}
+                            className="p-1.5 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                            title="Aumentar Zoom (até 200%)"
+                          >
+                            <ZoomIn className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <p className="text-xs text-[#45464D] leading-relaxed">
                     {activeBiometer.description}
                   </p>
 
-                  {/* Interactive Semicircular SVG Dial */}
-                  <div className="flex flex-col items-center pt-2">
-                    <svg
-                      viewBox="0 0 520 275"
-                      className="w-full max-w-[560px] overflow-visible"
-                      role="img"
-                      aria-label={`Biômetro ${activeBiometer.name}`}
-                    >
-                      {items.map((item, idx) => {
-                        const isActive = idx === safeIdx;
-                        const midDeg = -90 + (idx + 0.5) * anglePerSector;
-                        const labelPos = polarToCartesian((outerR + innerR) / 2 + 12, midDeg);
-                        const shortLabel =
-                          items.length > 18
-                            ? `${idx + 1}`
-                            : item.length > 16
-                            ? `${item.slice(0, 14)}…`
-                            : item;
+                  {/* Active Digital Testimony Banner */}
+                  <div className="bg-[#FAF8F5] border border-[#D97706]/30 rounded-lg p-3 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-semibold text-[#B45309] uppercase tracking-wider mr-2">
+                        Testemunho Quântico Ativo:
+                      </span>
+                      <span className="font-serif font-bold text-[#0F172A]">{witnessShort}</span>
+                      {birthShort && <span className="text-[#64748B] ml-2 font-mono">({birthShort})</span>}
+                    </div>
+                    <span className="px-2 py-0.5 bg-[#0F172A] text-white rounded text-[10px] font-mono">
+                      Emissão Sutil
+                    </span>
+                  </div>
 
-                        return (
-                          <g
-                            key={`${item}-${idx}`}
-                            onClick={() => handlePickSector(idx)}
-                            className="cursor-pointer"
-                          >
-                            <path
-                              d={buildSectorPath(idx)}
-                              fill={
-                                isActive
-                                  ? '#0F172A'
-                                  : idx % 2 === 0
-                                  ? '#FAF8F5'
-                                  : '#FFFFFF'
-                              }
-                              stroke={isActive ? '#D97706' : '#CBD5E1'}
-                              strokeWidth={isActive ? 2 : 1}
-                              className="transition-colors duration-150 hover:fill-[#D97706]/15"
-                            />
-                            <text
-                              x={labelPos.x}
-                              y={labelPos.y}
-                              textAnchor="middle"
-                              dominantBaseline="middle"
-                              transform={`rotate(${midDeg}, ${labelPos.x}, ${labelPos.y})`}
-                              className={`pointer-events-none font-sans ${
-                                items.length > 20 ? 'text-[8px]' : 'text-[8.5px]'
-                              } font-semibold ${isActive ? 'fill-[#F59E0B]' : 'fill-[#0F172A]'}`}
-                            >
-                              {shortLabel}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* Pendulum Needle */}
-                      <g
-                        transform={`rotate(${needleAngleDeg}, ${cx}, ${cy})`}
+                  {/* Main Display: HD PNG Image or SVG Semicircular Dial */}
+                  {viewMode === 'png' && activeBiometer.imageUrl ? (
+                    <div className="relative w-full overflow-auto bg-[#FAF8F5] border border-[#E2E8F0] rounded-xl p-4 flex items-center justify-center min-h-[380px] max-h-[520px]">
+                      <div
                         style={{
-                          transition: 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+                          transform: `scale(${zoomLevel})`,
+                          transformOrigin: 'center center',
+                          transition: 'transform 200ms ease-in-out',
                         }}
+                        className="flex items-center justify-center"
                       >
-                        <line
-                          x1={cx}
-                          y1={cy}
-                          x2={cx}
-                          y2={cy - outerR + 18}
-                          stroke="#B45309"
-                          strokeWidth="3"
-                          strokeLinecap="round"
+                        <img
+                          src={activeBiometer.imageUrl}
+                          alt={activeBiometer.name}
+                          className="max-h-[460px] w-auto object-contain drop-shadow-md rounded-lg"
                         />
-                        <circle cx={cx} cy={cy - outerR + 18} r="5" fill="#F59E0B" />
-                      </g>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center pt-2">
+                      <svg
+                        viewBox="0 0 520 275"
+                        className="w-full max-w-[560px] overflow-visible"
+                        role="img"
+                        aria-label={`Biômetro ${activeBiometer.name}`}
+                      >
+                        {items.map((item, idx) => {
+                          const isActive = idx === safeIdx;
+                          const midDeg = -90 + (idx + 0.5) * anglePerSector;
+                          const labelPos = polarToCartesian((outerR + innerR) / 2 + 12, midDeg);
+                          const shortLabel =
+                            items.length > 18
+                              ? `${idx + 1}`
+                              : item.length > 16
+                              ? `${item.slice(0, 14)}…`
+                              : item;
 
-                      {/* Center Digital Witness Housing */}
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={innerR - 4}
-                        fill="#0F172A"
-                        stroke="#D97706"
-                        strokeWidth="2.5"
-                      />
-                      <text
-                        x={cx}
-                        y={cy - 14}
-                        textAnchor="middle"
-                        className="fill-[#F59E0B] text-[9px] font-bold uppercase tracking-wider"
-                      >
-                        Testemunho
-                      </text>
-                      <text
-                        x={cx}
-                        y={cy + 2}
-                        textAnchor="middle"
-                        className="fill-white text-[11px] font-serif font-bold"
-                      >
-                        {witnessShort}
-                      </text>
-                      {birthShort && (
+                          return (
+                            <g
+                              key={`${item}-${idx}`}
+                              onClick={() => handlePickSector(idx)}
+                              className="cursor-pointer"
+                            >
+                              <path
+                                d={buildSectorPath(idx)}
+                                fill={
+                                  isActive
+                                    ? '#0F172A'
+                                    : idx % 2 === 0
+                                    ? '#FAF8F5'
+                                    : '#FFFFFF'
+                                }
+                                stroke={isActive ? '#D97706' : '#CBD5E1'}
+                                strokeWidth={isActive ? 2 : 1}
+                                className="transition-colors duration-150 hover:fill-[#D97706]/15"
+                              />
+                              <text
+                                x={labelPos.x}
+                                y={labelPos.y}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                transform={`rotate(${midDeg}, ${labelPos.x}, ${labelPos.y})`}
+                                className={`pointer-events-none font-sans ${
+                                  items.length > 20 ? 'text-[8px]' : 'text-[8.5px]'
+                                } font-semibold ${isActive ? 'fill-[#F59E0B]' : 'fill-[#0F172A]'}`}
+                              >
+                                {shortLabel}
+                              </text>
+                            </g>
+                          );
+                        })}
+
+                        {/* Pendulum Needle */}
+                        <g
+                          transform={`rotate(${needleAngleDeg}, ${cx}, ${cy})`}
+                          style={{
+                            transition: 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+                          }}
+                        >
+                          <line
+                            x1={cx}
+                            y1={cy}
+                            x2={cx}
+                            y2={cy - outerR + 18}
+                            stroke="#B45309"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                          />
+                          <circle cx={cx} cy={cy - outerR + 18} r="5" fill="#F59E0B" />
+                        </g>
+
+                        {/* Center Digital Witness Housing */}
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={innerR - 4}
+                          fill="#0F172A"
+                          stroke="#D97706"
+                          strokeWidth="2.5"
+                        />
                         <text
                           x={cx}
-                          y={cy + 18}
+                          y={cy - 14}
                           textAnchor="middle"
-                          className="fill-[#CBD5E1] text-[9px] font-mono"
+                          className="fill-[#F59E0B] text-[9px] font-bold uppercase tracking-wider"
                         >
-                          {birthShort}
+                          Testemunho
                         </text>
-                      )}
-                    </svg>
-
-                    {/* Active Sector Readout & Action */}
-                    <div className="mt-2 w-full p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
-                          Leitura Pendular Selecionada ({safeIdx + 1}/{items.length})
-                        </p>
-                        <p className="font-serif text-base font-bold text-[#0F172A] mt-0.5">
-                          {selectedItem}
-                        </p>
-                      </div>
-
-                      {onRecordReading && (
-                        <button
-                          type="button"
-                          onClick={handleConfirmReading}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer whitespace-nowrap shrink-0"
+                        <text
+                          x={cx}
+                          y={cy + 2}
+                          textAnchor="middle"
+                          className="fill-white text-[11px] font-serif font-bold"
                         >
-                          <Check className="w-3.5 h-3.5 text-[#F59E0B]" />
-                          Registrar Leitura na Ficha
-                        </button>
-                      )}
+                          {witnessShort}
+                        </text>
+                        {birthShort && (
+                          <text
+                            x={cx}
+                            y={cy + 18}
+                            textAnchor="middle"
+                            className="fill-[#CBD5E1] text-[9px] font-mono"
+                          >
+                            {birthShort}
+                          </text>
+                        )}
+                      </svg>
+                    </div>
+                  )}
+
+                  {/* Active Sector Readout & Action */}
+                  <div className="mt-2 w-full p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
+                        Leitura Pendular Selecionada ({safeIdx + 1}/{items.length})
+                      </p>
+                      <p className="font-serif text-base font-bold text-[#0F172A] mt-0.5">
+                        {selectedItem}
+                      </p>
                     </div>
 
-                    {recordedNotice && (
-                      <p className="mt-2 text-xs font-semibold text-[#B45309]">
-                        {recordedNotice}
-                      </p>
+                    {onRecordReading && (
+                      <button
+                        type="button"
+                        onClick={handleConfirmReading}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <Check className="w-3.5 h-3.5 text-[#F59E0B]" />
+                        Registrar Leitura na Ficha
+                      </button>
                     )}
                   </div>
+
+                  {recordedNotice && (
+                    <p className="mt-2 text-xs font-semibold text-[#B45309]">
+                      {recordedNotice}
+                    </p>
+                  )}
                 </div>
 
-                {/* Clickable Grid of Sectors (especially useful for 38 Bach Essences) */}
-                <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-3">
+                {/* Clickable Grid of Sectors */}
+                <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-3 shadow-sm">
                   <p className="text-xs font-semibold text-[#0F172A]">
                     Seleção Rápida de Setores ({items.length} itens)
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
                     {items.map((item, idx) => {
                       const active = idx === safeIdx;
                       return (

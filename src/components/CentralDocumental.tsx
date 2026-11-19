@@ -738,55 +738,37 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
             </section>
 
             {/* 7. Testemunhos e Comandos Quânticos */}
-            <section className="space-y-3">
+            <section className="space-y-4">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
                 7. Painel de Testemunhos e Comandos Quânticos
               </h3>
-              {aiResult ? (
-                <div className="space-y-3">
+              {aiResult && (aiResult.testemunhos?.length > 0 || aiResult.comandosQuanticos?.length > 0) ? (
+                <div className="space-y-4">
                   {aiResult.testemunhos.map((t, i) => {
+                    const c = (aiResult.comandosQuanticos || []).find(
+                      (cmd) => cmd.geometria === t.geometria && cmd.etapa === t.etapa
+                    ) || (aiResult.comandosQuanticos || [])[i];
+
                     const crystalName =
                       t.cristalAncorado ||
+                      c?.cristalAncorado ||
                       resolveCrystalForChart(activeSession.chartCrystals, t.etapa, t.geometria);
-                    const isTherapist = t.origem === 'therapist';
+                    const isTherapist = t.origem === 'therapist' || c?.origem === 'therapist';
+
                     return (
                       <div
                         key={i}
-                        className="text-xs font-mono bg-[#FAF8F5] p-2.5 rounded border border-[#E2E8F0] space-y-1"
+                        className="p-4 rounded-xl bg-white border border-[#E2E8F0] shadow-sm space-y-3 relative overflow-hidden break-inside-avoid"
+                        style={{ borderLeftWidth: '5px', borderLeftColor: '#B45309' }}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <strong>{t.geometria}</strong>
-                            {isTherapist && (
-                              <span className="font-sans px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
-                                Pendulado pelo Terapeuta
-                              </span>
-                            )}
-                          </div>
-                          {crystalName && (
-                            <span className="font-sans px-2 py-0.5 rounded bg-[#FEFCE8] border border-[#D97706]/40 text-[10px] font-semibold text-[#92400E]">
-                              Cristal Ancorado: {crystalName}
-                            </span>
-                          )}
-                        </div>
-                        <p>{t.testemunhoFormatado}</p>
-                      </div>
-                    );
-                  })}
-                  {aiResult.comandosQuanticos.map((c, i) => {
-                    const crystalName =
-                      c.cristalAncorado ||
-                      resolveCrystalForChart(activeSession.chartCrystals, c.etapa, c.geometria);
-                    const isTherapist = c.origem === 'therapist';
-                    return (
-                      <blockquote
-                        key={i}
-                        className="p-3.5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] font-serif italic text-xs sm:text-sm text-[#0F172A]"
-                      >
-                        <div className="not-italic font-sans flex flex-wrap items-center justify-between gap-2 mb-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-bold text-[#B45309]">
-                              {c.tituloComando} ({c.etapa})
+                        {/* Header: Graphic Name + Stage + Origin + Crystal */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] pb-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-serif text-sm font-bold text-[#0F172A]">
+                              {t.geometria}
+                            </h4>
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-[#FAF8F5] text-[#64748B] border border-[#E2E8F0]">
+                              {t.etapa}
                             </span>
                             {isTherapist && (
                               <span className="px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
@@ -795,19 +777,45 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                             )}
                           </div>
                           {crystalName && (
-                            <span className="px-2 py-0.5 rounded bg-[#FEFCE8] border border-[#D97706]/40 text-[10px] font-semibold text-[#92400E]">
-                              Cristal Informacional: {crystalName}
+                            <span className="px-2.5 py-1 rounded-md bg-[#FEFCE8] border border-[#D97706]/40 text-xs font-semibold text-[#92400E] flex items-center gap-1">
+                              💎 Cristal Ancorado: {crystalName}
                             </span>
                           )}
                         </div>
-                        &ldquo;{c.comandoTexto}&rdquo;
-                      </blockquote>
+
+                        {/* Testemunho Informacional */}
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+                            Testemunho Informacional
+                          </span>
+                          <div className="text-xs font-mono bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0] text-[#0F172A] whitespace-pre-line leading-relaxed">
+                            {t.testemunhoFormatado}
+                          </div>
+                        </div>
+
+                        {/* Comando Quântico de Ativação */}
+                        {c && (
+                          <div className="space-y-1.5 pt-2 border-t border-dashed border-[#E2E8F0]">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-[#B45309]">
+                                {c.tituloComando}
+                              </span>
+                              <span className="text-[10px] font-semibold text-[#64748B]">
+                                Comando de Ativação Quântica
+                              </span>
+                            </div>
+                            <blockquote className="p-3 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] font-serif italic text-xs sm:text-sm text-[#1E293B] leading-relaxed">
+                              &ldquo;{c.comandoTexto}&rdquo;
+                            </blockquote>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
               ) : (
                 <p className="text-xs text-[#64748B]">
-                  Nenhum comando gerado ainda.
+                  Nenhum testemunho ou comando gerado ainda.
                   {activeSession.chartCrystals &&
                     Object.keys(activeSession.chartCrystals).length > 0 &&
                     ` Cristais ancorados na mesa: ${Object.entries(activeSession.chartCrystals)

@@ -765,13 +765,15 @@ export interface BiometerDefinition {
   number: number;
   name: string;
   category:
-    | 'Chakras'
-    | 'Saúde & ANSAE'
-    | 'Psicoemocional'
-    | 'Radiestesia & Gráficos'
-    | 'Florais & Terapias'
+    | 'Triagem & Geral'
+    | 'Chakras & Corpos Sutis'
+    | 'Saúde Física & ANSAE'
+    | 'Emocional, Mental & Consciência'
+    | 'Prosperidade & Hábitos'
+    | 'Protocolos & Terapêuticas'
     | 'Personalizado';
   description: string;
   items: string[];
+  imageUrl?: string;
   isCustom?: boolean;
 }
