@@ -107,24 +107,6 @@ const QUICK_FLORALS = [
   'Larch (Autoconfiança)',
 ];
 
-const QUICK_CRYSTALS = [
-  'Ametista (Transmutação & Coroa)',
-  'Turmalina Negra (Blindagem & Aterramento)',
-  'Quartzo Verde (Regeneração Orgânica)',
-  'Citrino (Plexo Solar & Vitalidade)',
-  'Quartzo Rosa (Pacificação Cardíaca)',
-  'Selenita (Assepsia Áurica)',
-];
-
-const QUICK_HABITS = [
-  '2L+ de água solarizada / pura por dia',
-  'Respiração 4-6 min antes do sono',
-  'Higiene digital 45 min antes de dormir',
-  'Exposição solar matinal (15 min)',
-  'Caminhada consciente e contato com a natureza',
-  'Oração ou prática diária de gratidão',
-];
-
 export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   anamnesis,
   sensitivity,
@@ -431,83 +413,29 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
           </div>
 
           {/* Interactive Therapeutic Selectors fed directly to Gemini */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-2 border-t border-[#E2E8F0]">
-            <div className="space-y-1.5">
-              <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1">
-                <Leaf className="w-3.5 h-3.5" />
-                Florais de Bach Aferidos (Opcional)
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {QUICK_FLORALS.map((f) => {
-                  const active = localTherapeutics.florals.includes(f);
-                  return (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => toggleTherapeutic('florals', f)}
-                      className={`px-2 py-1 text-[11px] rounded border cursor-pointer ${
-                        active
-                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                          : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
-                      }`}
-                    >
-                      {f.split(' (')[0]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1">
-                <Gem className="w-3.5 h-3.5" />
-                Cristais Terapêuticos Aferidos
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {QUICK_CRYSTALS.map((c) => {
-                  const active = localTherapeutics.crystals.includes(c);
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => toggleTherapeutic('crystals', c)}
-                      className={`px-2 py-1 text-[11px] rounded border cursor-pointer ${
-                        active
-                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                          : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
-                      }`}
-                    >
-                      {c.split(' (')[0]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" />
-                Bons Hábitos Aferidos
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {QUICK_HABITS.map((h) => {
-                  const active = localTherapeutics.habits.includes(h);
-                  return (
-                    <button
-                      key={h}
-                      type="button"
-                      onClick={() => toggleTherapeutic('habits', h)}
-                      className={`px-2 py-1 text-[11px] rounded border cursor-pointer ${
-                        active
-                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                          : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0]'
-                      }`}
-                    >
-                      {h.slice(0, 26)}
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="pt-3 border-t border-[#E2E8F0] space-y-2">
+            <p className="text-[11px] font-semibold text-[#B45309] flex items-center gap-1.5">
+              <Leaf className="w-3.5 h-3.5" />
+              Florais de Bach Aferidos (Opcional)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {QUICK_FLORALS.map((f) => {
+                const active = localTherapeutics.florals.includes(f);
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => toggleTherapeutic('florals', f)}
+                    className={`px-3 py-1.5 text-xs rounded-md border transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                        : 'bg-[#FAF8F5] text-[#45464D] border-[#E2E8F0] hover:border-[#D97706]'
+                    }`}
+                  >
+                    {f.split(' (')[0]}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </section>

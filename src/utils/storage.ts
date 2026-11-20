@@ -519,6 +519,47 @@ export function saveCustomBiometers(biometers: BiometerDefinition[]): void {
   }
 }
 
+const HIDDEN_BIOMETERS_KEY = 'maestro_hidden_official_biometers_v1';
+
+export function loadHiddenOfficialBiometers(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_BIOMETERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveHiddenOfficialBiometers(ids: string[]): void {
+  try {
+    localStorage.setItem(HIDDEN_BIOMETERS_KEY, JSON.stringify(ids));
+  } catch (err) {
+    console.error('Erro ao salvar biômetros ocultos:', err);
+  }
+}
+
+const BIOMETER_OVERRIDES_KEY = 'maestro_biometer_overrides_v1';
+
+export function loadBiometerOverrides(): Record<string, { name?: string; items: string[] }> {
+  try {
+    const raw = localStorage.getItem(BIOMETER_OVERRIDES_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+export function saveBiometerOverrides(overrides: Record<string, { name?: string; items: string[] }>): void {
+  try {
+    localStorage.setItem(BIOMETER_OVERRIDES_KEY, JSON.stringify(overrides));
+  } catch (err) {
+    console.error('Erro ao salvar edições de biômetros:', err);
+  }
+}
+
 export function exportClinicalBackupJson(): string {
   const db = loadClinicalDatabase();
   const rooms = loadSessions();

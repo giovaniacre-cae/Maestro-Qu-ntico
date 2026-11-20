@@ -658,7 +658,7 @@ Retorne um JSON contendo estritamente as seguintes chaves:
 `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -699,6 +699,81 @@ Retorne um JSON contendo estritamente as seguintes chaves:
     } catch (error) {
       console.error('Erro na rota /api/anamnese/copilot:', error);
       const msg = error instanceof Error ? error.message : 'Erro interno no Copiloto IA.';
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // Leitura Óptica Inteligente de Biômetros via Gemini Vision
+  app.post('/api/biometros/extract-sectors', async (req: Request, res: Response) => {
+    try {
+      const { imageBase64, mimeType, title } = req.body;
+      if (!imageBase64) {
+        res.status(400).json({ error: 'imageBase64 é obrigatório.' });
+        return;
+      }
+
+      const ai = getGeminiClient();
+      const cleanBase64 = imageBase64.includes('base64,') ? imageBase64.split('base64,')[1] : imageBase64;
+      const cleanMime = mimeType || 'image/png';
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: [
+          {
+            inlineData: {
+              data: cleanBase64,
+              mimeType: cleanMime,
+            },
+          },
+          {
+            text: `Analise esta imagem de um gráfico radiestésico / biômetro${title ? ` (Título pretendido: ${title})` : ''}.
+Seu objetivo é extrair 100% dos setores, intervalos, fatias, anéis concêntricos e divisões visíveis nesta prancha radiestésica.
+Instruções estritas:
+1. Percorra cada fatia, setor, anel (interno para externo) e divisão (da esquerda para a direita ou sentido horário).
+2. Transcreva TODOS os textos, rótulos e números escritos em cada intervalo. Não resuma, não agrupe e não omita nenhuma opção (mesmo se houver de 30 a 100 divisões).
+3. Se houver anéis hierárquicos ou categorias temáticas (ex: Anel interno = Grupo, Anel externo = Essência/Órgão), formate cada item no formato "[Categoria] Nome do Item" ou com o nome completo exato da fatia.
+4. REGRA OBRIGATÓRIA PARA ESCALAS NUMÉRICAS (JAMAIS use o prefixo "[Escala]"):
+   Sempre que a imagem apresentar arcos, réguas ou setores numéricos, identifique o tipo de grandeza (pelo contexto/título da prancha ou pela amplitude numérica) e formate cada valor SEM o prefixo "[Escala]", aplicando exatamente as seguintes unidades:
+   - Escala de 0 a 100 (Percentual): formate cada valor com o símbolo "%" colado ao número — ex.: "0%", "10%", "20%", ..., "100%" (jamais "[Escala] 100").
+   - Escala de 0 a 24 (Horas): formate cada valor em horas — ex.: "0 hrs.", "1 hr.", "2 hrs.", ..., "24 hrs.".
+   - Escala de 0 a 60 (Minutos): formate cada valor em minutos — ex.: "0 min.", "1 min.", "5 min.", ..., "60 min.".
+   - Escala de 0 a 30 (Dias): formate cada valor em dias — ex.: "0 dias", "1 dia", "2 dias", ..., "30 dias".
+   - Caso um único biômetro (como o Relógio Radiestésico ou o Gráfico de Cura e Tempo de Tratamento) combine múltiplas escalas diferentes na mesma imagem, aplique a unidade correspondente a cada faixa ("0%" a "100%" para percentual, "0 hrs." a "24 hrs." para horas, "0 min." a "60 min." para minutos e "0 dias" a "30 dias" para dias), sem usar o rótulo "[Escala]".
+5. Responda APENAS em formato JSON válido com a seguinte estrutura exata:
+{
+  "totalIntervals": number,
+  "sectors": string[],
+  "suggestedTitle": string
+}
+Nenhum texto adicional fora do JSON.`
+          }
+        ],
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const rawText = (response?.text ?? '').trim();
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida do Gemini Vision.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText);
+      if (Array.isArray(parsed?.sectors)) {
+        parsed.sectors = parsed.sectors
+          .map((item: unknown) =>
+            String(item ?? '')
+              .replace(/^\s*\[escala[^\]]*\]\s*/i, '')
+              .trim()
+          )
+          .filter(Boolean);
+        parsed.totalIntervals = parsed.sectors.length;
+      }
+      res.json(parsed);
+    } catch (error) {
+      console.error('Erro na rota /api/biometros/extract-sectors:', error);
+      const msg = error instanceof Error ? error.message : 'Erro interno na extração de biômetro.';
       res.status(500).json({ error: msg });
     }
   });

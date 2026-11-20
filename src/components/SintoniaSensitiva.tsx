@@ -50,10 +50,13 @@ import {
   createDefaultAnsaeRhenSheet,
   loadClinicalDatabase,
   loadCustomBiometers,
+  loadHiddenOfficialBiometers,
   normalizeAnsaeSheet,
   saveClinicalDatabase,
   saveCustomBiometers,
+  saveHiddenOfficialBiometers,
 } from '../utils/storage';
+import { BUILTIN_32_BIOMETERS } from '../data/biometrosData';
 import { BiometrosModal } from './BiometrosModal';
 
 interface SintoniaSensitivaProps {
@@ -428,6 +431,25 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   const [customBiometers, setCustomBiometers] = useState<BiometerDefinition[]>(() =>
     loadCustomBiometers()
   );
+  const [hiddenOfficialBiometers, setHiddenOfficialBiometers] = useState<string[]>(() =>
+    loadHiddenOfficialBiometers()
+  );
+
+  const handleHideOfficialBiometer = (id: string) => {
+    const next = [...hiddenOfficialBiometers, id];
+    setHiddenOfficialBiometers(next);
+    saveHiddenOfficialBiometers(next);
+  };
+
+  const handleRestoreAllOfficialBiometers = () => {
+    setHiddenOfficialBiometers([]);
+    saveHiddenOfficialBiometers([]);
+  };
+
+  const activeOfficialCount = BUILTIN_32_BIOMETERS.filter(
+    (b) => !hiddenOfficialBiometers.includes(b.id)
+  ).length;
+  const totalBiometers = activeOfficialCount + customBiometers.length;
   const [activeSystemTab, setActiveSystemTab] = useState<AnsaeSystemCode | 'ALL'>('ALL');
   const [customDisturbance, setCustomDisturbance] = useState<string>('');
   const [customImplant, setCustomImplant] = useState<string>('');
@@ -859,7 +881,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
         <div>
           <p className="text-xs font-semibold tracking-wider uppercase text-[#B45309]">
-            Etapa Clínica 02 · Ficha Completa ANSAE & RHEN · 22 Biômetros
+            Etapa Clínica 02 · Ficha Completa ANSAE & RHEN
           </p>
           <h1 className="mt-1.5 font-serif text-3xl font-light text-[#0F172A]">
             {anamnesis.fullName || 'Aferição Bioenergética Completa'}
@@ -876,7 +898,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] transition-colors cursor-pointer whitespace-nowrap"
           >
             <Compass className="w-4 h-4 text-[#F59E0B]" />
-            Abrir 22 Biômetros Virtuais
+            Abrir {totalBiometers} Biômetros Virtuais
           </button>
           <button
             type="button"
@@ -2792,18 +2814,24 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         </button>
       </section>
 
-      <BiometrosModal
-        isOpen={isBiometersOpen}
-        onClose={() => setIsBiometersOpen(false)}
-        patientName={anamnesis.fullName}
-        birthDate={anamnesis.birthDate}
-        customBiometers={customBiometers}
-        onSaveCustomBiometer={handleSaveCustomBiometer}
-        onDeleteCustomBiometer={handleDeleteCustomBiometer}
-        onRecordReading={handleRecordBiometerReading}
-        currentHawkinsHz={sheet.spiritualPsycho.hawkinsAgathaHz}
-        onSelectHawkinsHz={updateHawkinsFrequency}
-      />
+      {isBiometersOpen && (
+        <BiometrosModal
+          isOpen={isBiometersOpen}
+          onClose={() => setIsBiometersOpen(false)}
+          patientName={anamnesis.fullName}
+          birthDate={anamnesis.birthDate}
+          customBiometers={customBiometers}
+          hiddenOfficialBiometers={hiddenOfficialBiometers}
+          onSaveCustomBiometer={handleSaveCustomBiometer}
+          onDeleteCustomBiometer={handleDeleteCustomBiometer}
+          onHideOfficialBiometer={handleHideOfficialBiometer}
+          onRestoreAllOfficialBiometers={handleRestoreAllOfficialBiometers}
+          onRecordReading={handleRecordBiometerReading}
+          currentHawkinsHz={sheet.spiritualPsycho.hawkinsAgathaHz}
+          onSelectHawkinsHz={updateHawkinsFrequency}
+          totalBiometersCount={totalBiometers}
+        />
+      )}
     </div>
   );
 };
