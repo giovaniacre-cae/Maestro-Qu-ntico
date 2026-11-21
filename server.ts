@@ -8,7 +8,15 @@ import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT) || 3000;
+const cliPortIdx = process.argv.indexOf('--port');
+const cliPort = cliPortIdx !== -1 ? Number(process.argv[cliPortIdx + 1]) : NaN;
+const envPort = Number(process.env.PORT);
+const PORT =
+  Number.isFinite(cliPort) && cliPort > 0
+    ? cliPort
+    : process.env.NODE_ENV !== 'production' && envPort === 8080 && process.env.NGINX_PORT === '8080'
+      ? Number(process.env.DEFAULT_APP_PORT) || 3000
+      : envPort || 3000;
 
 const HAWKINS_CANONICAL_LEVELS: ReadonlyArray<{ hz: number; label: string }> = [
   { hz: 20, label: 'Vergonha (20 Hz)' },
@@ -778,6 +786,13 @@ Nenhum texto adicional fora do JSON.`
     }
   });
 
+  // Serve official biometer PNGs directly in both development and production
+  const publicDir = path.resolve(__dirname, 'public');
+  const publicBiometrosDir = path.join(publicDir, 'biometros');
+  if (fs.existsSync(publicBiometrosDir)) {
+    app.use('/biometros', express.static(publicBiometrosDir, { maxAge: '1h' }));
+  }
+
   // Vite middleware in development, static dist in production
   const distPath = path.resolve(__dirname, 'dist');
   if (process.env.NODE_ENV !== 'production') {
@@ -789,7 +804,14 @@ Nenhum texto adicional fora do JSON.`
     app.use(vite.middlewares);
   } else {
     app.use(express.static(distPath));
-    app.get('*', (_req: Request, res: Response) => {
+    if (fs.existsSync(publicDir)) {
+      app.use(express.static(publicDir));
+    }
+    app.get('*', (req: Request, res: Response) => {
+      if (/\.(png|jpe?g|webp|gif|svg|ico)$/i.test(req.path)) {
+        res.status(404).end();
+        return;
+      }
       const indexFile = path.join(distPath, 'index.html');
       if (fs.existsSync(indexFile)) {
         res.sendFile(indexFile);

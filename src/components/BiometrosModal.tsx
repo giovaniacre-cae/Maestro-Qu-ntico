@@ -37,8 +37,27 @@ const CATEGORY_FILTERS: Array<'Todos' | BiometerDefinition['category']> = [
   'Personalizado',
 ];
 
+export function resolveBiometerImageUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://')
+  ) {
+    return trimmed;
+  }
+  const base = import.meta.env.BASE_URL || '/';
+  const cleanBase = base.endsWith('/') ? base : `${base}/`;
+  const cleanPath = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+  return `${cleanBase}${cleanPath}`;
+}
+
 async function imageUrlToBase64(url: string): Promise<{ base64: string; mimeType: string }> {
-  const res = await fetch(url);
+  const resolved = resolveBiometerImageUrl(url) || url;
+  const res = await fetch(resolved);
   const blob = await res.blob();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -312,6 +331,8 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   // High-Definition PNG Viewer & Zoom state
   const [viewMode, setViewMode] = useState<'png' | 'dial'>('png');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [activeImageSrc, setActiveImageSrc] = useState<string | undefined>(undefined);
+  const [imageLoadStatus, setImageLoadStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
   useEffect(() => {
     if (selectedId === 'bio-23' && typeof currentHawkinsHz === 'number') {
@@ -326,6 +347,16 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   const activeBiometer = useMemo(() => {
     return effectiveBiometers.find((b) => b.id === selectedId) || effectiveBiometers[0] || BUILTIN_32_BIOMETERS[0];
   }, [effectiveBiometers, selectedId]);
+
+  const resolvedActiveImageUrl = useMemo(
+    () => resolveBiometerImageUrl(activeBiometer.imageUrl),
+    [activeBiometer.imageUrl]
+  );
+
+  useEffect(() => {
+    setActiveImageSrc(resolvedActiveImageUrl);
+    setImageLoadStatus(resolvedActiveImageUrl ? 'loading' : 'error');
+  }, [resolvedActiveImageUrl, activeBiometer.id]);
 
   const items = activeBiometer.items;
 
@@ -367,6 +398,10 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
     setCustomComplement('');
     setShowCustomCreator(false);
     setShowEditor(false);
+    setZoomLevel(1);
+    if (bio.imageUrl) {
+      setViewMode('png');
+    }
     setRecordedNotice(null);
     setExtractionNotice(null);
   };
@@ -654,10 +689,10 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
         </div>
 
         {/* Body Split */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-12 overflow-hidden">
           
           {/* Left Sidebar: Biometers List */}
-          <aside className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-[#E2E8F0] bg-white p-4 flex flex-col gap-3 overflow-y-auto max-h-[300px] lg:max-h-none">
+          <aside className="lg:col-span-4 min-h-0 border-b lg:border-b-0 lg:border-r border-[#E2E8F0] bg-white p-4 flex flex-col gap-3 overflow-y-auto max-h-[260px] lg:max-h-none">
             <div className="relative">
               <Search className="w-4 h-4 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -701,17 +736,31 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleSelectBiometer(bio)}
-                      className="flex-1 text-left p-2.5 cursor-pointer"
+                      className="flex-1 min-w-0 text-left p-2 flex items-center gap-2.5 cursor-pointer"
                     >
-                      <p className="text-xs font-semibold text-[#0F172A]">
-                        <span className="font-mono text-[#B45309] mr-1.5">
-                          {String(bio.number).padStart(2, '0')}.
-                        </span>
-                        {bio.name}
-                      </p>
-                      <p className="text-[11px] text-[#64748B] mt-0.5">
-                        {bio.category} · {bio.items.length} setores {bio.imageUrl ? '· [PNG]' : ''} {biometerOverrides[bio.id] ? '· [Editado]' : ''}
-                      </p>
+                      {bio.imageUrl ? (
+                        <img
+                          src={resolveBiometerImageUrl(bio.imageUrl)}
+                          alt={bio.name}
+                          loading="lazy"
+                          className="w-10 h-10 rounded-md border border-[#E2E8F0] bg-[#FAF8F5] object-contain shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-md border border-[#E2E8F0] bg-[#FAF8F5] flex items-center justify-center shrink-0">
+                          <Compass className="w-4 h-4 text-[#B45309]" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-[#0F172A] truncate">
+                          <span className="font-mono text-[#B45309] mr-1.5">
+                            {String(bio.number).padStart(2, '0')}.
+                          </span>
+                          {bio.name}
+                        </p>
+                        <p className="text-[11px] text-[#64748B] mt-0.5 truncate">
+                          {bio.category} · {bio.items.length} setores {bio.imageUrl ? '· [PNG]' : ''} {biometerOverrides[bio.id] ? '· [Editado]' : ''}
+                        </p>
+                      </div>
                     </button>
                     <button
                       type="button"
@@ -742,7 +791,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
           </aside>
 
           {/* Right Stage */}
-          <div className="lg:col-span-8 p-6 overflow-y-auto space-y-6">
+          <div className="lg:col-span-8 min-h-0 p-6 overflow-y-auto space-y-6">
             {showCustomCreator ? (
               <form
                 onSubmit={handleCreateCustom}
@@ -1106,21 +1155,68 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
 
                   {/* Main Display: HD PNG Image or SVG Semicircular Dial */}
                   {viewMode === 'png' && activeBiometer.imageUrl ? (
-                    <div className="relative w-full overflow-auto bg-[#FAF8F5] border border-[#E2E8F0] rounded-xl p-4 flex items-center justify-center min-h-[380px] max-h-[520px]">
-                      <div
-                        style={{
-                          transform: `scale(${zoomLevel})`,
-                          transformOrigin: 'center center',
-                          transition: 'transform 200ms ease-in-out',
-                        }}
-                        className="flex items-center justify-center"
-                      >
-                        <img
-                          src={activeBiometer.imageUrl}
-                          alt={activeBiometer.name}
-                          className="max-h-[460px] w-auto object-contain drop-shadow-md rounded-lg"
-                        />
-                      </div>
+                    <div className="relative w-full overflow-auto bg-[#FAF8F5] border border-[#E2E8F0] rounded-xl p-4 flex flex-col items-center justify-center min-h-[320px] max-h-[520px]">
+                      {imageLoadStatus === 'loading' && (
+                        <div className="flex items-center gap-2 text-xs text-[#64748B] py-4">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#B45309]" />
+                          Carregando imagem do biômetro...
+                        </div>
+                      )}
+                      {imageLoadStatus === 'error' ? (
+                        <div className="text-center space-y-3 py-8">
+                          <p className="text-xs font-medium text-[#64748B]">
+                            Não foi possível carregar a imagem HD deste biômetro ({activeBiometer.imageUrl}).
+                          </p>
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const retrySrc = resolveBiometerImageUrl(activeBiometer.imageUrl);
+                                if (retrySrc) {
+                                  setImageLoadStatus('loading');
+                                  setActiveImageSrc(`${retrySrc}${retrySrc.includes('?') ? '&' : '?'}t=${Date.now()}`);
+                                }
+                              }}
+                              className="px-3 py-1.5 text-xs font-semibold bg-[#0F172A] text-white rounded-lg cursor-pointer"
+                            >
+                              Tentar Novamente
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setViewMode('dial')}
+                              className="px-3 py-1.5 text-xs font-semibold border border-[#CBD5E1] bg-white text-[#0F172A] rounded-lg cursor-pointer"
+                            >
+                              Abrir Dial SVG
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            transform: `scale(${zoomLevel})`,
+                            transformOrigin: 'center center',
+                            transition: 'transform 200ms ease-in-out',
+                          }}
+                          className="w-full flex items-center justify-center"
+                        >
+                          <img
+                            key={activeBiometer.id}
+                            src={activeImageSrc || resolvedActiveImageUrl}
+                            alt={activeBiometer.name}
+                            onLoad={() => setImageLoadStatus('loaded')}
+                            onError={() => {
+                              const rawUrl = activeBiometer.imageUrl || '';
+                              const rootFallback = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+                              if (activeImageSrc && activeImageSrc !== rootFallback && !activeImageSrc.includes('t=')) {
+                                setActiveImageSrc(rootFallback);
+                              } else {
+                                setImageLoadStatus('error');
+                              }
+                            }}
+                            className="block max-h-[460px] max-w-full w-auto h-auto object-contain drop-shadow-md rounded-lg"
+                          />
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center pt-2">

@@ -1,16 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Compass,
   HeartHandshake,
   Layers,
+  Maximize2,
+  Minimize2,
   Plus,
   ShieldAlert,
   Sparkles,
   Sun,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import {
   AnsaeChakraReading,
@@ -43,11 +49,13 @@ import {
   INTERFERENCE_OPTIONS,
   evaluateAntiCatharsis,
   formatAngstromsBR,
+  formatBirthDateBR,
   getHawkinsLevelInfo,
 } from '../utils/antiCatharsis';
 import {
   ANSAE_SYSTEMS_META,
   createDefaultAnsaeRhenSheet,
+  loadBiometerOverrides,
   loadClinicalDatabase,
   loadCustomBiometers,
   loadHiddenOfficialBiometers,
@@ -57,7 +65,7 @@ import {
   saveHiddenOfficialBiometers,
 } from '../utils/storage';
 import { BUILTIN_32_BIOMETERS } from '../data/biometrosData';
-import { BiometrosModal } from './BiometrosModal';
+import { BiometrosModal, resolveBiometerImageUrl } from './BiometrosModal';
 
 interface SintoniaSensitivaProps {
   anamnesis: PatientAnamnesis;
@@ -170,6 +178,230 @@ const SYSTEM_CODES_ORDER: AnsaeSystemCode[] = [
   'SM',
   'ST',
 ];
+
+export type SintoniaContextKey =
+  | 'electromagnetic'
+  | 'chakras'
+  | 'aura_bovis'
+  | 'hawkins_stress'
+  | 'causes_triage'
+  | 'ansae_organs'
+  | 'therapeutics';
+
+export interface ContextualBiometerConfig {
+  key: SintoniaContextKey;
+  shortLabel: string;
+  sectionTitle: string;
+  primaryHints: string[];
+  fallbackIds: string[];
+  shortcutHints: Array<{ label: string; hints: string[]; fallbackIds: string[] }>;
+}
+
+export const CONTEXTUAL_BIOMETER_MAP: Record<SintoniaContextKey, ContextualBiometerConfig> = {
+  electromagnetic: {
+    key: 'electromagnetic',
+    shortLabel: 'Corpos Sutis',
+    sectionTitle: 'Campos Eletromagnéticos / Corpos Sutis',
+    primaryHints: ['Relógio Radiestésico Completo'],
+    fallbackIds: ['bio-02'],
+    shortcutHints: [
+      {
+        label: 'Análise Completa',
+        hints: ['Análise Completa (Bovis, Chakras & Aura)', 'Análise Completa'],
+        fallbackIds: ['bio-48'],
+      },
+      {
+        label: 'Pesquisa Geral',
+        hints: ['Pesquisa Geral'],
+        fallbackIds: ['bio-03'],
+      },
+    ],
+  },
+  chakras: {
+    key: 'chakras',
+    shortLabel: '7 Chakras',
+    sectionTitle: 'Avaliação dos 7 Chakras',
+    primaryHints: ['Avaliação dos Chakras'],
+    fallbackIds: ['bio-07'],
+    shortcutHints: [
+      {
+        label: 'Análise dos Sete Chakras',
+        hints: ['Análise dos Sete Chakras'],
+        fallbackIds: ['bio-08'],
+      },
+      {
+        label: 'Análise das Glândulas',
+        hints: ['Análise das Glândulas'],
+        fallbackIds: ['bio-41'],
+      },
+    ],
+  },
+  aura_bovis: {
+    key: 'aura_bovis',
+    shortLabel: 'Bovis & Aura',
+    sectionTitle: 'Campo Áurico & Energia de Saúde (Bovis)',
+    primaryHints: ['Biômetro de Bovis', 'Taxa de Vibração no Biômetro de Bovis'],
+    fallbackIds: ['bio-100', 'bio-17'],
+    shortcutHints: [
+      {
+        label: 'Saúde Integral',
+        hints: ['Saúde Integral'],
+        fallbackIds: ['bio-17'],
+      },
+      {
+        label: 'Análise da Aura',
+        hints: ['Análise da Aura (Cores & Dimensão em cm)', 'Análise da Aura'],
+        fallbackIds: ['bio-49', 'bio-42'],
+      },
+    ],
+  },
+  hawkins_stress: {
+    key: 'hawkins_stress',
+    shortLabel: 'Ágatha / Estresse',
+    sectionTitle: 'Escala de Consciência / Hawkins / Estresse',
+    primaryHints: ['Escala de Ágatha', 'Escala de Ágatha / Hawkins'],
+    fallbackIds: ['bio-23'],
+    shortcutHints: [
+      {
+        label: 'Níveis de Stress',
+        hints: ['Níveis de Stress'],
+        fallbackIds: ['bio-85'],
+      },
+      {
+        label: 'Equilíbrio Yin & Yang',
+        hints: ['Equilíbrio Yin & Yang'],
+        fallbackIds: ['bio-68'],
+      },
+    ],
+  },
+  causes_triage: {
+    key: 'causes_triage',
+    shortLabel: 'Causas & Triagem',
+    sectionTitle: 'Diagnóstico de Causas / Etiologia / Triagem',
+    primaryHints: [
+      'Causas Psicológicas / Espirituais / Físicas',
+      'Causas Psicológicas, Espirituais & Físicas',
+    ],
+    fallbackIds: ['bio-06'],
+    shortcutHints: [
+      {
+        label: 'Encontrar a Causa Raiz',
+        hints: ['Encontrar a Causa Raiz'],
+        fallbackIds: ['bio-05'],
+      },
+      {
+        label: 'Leitura Inicial dos Trabalhos',
+        hints: ['Leitura Inicial dos Trabalhos'],
+        fallbackIds: ['bio-01'],
+      },
+      {
+        label: 'Origem do Evento - Raiz',
+        hints: ['Origem do Evento - Raiz'],
+        fallbackIds: ['bio-04'],
+      },
+    ],
+  },
+  ansae_organs: {
+    key: 'ansae_organs',
+    shortLabel: 'Órgãos ANSAE',
+    sectionTitle: 'Sistemas, Órgãos e Glândulas (ANSAE)',
+    primaryHints: ['Órgãos, Sistemas e Glândulas'],
+    fallbackIds: ['bio-16'],
+    shortcutHints: [
+      {
+        label: 'Relógio Radiestésico Completo',
+        hints: ['Relógio Radiestésico Completo'],
+        fallbackIds: ['bio-02'],
+      },
+      {
+        label: 'Pesquisa de Saúde',
+        hints: ['Pesquisa de Saúde (Órgãos, Sistemas & Glândulas 0%–100%)', 'Pesquisa Saúde'],
+        fallbackIds: ['bio-94', 'bio-18'],
+      },
+    ],
+  },
+  therapeutics: {
+    key: 'therapeutics',
+    shortLabel: 'Florais & Apoios',
+    sectionTitle: 'Apoios Terapêuticos / Florais',
+    primaryHints: ['Grupos Florais de Bach'],
+    fallbackIds: ['bio-32'],
+    shortcutHints: [
+      {
+        label: 'Florais de Bach',
+        hints: ['Florais de Bach', 'Florais de Bach (38 Essências)'],
+        fallbackIds: ['bio-31'],
+      },
+      {
+        label: 'Cristais Terapêuticos',
+        hints: ['Cristais Terapêuticos'],
+        fallbackIds: ['bio-30'],
+      },
+      {
+        label: 'Gráficos Radiestésicos',
+        hints: ['Gráficos de Radiestesia e Radiônica'],
+        fallbackIds: ['bio-28'],
+      },
+    ],
+  },
+};
+
+const CONTEXT_ORDER: SintoniaContextKey[] = [
+  'causes_triage',
+  'aura_bovis',
+  'hawkins_stress',
+  'electromagnetic',
+  'chakras',
+  'ansae_organs',
+  'therapeutics',
+];
+
+function normalizeBiometerTitle(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[/&,\-–—()]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findBiometerInCatalog(
+  catalog: BiometerDefinition[],
+  hints: string[],
+  fallbackIds: string[]
+): BiometerDefinition | undefined {
+  if (catalog.length === 0) return undefined;
+
+  for (const hint of hints) {
+    const normHint = normalizeBiometerTitle(hint);
+    if (!normHint) continue;
+    const exactCustom = catalog.find(
+      (b) => b.isCustom && normalizeBiometerTitle(b.name) === normHint
+    );
+    if (exactCustom) return exactCustom;
+
+    const exactAny = catalog.find((b) => normalizeBiometerTitle(b.name) === normHint);
+    if (exactAny) return exactAny;
+  }
+
+  for (const hint of hints) {
+    const normHint = normalizeBiometerTitle(hint);
+    if (!normHint) continue;
+    const partialMatch = catalog.find((b) =>
+      normalizeBiometerTitle(b.name).includes(normHint)
+    );
+    if (partialMatch) return partialMatch;
+  }
+
+  for (const id of fallbackIds) {
+    const byId = catalog.find((b) => b.id === id);
+    if (byId) return byId;
+  }
+
+  return undefined;
+}
+
 
 const BovisGauge: React.FC<{ bovis: number }> = ({ bovis }) => {
   const maxVal = 18000;
@@ -434,6 +666,22 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   const [hiddenOfficialBiometers, setHiddenOfficialBiometers] = useState<string[]>(() =>
     loadHiddenOfficialBiometers()
   );
+  const [biometerOverrides, setBiometerOverrides] = useState<
+    Record<string, { name?: string; items: string[] }>
+  >(() => loadBiometerOverrides());
+
+  // Contextual Fixed Biometer Dock state
+  const [activeDockContext, setActiveDockContext] =
+    useState<SintoniaContextKey>('causes_triage');
+  const [selectedDockBiometerId, setSelectedDockBiometerId] = useState<string | null>(null);
+  const [isDockMinimized, setIsDockMinimized] = useState<boolean>(false);
+  const [isDockFullscreen, setIsDockFullscreen] = useState<boolean>(false);
+  const [dockZoom, setDockZoom] = useState<number>(1);
+  const [dockImgError, setDockImgError] = useState<boolean>(false);
+  const [dockImgFallbackTried, setDockImgFallbackTried] = useState<boolean>(false);
+  const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
+  const lastFullscreenToggleRef = useRef<number>(0);
+  const landscapeDismissedRef = useRef<boolean>(false);
 
   const handleHideOfficialBiometer = (id: string) => {
     const next = [...hiddenOfficialBiometers, id];
@@ -446,10 +694,137 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     saveHiddenOfficialBiometers([]);
   };
 
-  const activeOfficialCount = BUILTIN_32_BIOMETERS.filter(
-    (b) => !hiddenOfficialBiometers.includes(b.id)
-  ).length;
+  const activeOfficialBiometers = useMemo(
+    () => BUILTIN_32_BIOMETERS.filter((b) => !hiddenOfficialBiometers.includes(b.id)),
+    [hiddenOfficialBiometers]
+  );
+
+  const activeBiometerCatalog = useMemo(() => {
+    return [...activeOfficialBiometers, ...customBiometers].map((bio) => {
+      const ov = biometerOverrides[bio.id];
+      if (!ov || !ov.name) return bio;
+      return { ...bio, name: ov.name };
+    });
+  }, [activeOfficialBiometers, customBiometers, biometerOverrides]);
+
+  const activeOfficialCount = activeOfficialBiometers.length;
   const totalBiometers = activeOfficialCount + customBiometers.length;
+
+  const activeContextConfig = CONTEXTUAL_BIOMETER_MAP[activeDockContext];
+
+  const defaultContextBiometer = useMemo(() => {
+    return (
+      findBiometerInCatalog(
+        activeBiometerCatalog,
+        activeContextConfig.primaryHints,
+        activeContextConfig.fallbackIds
+      ) || activeBiometerCatalog[0]
+    );
+  }, [activeBiometerCatalog, activeContextConfig]);
+
+  const activeDockBiometer = useMemo(() => {
+    if (selectedDockBiometerId) {
+      const explicit = activeBiometerCatalog.find((b) => b.id === selectedDockBiometerId);
+      if (explicit) return explicit;
+    }
+    return defaultContextBiometer;
+  }, [activeBiometerCatalog, defaultContextBiometer, selectedDockBiometerId]);
+
+  const shortcutBiometers = useMemo(() => {
+    const list: Array<{ label: string; bio: BiometerDefinition }> = [];
+    if (defaultContextBiometer) {
+      list.push({ label: defaultContextBiometer.name, bio: defaultContextBiometer });
+    }
+    for (const sc of activeContextConfig.shortcutHints) {
+      const found = findBiometerInCatalog(activeBiometerCatalog, sc.hints, sc.fallbackIds);
+      if (found && !list.some((item) => item.bio.id === found.id)) {
+        list.push({ label: sc.label, bio: found });
+      }
+    }
+    return list;
+  }, [activeBiometerCatalog, activeContextConfig, defaultContextBiometer]);
+
+  const activateDockContext = useCallback(
+    (ctx: SintoniaContextKey) => {
+      setActiveDockContext((prev) => {
+        if (prev !== ctx) {
+          setSelectedDockBiometerId(null);
+          setDockZoom(1);
+          setDockImgError(false);
+          setDockImgFallbackTried(false);
+        }
+        return ctx;
+      });
+    },
+    []
+  );
+
+  const toggleFullscreenSafe = useCallback((nextFullscreen: boolean) => {
+    const now = Date.now();
+    if (now - lastFullscreenToggleRef.current < 320) return;
+    lastFullscreenToggleRef.current = now;
+    if (!nextFullscreen) {
+      landscapeDismissedRef.current = true;
+    } else {
+      setIsDockMinimized(false);
+    }
+    setDockZoom(1);
+    setIsDockFullscreen(nextFullscreen);
+  }, []);
+
+  const handlePranchaTouchEnd = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>, targetFullscreen: boolean) => {
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const now = Date.now();
+      const prev = lastTapRef.current;
+      const dx = Math.abs(touch.clientX - prev.x);
+      const dy = Math.abs(touch.clientY - prev.y);
+      if (now - prev.time > 40 && now - prev.time < 320 && dx < 32 && dy < 32) {
+        e.preventDefault();
+        lastTapRef.current = { time: 0, x: 0, y: 0 };
+        toggleFullscreenSafe(targetFullscreen);
+      } else {
+        lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
+      }
+    },
+    [toggleFullscreenSafe]
+  );
+
+  // Auto-expand to fullscreen when mobile/tablet switches to landscape orientation
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const orientationMq = window.matchMedia('(orientation: landscape)');
+    const mobileTabletMq = window.matchMedia('(pointer: coarse), (max-width: 1024px)');
+
+    const evaluateOrientation = () => {
+      const isLandscape = orientationMq.matches;
+      const isMobileOrTablet = mobileTabletMq.matches;
+      if (isLandscape && isMobileOrTablet) {
+        if (!landscapeDismissedRef.current) {
+          setIsDockMinimized(false);
+          setIsDockFullscreen(true);
+        }
+      } else {
+        landscapeDismissedRef.current = false;
+        setIsDockFullscreen(false);
+      }
+    };
+
+    evaluateOrientation();
+    orientationMq.addEventListener('change', evaluateOrientation);
+    mobileTabletMq.addEventListener('change', evaluateOrientation);
+    return () => {
+      orientationMq.removeEventListener('change', evaluateOrientation);
+      mobileTabletMq.removeEventListener('change', evaluateOrientation);
+    };
+  }, []);
+
+  useEffect(() => {
+    setDockImgError(false);
+    setDockImgFallbackTried(false);
+  }, [activeDockBiometer?.id]);
+
   const [activeSystemTab, setActiveSystemTab] = useState<AnsaeSystemCode | 'ALL'>('ALL');
   const [customDisturbance, setCustomDisturbance] = useState<string>('');
   const [customImplant, setCustomImplant] = useState<string>('');
@@ -875,8 +1250,30 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     }));
   };
 
+  const activeDockRawImgUrl = activeDockBiometer?.imageUrl;
+  const activeDockResolvedImgUrl = useMemo(() => {
+    if (!activeDockRawImgUrl) return undefined;
+    if (dockImgFallbackTried) {
+      return activeDockRawImgUrl.startsWith('/') ? activeDockRawImgUrl : `/${activeDockRawImgUrl}`;
+    }
+    return resolveBiometerImageUrl(activeDockRawImgUrl);
+  }, [activeDockRawImgUrl, dockImgFallbackTried]);
+
+  const witnessNameDisplay = anamnesis.fullName.trim() || 'Testemunho Padrão';
+  const witnessBirthDisplay = anamnesis.birthDate
+    ? `Nasc.: ${formatBirthDateBR(anamnesis.birthDate)}`
+    : '';
+
   return (
-    <div className="space-y-8">
+    <div
+      className={`space-y-8 ${
+        isDockFullscreen
+          ? ''
+          : isDockMinimized
+          ? 'pb-20'
+          : 'pb-[44vh] sm:pb-[43vh] lg:pb-[350px]'
+      }`}
+    >
       {/* Header */}
       <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
         <div>
@@ -894,7 +1291,10 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <button
             type="button"
-            onClick={() => setIsBiometersOpen(true)}
+            onClick={() => {
+              setIsDockFullscreen(false);
+              setIsBiometersOpen(true);
+            }}
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] transition-colors cursor-pointer whitespace-nowrap"
           >
             <Compass className="w-4 h-4 text-[#F59E0B]" />
@@ -919,7 +1319,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       </section>
 
       {/* Pergunta Raiz: ONDE EXISTEM PROBLEMAS? */}
-      <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+      <section
+        onClick={() => activateDockContext('causes_triage')}
+        onFocusCapture={() => activateDockContext('causes_triage')}
+        className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4 transition-colors ${
+          activeDockContext === 'causes_triage' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+        }`}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
@@ -985,7 +1391,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Bovis 0-18.000+, Hawkins/Agatha 20-800 Hz, Stress 0-9, Polaridade Yin/Yang */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+          <div
+            onClick={() => activateDockContext('aura_bovis')}
+            onFocusCapture={() => activateDockContext('aura_bovis')}
+            className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5 transition-colors ${
+              activeDockContext === 'aura_bovis' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+            }`}
+          >
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
               <h2 className="font-serif text-lg font-bold text-[#0F172A]">Biômetro de Bovis</h2>
               <span className="text-xs font-mono text-[#64748B]">0 – 18.000+ Å</span>
@@ -1041,7 +1453,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           </div>
 
           {/* Hawkins/Ágatha, Stress 0-9, Yin/Yang */}
-          <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-6">
+          <div
+            onClick={() => activateDockContext('hawkins_stress')}
+            onFocusCapture={() => activateDockContext('hawkins_stress')}
+            className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-6 transition-colors ${
+              activeDockContext === 'hawkins_stress' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+            }`}
+          >
             <h2 className="font-serif text-lg font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-3">
               Dimensão Espiritual & Psicoemocional
             </h2>
@@ -1264,7 +1682,17 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             </div>
 
             {/* Mesa Radiônica Indicada */}
-            <div className="space-y-1.5 pt-3 border-t border-[#E2E8F0]">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                activateDockContext('therapeutics');
+              }}
+              onFocusCapture={(e) => {
+                e.stopPropagation();
+                activateDockContext('therapeutics');
+              }}
+              className="space-y-1.5 pt-3 border-t border-[#E2E8F0]"
+            >
               <label htmlFor="radionicBoard" className="block text-xs font-semibold text-[#0F172A]">
                 Mesa Radiônica Indicada (Pêndulo)
               </label>
@@ -1292,7 +1720,11 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           </div>
 
           {/* Áreas da Vida */}
-          <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+          <div
+            onClick={() => activateDockContext('causes_triage')}
+            onFocusCapture={() => activateDockContext('causes_triage')}
+            className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4"
+          >
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
               <div className="flex items-center gap-2">
                 <HeartHandshake className="w-4 h-4 text-[#B45309]" />
@@ -1361,7 +1793,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             isDomainVisible('Emocional') ||
             isDomainVisible('Espiritual') ||
             isDomainVisible('Físico')) && (
-            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+            <div
+              onClick={() => activateDockContext('electromagnetic')}
+              onFocusCapture={() => activateDockContext('electromagnetic')}
+              className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4 transition-colors ${
+                activeDockContext === 'electromagnetic' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+              }`}
+            >
               <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
                 <h2 className="font-serif text-lg font-bold text-[#0F172A]">
                   Campos Eletromagnéticos (Corpos Sutis)
@@ -1483,7 +1921,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           )}
 
           {/* 7 Chakras + Glândulas */}
-          <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+          <div
+            onClick={() => activateDockContext('chakras')}
+            onFocusCapture={() => activateDockContext('chakras')}
+            className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4 transition-colors ${
+              activeDockContext === 'chakras' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+            }`}
+          >
             <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
               <h2 className="font-serif text-lg font-bold text-[#0F172A]">
                 7 Chakras & Glândulas Endócrinas Correspondentes
@@ -1643,7 +2087,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
           {/* Campo Áurico */}
           {isDomainVisible('Aura') && (
-            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+            <div
+              onClick={() => activateDockContext('aura_bovis')}
+              onFocusCapture={() => activateDockContext('aura_bovis')}
+              className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5 transition-colors ${
+                activeDockContext === 'aura_bovis' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+              }`}
+            >
               <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
                 <div className="flex items-center gap-2">
                   <Sun className="w-4 h-4 text-[#B45309]" />
@@ -1981,7 +2431,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
           {/* Distúrbios Espirituais, Implantes, Carma e Virtudes */}
           {isDomainVisible('Espiritual') && (
-            <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+            <div
+              onClick={() => activateDockContext('causes_triage')}
+              onFocusCapture={() => activateDockContext('causes_triage')}
+              className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5 transition-colors ${
+                activeDockContext === 'causes_triage' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+              }`}
+            >
               <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
                 <h2 className="font-serif text-lg font-bold text-[#0F172A]">
                   Varredura Espiritual, Implantes, Carma & Virtudes
@@ -2169,7 +2625,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
       {/* Full-Width Section: 15 Sistemas Orgânicos & 38 Órgãos/Glândulas (ANSAE) */}
       {isDomainVisible('Órgãos') && (
-        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-6">
+        <section
+          onClick={() => activateDockContext('ansae_organs')}
+          onFocusCapture={() => activateDockContext('ansae_organs')}
+          className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-6 transition-colors ${
+            activeDockContext === 'ansae_organs' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+          }`}
+        >
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
             <div className="flex items-center gap-2.5">
               <Activity className="w-5 h-5 text-[#B45309]" />
@@ -2775,7 +3237,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       )}
 
       {/* Live Anti-Catharsis Preview & Processing Action */}
-      <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <section
+        onClick={() => activateDockContext('therapeutics')}
+        onFocusCapture={() => activateDockContext('therapeutics')}
+        className={`bg-white border rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col lg:flex-row lg:items-center justify-between gap-6 transition-colors ${
+          activeDockContext === 'therapeutics' ? 'border-[#D97706]/60' : 'border-[#E2E8F0]'
+        }`}
+      >
         <div className="space-y-2 max-w-3xl">
           <div className="flex items-center gap-2">
             {previewProtocol.riskTriggered ? (
@@ -2814,10 +3282,373 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         </button>
       </section>
 
+      {/* Dock Contextual Fixo de Biômetro Integrado */}
+      {!isBiometersOpen && activeDockBiometer && (
+        isDockFullscreen ? (
+          <div
+            className="fixed inset-0 z-50 bg-[#FAF8F5] flex flex-col overflow-hidden"
+            role="region"
+            aria-label="Biômetro Contextual em Tela Cheia"
+          >
+            {/* Fullscreen Top Control Bar */}
+            <div className="px-3 sm:px-5 py-2.5 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2 border-b border-[#D97706]/40 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#D97706]/25 text-[#F59E0B] border border-[#D97706]/50 rounded shrink-0">
+                  {activeContextConfig.shortLabel}
+                </span>
+                <h3 className="font-serif text-sm sm:text-base font-bold text-white truncate">
+                  {String(activeDockBiometer.number).padStart(2, '0')}. {activeDockBiometer.name}
+                </h3>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                {/* Related shortcuts */}
+                <div className="hidden md:flex items-center gap-1">
+                  {shortcutBiometers.map(({ label, bio }) => {
+                    const active = bio.id === activeDockBiometer.id;
+                    return (
+                      <button
+                        key={`fs-sc-${bio.id}`}
+                        type="button"
+                        onClick={() => setSelectedDockBiometerId(bio.id)}
+                        className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer whitespace-nowrap ${
+                          active
+                            ? 'bg-[#D97706] text-white border-[#F59E0B]'
+                            : 'bg-white/10 text-[#CBD5E1] border-white/15 hover:bg-white/20'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <select
+                  aria-label="Selecionar biômetro no modo tela cheia"
+                  value={activeDockBiometer.id}
+                  onChange={(e) => setSelectedDockBiometerId(e.target.value)}
+                  className="max-w-[190px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded-md focus:outline-none focus:border-[#F59E0B]"
+                >
+                  {activeBiometerCatalog.map((b) => (
+                    <option key={`fs-opt-${b.id}`} value={b.id}>
+                      {String(b.number).padStart(2, '0')}. {b.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="inline-flex items-center bg-white/10 border border-white/15 rounded-md">
+                  <button
+                    type="button"
+                    onClick={() => setDockZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}
+                    className="p-1.5 text-[#CBD5E1] hover:text-white cursor-pointer"
+                    title="Reduzir Zoom"
+                    aria-label="Reduzir Zoom"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="px-1.5 text-[11px] font-mono text-white">
+                    {Math.round(dockZoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDockZoom((z) => Math.min(2.25, Number((z + 0.25).toFixed(2))))}
+                    className="p-1.5 text-[#CBD5E1] hover:text-white cursor-pointer"
+                    title="Aumentar Zoom"
+                    aria-label="Aumentar Zoom"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => toggleFullscreenSafe(false)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#D97706] text-white rounded-lg hover:bg-[#B45309] transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  Sair da Tela Cheia
+                </button>
+              </div>
+            </div>
+
+            {/* Fullscreen Biometer High-Definition Canvas (Double-Tap / Double-Click to Exit) */}
+            <div
+              onDoubleClick={() => toggleFullscreenSafe(false)}
+              onTouchEnd={(e) => handlePranchaTouchEnd(e, false)}
+              className="flex-1 min-h-0 overflow-auto bg-[#FAF8F5] flex items-center justify-center p-2 sm:p-4 select-none cursor-zoom-out"
+              title="Dê 2 toques rápidos ou duplo clique para retornar à ficha"
+            >
+              {activeDockResolvedImgUrl && !dockImgError ? (
+                <div
+                  style={{
+                    transform: `scale(${dockZoom})`,
+                    transformOrigin: 'center center',
+                    transition: 'transform 180ms ease-out',
+                  }}
+                  className="w-full h-full flex items-center justify-center"
+                >
+                  <img
+                    key={`fs-img-${activeDockBiometer.id}`}
+                    src={activeDockResolvedImgUrl}
+                    alt={activeDockBiometer.name}
+                    onError={() => {
+                      if (!dockImgFallbackTried) {
+                        setDockImgFallbackTried(true);
+                      } else {
+                        setDockImgError(true);
+                      }
+                    }}
+                    className="max-h-full max-w-full w-auto h-auto object-contain drop-shadow-md rounded-lg pointer-events-none"
+                  />
+                </div>
+              ) : (
+                <div className="text-center space-y-2 p-6">
+                  <Compass className="w-8 h-8 text-[#B45309] mx-auto" />
+                  <p className="text-xs font-medium text-[#45464D]">
+                    {activeDockBiometer.name} ({activeDockBiometer.items.length} setores disponíveis)
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Active Quantum Witness Footer Bar */}
+            <div className="px-4 py-2 bg-[#0F172A] text-white border-t border-[#D97706]/50 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold uppercase tracking-wider text-[10px] text-[#F59E0B]">
+                  Testemunho Quântico Ativo:
+                </span>
+                <span className="font-serif font-bold text-white">{witnessNameDisplay}</span>
+                {witnessBirthDisplay && (
+                  <span className="font-mono text-[11px] text-[#CBD5E1]">
+                    ({witnessBirthDisplay})
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-[#CBD5E1]">
+                Toque 2× na prancha para voltar à ficha
+              </span>
+            </div>
+          </div>
+        ) : isDockMinimized ? (
+          <div
+            className="fixed bottom-0 left-0 right-0 z-40 bg-[#0F172A] text-white border-t-2 border-[#D97706] shadow-[0_-8px_30px_rgba(15,23,42,0.22)] px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2"
+            role="region"
+            aria-label="Dock Contextual de Biômetro Minimizado"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Compass className="w-4 h-4 text-[#F59E0B] shrink-0" />
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#D97706]/25 text-[#F59E0B] border border-[#D97706]/40 rounded shrink-0">
+                {activeContextConfig.shortLabel}
+              </span>
+              <span className="text-xs font-serif font-bold truncate">
+                {String(activeDockBiometer.number).padStart(2, '0')}. {activeDockBiometer.name}
+              </span>
+              <span className="hidden sm:inline text-[11px] text-[#CBD5E1] truncate">
+                · Testemunho: <strong className="text-white">{witnessNameDisplay}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => toggleFullscreenSafe(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 rounded-md cursor-pointer"
+              >
+                <Maximize2 className="w-3 h-3 text-[#F59E0B]" />
+                Tela Cheia
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDockMinimized(false)}
+                className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-semibold bg-[#D97706] hover:bg-[#B45309] text-white rounded-md cursor-pointer"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+                Expandir Biômetro
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            className="fixed bottom-0 left-0 right-0 z-40 h-[40vh] min-h-[260px] max-h-[430px] lg:h-[325px] bg-white border-t-2 border-[#D97706] shadow-[0_-12px_36px_rgba(15,23,42,0.2)] flex flex-col"
+            role="region"
+            aria-label="Dock Contextual Fixo de Biômetro Integrado"
+          >
+            {/* Dock Top Bar: Context Selector, Related Shortcuts & Fullscreen/Minimize */}
+            <div className="px-3 sm:px-5 py-1.5 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Compass className="w-4 h-4 text-[#F59E0B] shrink-0" />
+                <select
+                  aria-label="Seção contextual da Sintonia"
+                  value={activeDockContext}
+                  onChange={(e) => activateDockContext(e.target.value as SintoniaContextKey)}
+                  className="px-2 py-1 text-[11px] font-semibold bg-[#D97706]/25 text-[#F59E0B] border border-[#D97706]/50 rounded focus:outline-none cursor-pointer"
+                >
+                  {CONTEXT_ORDER.map((key) => (
+                    <option key={key} value={key} className="bg-[#0F172A] text-white">
+                      {CONTEXTUAL_BIOMETER_MAP[key].shortLabel}
+                    </option>
+                  ))}
+                </select>
+
+                <span className="font-serif text-xs sm:text-sm font-bold text-white truncate">
+                  {String(activeDockBiometer.number).padStart(2, '0')}. {activeDockBiometer.name}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                {/* Quick shortcuts for related biometers in current section */}
+                <div className="hidden lg:flex items-center gap-1">
+                  {shortcutBiometers.map(({ label, bio }) => {
+                    const active = bio.id === activeDockBiometer.id;
+                    return (
+                      <button
+                        key={`dock-sc-${bio.id}`}
+                        type="button"
+                        onClick={() => setSelectedDockBiometerId(bio.id)}
+                        className={`px-2 py-0.5 text-[10px] font-semibold rounded border transition-colors cursor-pointer whitespace-nowrap ${
+                          active
+                            ? 'bg-[#D97706] text-white border-[#F59E0B]'
+                            : 'bg-white/10 text-[#CBD5E1] border-white/15 hover:bg-white/20'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Quick selector across all catalog biometers (including custom) */}
+                <select
+                  aria-label="Trocar biômetro no dock contextual"
+                  value={activeDockBiometer.id}
+                  onChange={(e) => setSelectedDockBiometerId(e.target.value)}
+                  className="max-w-[140px] sm:max-w-[190px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded focus:outline-none focus:border-[#F59E0B] cursor-pointer"
+                >
+                  {activeBiometerCatalog.map((b) => (
+                    <option key={`dock-opt-${b.id}`} value={b.id}>
+                      {String(b.number).padStart(2, '0')}. {b.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => toggleFullscreenSafe(true)}
+                  title="Expandir biômetro em tela cheia"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-[#D97706] hover:bg-[#B45309] text-white rounded transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                  <span className="hidden sm:inline">Tela Cheia</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsDockMinimized(true)}
+                  title="Minimizar dock do biômetro"
+                  aria-label="Minimizar dock do biômetro"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-white/10 hover:bg-white/20 text-[#CBD5E1] hover:text-white rounded border border-white/15 cursor-pointer"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Minimizar</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mobile/Tablet Horizontal Related Shortcuts Strip */}
+            {shortcutBiometers.length > 1 && (
+              <div className="lg:hidden px-3 py-1 bg-[#F8FAFC] border-b border-[#E2E8F0] flex items-center gap-1.5 overflow-x-auto shrink-0">
+                <span className="text-[10px] font-semibold text-[#64748B] shrink-0">Atalhos:</span>
+                {shortcutBiometers.map(({ label, bio }) => {
+                  const active = bio.id === activeDockBiometer.id;
+                  return (
+                    <button
+                      key={`dock-m-sc-${bio.id}`}
+                      type="button"
+                      onClick={() => setSelectedDockBiometerId(bio.id)}
+                      className={`px-2 py-0.5 text-[10px] font-semibold rounded border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                          : 'bg-white text-[#45464D] border-[#CBD5E1]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* HD Biometer Prancha Display */}
+            <div
+              onDoubleClick={() => toggleFullscreenSafe(true)}
+              onTouchEnd={(e) => handlePranchaTouchEnd(e, true)}
+              className="flex-1 min-h-0 bg-[#FAF8F5] overflow-hidden flex items-center justify-center p-2 cursor-zoom-in select-none"
+              title="Duplo toque ou duplo clique para abrir em Tela Cheia"
+            >
+              {activeDockResolvedImgUrl && !dockImgError ? (
+                <img
+                  key={`dock-img-${activeDockBiometer.id}`}
+                  src={activeDockResolvedImgUrl}
+                  alt={activeDockBiometer.name}
+                  onError={() => {
+                    if (!dockImgFallbackTried) {
+                      setDockImgFallbackTried(true);
+                    } else {
+                      setDockImgError(true);
+                    }
+                  }}
+                  className="max-h-full max-w-full w-auto h-auto object-contain drop-shadow-sm rounded pointer-events-none"
+                />
+              ) : (
+                <div className="text-center space-y-1 px-4">
+                  <p className="text-xs font-semibold text-[#0F172A]">{activeDockBiometer.name}</p>
+                  <p className="text-[11px] text-[#64748B]">
+                    Clique em &quot;Abrir {totalBiometers} Biômetros Virtuais&quot; para consultar o Dial SVG deste item.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Active Quantum Witness Footer at the base of the biometer board */}
+            <div className="px-3 sm:px-5 py-1.5 bg-[#0F172A]/95 text-white border-t border-[#D97706]/40 flex flex-wrap items-center justify-between gap-2 text-[11px] shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                <span className="font-semibold uppercase tracking-wider text-[10px] text-[#F59E0B] shrink-0">
+                  Testemunho Quântico Ativo:
+                </span>
+                <span className="font-serif font-bold text-white truncate">
+                  {witnessNameDisplay}
+                </span>
+                {witnessBirthDisplay && (
+                  <span className="font-mono text-[10px] text-[#CBD5E1] shrink-0">
+                    ({witnessBirthDisplay})
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0 text-[10px] text-[#CBD5E1]">
+                <span className="hidden sm:inline">2× toque para tela cheia</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDockFullscreen(false);
+                    setIsBiometersOpen(true);
+                  }}
+                  className="font-semibold text-[#F59E0B] hover:underline cursor-pointer"
+                >
+                  Biblioteca ({totalBiometers})
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
       {isBiometersOpen && (
         <BiometrosModal
           isOpen={isBiometersOpen}
-          onClose={() => setIsBiometersOpen(false)}
+          onClose={() => {
+            setIsBiometersOpen(false);
+            setBiometerOverrides(loadBiometerOverrides());
+          }}
           patientName={anamnesis.fullName}
           birthDate={anamnesis.birthDate}
           customBiometers={customBiometers}
