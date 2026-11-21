@@ -15,8 +15,6 @@ import {
   ShieldAlert,
   Sparkles,
   Sun,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import {
   AnsaeChakraReading,
@@ -675,13 +673,14 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     useState<SintoniaContextKey>('causes_triage');
   const [selectedDockBiometerId, setSelectedDockBiometerId] = useState<string | null>(null);
   const [isDockMinimized, setIsDockMinimized] = useState<boolean>(false);
-  const [isDockFullscreen, setIsDockFullscreen] = useState<boolean>(false);
-  const [dockZoom, setDockZoom] = useState<number>(1);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  const [isLandscapeMobile, setIsLandscapeMobile] = useState<boolean>(false);
   const [dockImgError, setDockImgError] = useState<boolean>(false);
   const [dockImgFallbackTried, setDockImgFallbackTried] = useState<boolean>(false);
   const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
   const lastFullscreenToggleRef = useRef<number>(0);
   const landscapeDismissedRef = useRef<boolean>(false);
+  const wasLandscapeMobileRef = useRef<boolean>(false);
 
   const handleHideOfficialBiometer = (id: string) => {
     const next = [...hiddenOfficialBiometers, id];
@@ -749,7 +748,6 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       setActiveDockContext((prev) => {
         if (prev !== ctx) {
           setSelectedDockBiometerId(null);
-          setDockZoom(1);
           setDockImgError(false);
           setDockImgFallbackTried(false);
         }
@@ -759,21 +757,21 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     []
   );
 
-  const toggleFullscreenSafe = useCallback((nextFullscreen: boolean) => {
+  const toggleExpandedSafe = useCallback((nextExpanded: boolean) => {
     const now = Date.now();
     if (now - lastFullscreenToggleRef.current < 320) return;
     lastFullscreenToggleRef.current = now;
-    if (!nextFullscreen) {
+    if (!nextExpanded) {
       landscapeDismissedRef.current = true;
     } else {
+      landscapeDismissedRef.current = false;
       setIsDockMinimized(false);
     }
-    setDockZoom(1);
-    setIsDockFullscreen(nextFullscreen);
+    setIsExpanded(nextExpanded);
   }, []);
 
   const handlePranchaTouchEnd = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>, targetFullscreen: boolean) => {
+    (e: React.TouchEvent<HTMLDivElement>, targetExpanded: boolean) => {
       const touch = e.changedTouches[0];
       if (!touch) return;
       const now = Date.now();
@@ -783,40 +781,54 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       if (now - prev.time > 40 && now - prev.time < 320 && dx < 32 && dy < 32) {
         e.preventDefault();
         lastTapRef.current = { time: 0, x: 0, y: 0 };
-        toggleFullscreenSafe(targetFullscreen);
+        toggleExpandedSafe(targetExpanded);
       } else {
         lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
       }
     },
-    [toggleFullscreenSafe]
+    [toggleExpandedSafe]
   );
 
-  // Auto-expand to fullscreen when mobile/tablet switches to landscape orientation
+  // Auto-expand to fullscreen when mobile switches to horizontal (landscape & height < 600px)
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const orientationMq = window.matchMedia('(orientation: landscape)');
-    const mobileTabletMq = window.matchMedia('(pointer: coarse), (max-width: 1024px)');
 
     const evaluateOrientation = () => {
-      const isLandscape = orientationMq.matches;
-      const isMobileOrTablet = mobileTabletMq.matches;
-      if (isLandscape && isMobileOrTablet) {
+      const isLandscape =
+        orientationMq.matches || window.innerWidth > window.innerHeight;
+      const isShortHeight = window.innerHeight < 600;
+      const nextLandscapeMobile = isLandscape && isShortHeight;
+
+      setIsLandscapeMobile(nextLandscapeMobile);
+
+      if (nextLandscapeMobile) {
         if (!landscapeDismissedRef.current) {
           setIsDockMinimized(false);
-          setIsDockFullscreen(true);
+          setIsExpanded(true);
         }
       } else {
         landscapeDismissedRef.current = false;
-        setIsDockFullscreen(false);
+        if (wasLandscapeMobileRef.current) {
+          setIsExpanded(false);
+        }
       }
+      wasLandscapeMobileRef.current = nextLandscapeMobile;
+    };
+
+    const handleOrientationChange = () => {
+      evaluateOrientation();
+      window.requestAnimationFrame(() => evaluateOrientation());
     };
 
     evaluateOrientation();
     orientationMq.addEventListener('change', evaluateOrientation);
-    mobileTabletMq.addEventListener('change', evaluateOrientation);
+    window.addEventListener('resize', evaluateOrientation);
+    window.addEventListener('orientationchange', handleOrientationChange);
     return () => {
       orientationMq.removeEventListener('change', evaluateOrientation);
-      mobileTabletMq.removeEventListener('change', evaluateOrientation);
+      window.removeEventListener('resize', evaluateOrientation);
+      window.removeEventListener('orientationchange', handleOrientationChange);
     };
   }, []);
 
@@ -1267,11 +1279,11 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   return (
     <div
       className={`space-y-8 ${
-        isDockFullscreen
+        isExpanded
           ? ''
           : isDockMinimized
           ? 'pb-20'
-          : 'pb-[44vh] sm:pb-[43vh] lg:pb-[350px]'
+          : 'pb-[46dvh] sm:pb-[44dvh] lg:pb-[360px]'
       }`}
     >
       {/* Header */}
@@ -1292,7 +1304,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           <button
             type="button"
             onClick={() => {
-              setIsDockFullscreen(false);
+              setIsExpanded(false);
               setIsBiometersOpen(true);
             }}
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] transition-colors cursor-pointer whitespace-nowrap"
@@ -3284,109 +3296,135 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
       {/* Dock Contextual Fixo de Biômetro Integrado */}
       {!isBiometersOpen && activeDockBiometer && (
-        isDockFullscreen ? (
-          <div
-            className="fixed inset-0 z-50 bg-[#FAF8F5] flex flex-col overflow-hidden"
-            role="region"
-            aria-label="Biômetro Contextual em Tela Cheia"
-          >
-            {/* Fullscreen Top Control Bar */}
-            <div className="px-3 sm:px-5 py-2.5 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2 border-b border-[#D97706]/40 shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#D97706]/25 text-[#F59E0B] border border-[#D97706]/50 rounded shrink-0">
-                  {activeContextConfig.shortLabel}
-                </span>
-                <h3 className="font-serif text-sm sm:text-base font-bold text-white truncate">
-                  {String(activeDockBiometer.number).padStart(2, '0')}. {activeDockBiometer.name}
-                </h3>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                {/* Related shortcuts */}
-                <div className="hidden md:flex items-center gap-1">
-                  {shortcutBiometers.map(({ label, bio }) => {
-                    const active = bio.id === activeDockBiometer.id;
-                    return (
-                      <button
-                        key={`fs-sc-${bio.id}`}
-                        type="button"
-                        onClick={() => setSelectedDockBiometerId(bio.id)}
-                        className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer whitespace-nowrap ${
-                          active
-                            ? 'bg-[#D97706] text-white border-[#F59E0B]'
-                            : 'bg-white/10 text-[#CBD5E1] border-white/15 hover:bg-white/20'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <select
-                  aria-label="Selecionar biômetro no modo tela cheia"
-                  value={activeDockBiometer.id}
-                  onChange={(e) => setSelectedDockBiometerId(e.target.value)}
-                  className="max-w-[190px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded-md focus:outline-none focus:border-[#F59E0B]"
-                >
-                  {activeBiometerCatalog.map((b) => (
-                    <option key={`fs-opt-${b.id}`} value={b.id}>
-                      {String(b.number).padStart(2, '0')}. {b.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="inline-flex items-center bg-white/10 border border-white/15 rounded-md">
-                  <button
-                    type="button"
-                    onClick={() => setDockZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}
-                    className="p-1.5 text-[#CBD5E1] hover:text-white cursor-pointer"
-                    title="Reduzir Zoom"
-                    aria-label="Reduzir Zoom"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="px-1.5 text-[11px] font-mono text-white">
-                    {Math.round(dockZoom * 100)}%
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setDockZoom((z) => Math.min(2.25, Number((z + 0.25).toFixed(2))))}
-                    className="p-1.5 text-[#CBD5E1] hover:text-white cursor-pointer"
-                    title="Aumentar Zoom"
-                    aria-label="Aumentar Zoom"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => toggleFullscreenSafe(false)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#D97706] text-white rounded-lg hover:bg-[#B45309] transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  <Minimize2 className="w-3.5 h-3.5" />
-                  Sair da Tela Cheia
-                </button>
-              </div>
-            </div>
-
-            {/* Fullscreen Biometer High-Definition Canvas (Double-Tap / Double-Click to Exit) */}
+        isExpanded ? (
+          isLandscapeMobile ? (
+            /* Modo Paisagem / Horizontal Smartphone Fullscreen (ocultando barras extras) */
             <div
-              onDoubleClick={() => toggleFullscreenSafe(false)}
+              onDoubleClick={() => toggleExpandedSafe(false)}
               onTouchEnd={(e) => handlePranchaTouchEnd(e, false)}
-              className="flex-1 min-h-0 overflow-auto bg-[#FAF8F5] flex items-center justify-center p-2 sm:p-4 select-none cursor-zoom-out"
-              title="Dê 2 toques rápidos ou duplo clique para retornar à ficha"
+              className="fixed inset-0 w-screen h-[100dvh] z-50 bg-slate-950/95 flex items-center justify-center p-2 overflow-hidden select-none cursor-zoom-out"
+              role="region"
+              aria-label="Biômetro Contextual em Tela Cheia Horizontal"
+              title="Dê 2 toques rápidos para retornar ao dock inferior"
             >
               {activeDockResolvedImgUrl && !dockImgError ? (
-                <div
-                  style={{
-                    transform: `scale(${dockZoom})`,
-                    transformOrigin: 'center center',
-                    transition: 'transform 180ms ease-out',
+                <img
+                  key={`ls-img-${activeDockBiometer.id}`}
+                  src={activeDockResolvedImgUrl}
+                  alt={activeDockBiometer.name}
+                  onError={() => {
+                    if (!dockImgFallbackTried) {
+                      setDockImgFallbackTried(true);
+                    } else {
+                      setDockImgError(true);
+                    }
                   }}
-                  className="w-full h-full flex items-center justify-center"
+                  className="max-w-[96vw] max-h-[88dvh] w-auto h-auto object-contain mx-auto block select-none pointer-events-none bg-[#FAF8F5] rounded-lg shadow-2xl"
+                />
+              ) : (
+                <div className="text-center space-y-2 p-6 text-white">
+                  <Compass className="w-8 h-8 text-[#F59E0B] mx-auto" />
+                  <p className="text-xs font-medium">
+                    {activeDockBiometer.name} ({activeDockBiometer.items.length} setores disponíveis)
+                  </p>
+                </div>
+              )}
+
+              {/* Indicador discreto de Testemunho & Botão de retorno sem bloquear a prancha */}
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleExpandedSafe(false);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-[#0F172A]/85 hover:bg-[#D97706] text-white border border-white/20 rounded-md shadow cursor-pointer"
                 >
+                  <Minimize2 className="w-3 h-3" />
+                  Voltar
+                </button>
+              </div>
+              <div className="absolute bottom-1.5 inset-x-3 flex items-center justify-between gap-2 text-[10px] text-slate-200 pointer-events-none">
+                <span className="px-2 py-0.5 rounded bg-[#0F172A]/80 border border-white/10 truncate">
+                  <strong className="text-[#F59E0B]">Testemunho:</strong> {witnessNameDisplay}
+                  {witnessBirthDisplay ? ` (${witnessBirthDisplay})` : ''}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-[#0F172A]/80 border border-white/10 shrink-0">
+                  2× toque para voltar
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* Modo Ampliado Contido (Duplo Toque ou Botão Expandir) */
+            <div
+              className="fixed inset-0 w-screen h-[100dvh] z-50 bg-slate-950/95 flex flex-col items-center justify-center p-2 overflow-hidden"
+              role="region"
+              aria-label="Biômetro Contextual Ampliado"
+            >
+              {/* Barra Superior Compacta */}
+              <div className="w-full max-w-6xl px-2 py-1.5 bg-[#0F172A]/90 text-white rounded-lg border border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0 mb-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#D97706]/25 text-[#F59E0B] border border-[#D97706]/50 rounded shrink-0">
+                    {activeContextConfig.shortLabel}
+                  </span>
+                  <h3 className="font-serif text-xs sm:text-sm font-bold text-white truncate">
+                    {String(activeDockBiometer.number).padStart(2, '0')}. {activeDockBiometer.name}
+                  </h3>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="hidden md:flex items-center gap-1">
+                    {shortcutBiometers.map(({ label, bio }) => {
+                      const active = bio.id === activeDockBiometer.id;
+                      return (
+                        <button
+                          key={`fs-sc-${bio.id}`}
+                          type="button"
+                          onClick={() => setSelectedDockBiometerId(bio.id)}
+                          className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer whitespace-nowrap ${
+                            active
+                              ? 'bg-[#D97706] text-white border-[#F59E0B]'
+                              : 'bg-white/10 text-[#CBD5E1] border-white/15 hover:bg-white/20'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <select
+                    aria-label="Selecionar biômetro no modo ampliado"
+                    value={activeDockBiometer.id}
+                    onChange={(e) => setSelectedDockBiometerId(e.target.value)}
+                    className="max-w-[170px] sm:max-w-[210px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded-md focus:outline-none focus:border-[#F59E0B]"
+                  >
+                    {activeBiometerCatalog.map((b) => (
+                      <option key={`fs-opt-${b.id}`} value={b.id}>
+                        {String(b.number).padStart(2, '0')}. {b.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleExpandedSafe(false)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-[#D97706] text-white rounded-md hover:bg-[#B45309] transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                    Voltar ao Dock
+                  </button>
+                </div>
+              </div>
+
+              {/* Prancha Ampliada Centralizada e Contida (Sem transform: scale) */}
+              <div
+                onDoubleClick={() => toggleExpandedSafe(false)}
+                onTouchEnd={(e) => handlePranchaTouchEnd(e, false)}
+                className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden select-none cursor-zoom-out"
+                title="Dê 2 toques rápidos ou duplo clique para retornar ao dock inferior"
+              >
+                {activeDockResolvedImgUrl && !dockImgError ? (
                   <img
                     key={`fs-img-${activeDockBiometer.id}`}
                     src={activeDockResolvedImgUrl}
@@ -3398,40 +3436,40 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                         setDockImgError(true);
                       }
                     }}
-                    className="max-h-full max-w-full w-auto h-auto object-contain drop-shadow-md rounded-lg pointer-events-none"
+                    className="w-full h-full max-w-[98vw] max-h-[86dvh] object-contain mx-auto block select-none pointer-events-none bg-[#FAF8F5] rounded-lg shadow-2xl"
                   />
-                </div>
-              ) : (
-                <div className="text-center space-y-2 p-6">
-                  <Compass className="w-8 h-8 text-[#B45309] mx-auto" />
-                  <p className="text-xs font-medium text-[#45464D]">
-                    {activeDockBiometer.name} ({activeDockBiometer.items.length} setores disponíveis)
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Active Quantum Witness Footer Bar */}
-            <div className="px-4 py-2 bg-[#0F172A] text-white border-t border-[#D97706]/50 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold uppercase tracking-wider text-[10px] text-[#F59E0B]">
-                  Testemunho Quântico Ativo:
-                </span>
-                <span className="font-serif font-bold text-white">{witnessNameDisplay}</span>
-                {witnessBirthDisplay && (
-                  <span className="font-mono text-[11px] text-[#CBD5E1]">
-                    ({witnessBirthDisplay})
-                  </span>
+                ) : (
+                  <div className="text-center space-y-2 p-6 text-white">
+                    <Compass className="w-8 h-8 text-[#F59E0B] mx-auto" />
+                    <p className="text-xs font-medium">
+                      {activeDockBiometer.name} ({activeDockBiometer.items.length} setores disponíveis)
+                    </p>
+                  </div>
                 )}
               </div>
-              <span className="text-[11px] text-[#CBD5E1]">
-                Toque 2× na prancha para voltar à ficha
-              </span>
+
+              {/* Barra Inferior de Testemunho Quântico Ativo */}
+              <div className="w-full max-w-6xl px-3 py-1.5 mt-1.5 bg-[#0F172A]/90 text-white rounded-lg border border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  <span className="font-semibold uppercase tracking-wider text-[10px] text-[#F59E0B] shrink-0">
+                    Testemunho Quântico Ativo:
+                  </span>
+                  <span className="font-serif font-bold text-white truncate">{witnessNameDisplay}</span>
+                  {witnessBirthDisplay && (
+                    <span className="font-mono text-[10px] text-[#CBD5E1] shrink-0">
+                      ({witnessBirthDisplay})
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-[#CBD5E1] shrink-0">
+                  Toque 2× na prancha para retornar
+                </span>
+              </div>
             </div>
-          </div>
+          )
         ) : isDockMinimized ? (
           <div
-            className="fixed bottom-0 left-0 right-0 z-40 bg-[#0F172A] text-white border-t-2 border-[#D97706] shadow-[0_-8px_30px_rgba(15,23,42,0.22)] px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2"
+            className="fixed bottom-0 inset-x-0 w-full z-40 bg-[#0F172A] text-white border-t-2 border-[#D97706] shadow-[0_-8px_30px_rgba(15,23,42,0.22)] px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2"
             role="region"
             aria-label="Dock Contextual de Biômetro Minimizado"
           >
@@ -3451,11 +3489,11 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => toggleFullscreenSafe(true)}
+                onClick={() => toggleExpandedSafe(true)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 rounded-md cursor-pointer"
               >
                 <Maximize2 className="w-3 h-3 text-[#F59E0B]" />
-                Tela Cheia
+                Expandir
               </button>
               <button
                 type="button"
@@ -3463,17 +3501,17 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                 className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-semibold bg-[#D97706] hover:bg-[#B45309] text-white rounded-md cursor-pointer"
               >
                 <ChevronUp className="w-3.5 h-3.5" />
-                Expandir Biômetro
+                Mostrar Dock
               </button>
             </div>
           </div>
         ) : (
           <div
-            className="fixed bottom-0 left-0 right-0 z-40 h-[40vh] min-h-[260px] max-h-[430px] lg:h-[325px] bg-white border-t-2 border-[#D97706] shadow-[0_-12px_36px_rgba(15,23,42,0.2)] flex flex-col"
+            className="fixed bottom-0 inset-x-0 w-full z-40 bg-white border-t-2 border-[#D97706] shadow-[0_-12px_36px_rgba(15,23,42,0.2)] flex flex-col"
             role="region"
             aria-label="Dock Contextual Fixo de Biômetro Integrado"
           >
-            {/* Dock Top Bar: Context Selector, Related Shortcuts & Fullscreen/Minimize */}
+            {/* Dock Top Bar: Context Selector, Related Shortcuts & Expand/Minimize */}
             <div className="px-3 sm:px-5 py-1.5 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <Compass className="w-4 h-4 text-[#F59E0B] shrink-0" />
@@ -3522,7 +3560,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   aria-label="Trocar biômetro no dock contextual"
                   value={activeDockBiometer.id}
                   onChange={(e) => setSelectedDockBiometerId(e.target.value)}
-                  className="max-w-[140px] sm:max-w-[190px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded focus:outline-none focus:border-[#F59E0B] cursor-pointer"
+                  className="max-w-[130px] sm:max-w-[190px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded focus:outline-none focus:border-[#F59E0B] cursor-pointer"
                 >
                   {activeBiometerCatalog.map((b) => (
                     <option key={`dock-opt-${b.id}`} value={b.id}>
@@ -3533,12 +3571,13 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => toggleFullscreenSafe(true)}
-                  title="Expandir biômetro em tela cheia"
+                  onClick={() => toggleExpandedSafe(true)}
+                  title="Expandir biômetro na tela"
+                  aria-label="Expandir biômetro na tela"
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-[#D97706] hover:bg-[#B45309] text-white rounded transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Maximize2 className="w-3 h-3" />
-                  <span className="hidden sm:inline">Tela Cheia</span>
+                  <span className="hidden sm:inline">Expandir</span>
                 </button>
 
                 <button
@@ -3578,12 +3617,12 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
               </div>
             )}
 
-            {/* HD Biometer Prancha Display */}
+            {/* HD Biometer Prancha Display - Portrait Centralizada com Largura Total */}
             <div
-              onDoubleClick={() => toggleFullscreenSafe(true)}
+              onDoubleClick={() => toggleExpandedSafe(true)}
               onTouchEnd={(e) => handlePranchaTouchEnd(e, true)}
-              className="flex-1 min-h-0 bg-[#FAF8F5] overflow-hidden flex items-center justify-center p-2 cursor-zoom-in select-none"
-              title="Duplo toque ou duplo clique para abrir em Tela Cheia"
+              className="w-full flex items-center justify-center overflow-hidden px-2 py-1.5 bg-[#FAF8F5] cursor-zoom-in select-none"
+              title="Duplo toque ou duplo clique para ampliar na tela"
             >
               {activeDockResolvedImgUrl && !dockImgError ? (
                 <img
@@ -3597,10 +3636,10 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                       setDockImgError(true);
                     }
                   }}
-                  className="max-h-full max-w-full w-auto h-auto object-contain drop-shadow-sm rounded pointer-events-none"
+                  className="w-full max-w-[96vw] h-auto max-h-[34dvh] object-contain mx-auto block select-none pointer-events-none drop-shadow-sm rounded"
                 />
               ) : (
-                <div className="text-center space-y-1 px-4">
+                <div className="text-center space-y-1 px-4 py-6">
                   <p className="text-xs font-semibold text-[#0F172A]">{activeDockBiometer.name}</p>
                   <p className="text-[11px] text-[#64748B]">
                     Clique em &quot;Abrir {totalBiometers} Biômetros Virtuais&quot; para consultar o Dial SVG deste item.
@@ -3625,11 +3664,11 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0 text-[10px] text-[#CBD5E1]">
-                <span className="hidden sm:inline">2× toque para tela cheia</span>
+                <span className="hidden sm:inline">2× toque para ampliar</span>
                 <button
                   type="button"
                   onClick={() => {
-                    setIsDockFullscreen(false);
+                    setIsExpanded(false);
                     setIsBiometersOpen(true);
                   }}
                   className="font-semibold text-[#F59E0B] hover:underline cursor-pointer"
