@@ -1,9 +1,11 @@
 import {
   AntiCatharsisProtocol,
+  ChartWithdrawalLogEntry,
   EnergeticRemedyEmission,
   QuantumGenerationResult,
   RoomPhase,
 } from './quantum';
+export type { ChartWithdrawalLogEntry };
 
 export type SessionMilestoneType =
   | 'Avaliação Inicial'
@@ -681,6 +683,9 @@ export interface SpiritualPsychoReading {
   karmicCommitments: string[];
   virtuesToAnchor: string[];
   recommendedRadionicBoard: string;
+  clientPerceptionScore?: number; // 0 - 10
+  clientPerceptionMoment?: 'antes' | 'pos';
+  clientPerceptionNote?: string;
 }
 
 export interface AnsaeSystemReading {
@@ -750,6 +755,10 @@ export interface ClinicalSessionRecord {
   selectedSolfeggioHz: number;
   chartCrystals?: Record<string, string>;
   energeticRemedies?: EnergeticRemedyEmission[];
+  withdrawnEmissions?: ChartWithdrawalLogEntry[];
+  clientPerceptionScore?: number; // 0 - 10
+  clientPerceptionMoment?: 'antes' | 'pos';
+  clientPerceptionNote?: string;
   updatedAt: string;
 }
 

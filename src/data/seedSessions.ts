@@ -51,6 +51,9 @@ export function createSeedSessions(): QuantumRoomSession[] {
       if (s.id === 'digestivo') return { ...s, status: 'Em Alerta' as const, note: 'Retenção emocional gástrica' };
       return s;
     }),
+    clientPerceptionScore: 4,
+    clientPerceptionMoment: 'antes' as const,
+    clientPerceptionNote: 'Fadiga matinal e sensação de peso no plexo solar antes do ciclo.',
   };
 
   const rossanaProtocol = evaluateAntiCatharsis(rossanaAnamnesis, rossanaSensitivity);
@@ -85,6 +88,9 @@ export function createSeedSessions(): QuantumRoomSession[] {
       if (s.id === 'osteomuscular') return { ...s, status: 'Em Alerta' as const, note: 'Tensão lombar em regressão' };
       return s;
     }),
+    clientPerceptionScore: 8,
+    clientPerceptionMoment: 'pos' as const,
+    clientPerceptionNote: 'Sono restaurado e maior clareza mental após a Etapa 1.',
   };
 
   // For José Marcos, we keep the 2-stage history (he transitioned from Stage 1 into Stage 2, Day 4 of 10)

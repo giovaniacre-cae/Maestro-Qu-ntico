@@ -1,3 +1,4 @@
+import { saveAs } from 'file-saver';
 import {
   AnsaeChakraReading,
   AnsaeOrganReading,
@@ -13,6 +14,8 @@ import {
   getHawkinsLabelByHz,
   normalizeAuricColorName,
 } from '../types/clinical';
+import type { PrintableGraphic } from '../data/printableGraphicsData';
+import type { TherapeuticKit } from '../data/therapeuticKits';
 import { QuantumRoomSession } from '../types/quantum';
 import { loadSessions, saveSessions } from '../data/seedSessions';
 
@@ -226,6 +229,10 @@ export function normalizeAnsaeSheet(sheet: ClinicalAnsaeRhenSheet): ClinicalAnsa
       hawkinsAgathaHz: resolvedHawkinsHz,
       hawkinsHz: resolvedHawkinsHz,
       hawkinsLevel: getHawkinsLabelByHz(resolvedHawkinsHz),
+      clientPerceptionScore:
+        typeof sheet.spiritualPsycho?.clientPerceptionScore === 'number'
+          ? Math.max(0, Math.min(10, Math.round(sheet.spiritualPsycho.clientPerceptionScore)))
+          : undefined,
     },
     systems: normalizedSystems,
     organs: Array.isArray(sheet.organs) ? sheet.organs : [],
@@ -392,6 +399,12 @@ export function createDefaultAnsaeRhenSheet(
         bovis < 6500
           ? 'Mesa de Assepsia & Blindagem Anti-Catarse'
           : 'Mesa Radiônica Quântica de Alta Vitalidade',
+      clientPerceptionScore:
+        fromRoom?.clientPerceptionScore ?? fromRoom?.sensitivity.clientPerceptionScore,
+      clientPerceptionMoment:
+        fromRoom?.clientPerceptionMoment ?? fromRoom?.sensitivity.clientPerceptionMoment,
+      clientPerceptionNote:
+        fromRoom?.clientPerceptionNote ?? fromRoom?.sensitivity.clientPerceptionNote,
     },
     systems: createDefaultAnsaeSystems(),
     organs,
@@ -400,6 +413,13 @@ export function createDefaultAnsaeRhenSheet(
 }
 
 export function roomToClinicalRecord(room: QuantumRoomSession): ClinicalSessionRecord {
+  const perceptionScore =
+    room.clientPerceptionScore ?? room.sensitivity.clientPerceptionScore;
+  const perceptionMoment =
+    room.clientPerceptionMoment ?? room.sensitivity.clientPerceptionMoment;
+  const perceptionNote =
+    room.clientPerceptionNote ?? room.sensitivity.clientPerceptionNote;
+
   return {
     id: room.id,
     patientId: room.anamnesis.id || `patient-${room.id}`,
@@ -419,6 +439,10 @@ export function roomToClinicalRecord(room: QuantumRoomSession): ClinicalSessionR
     selectedSolfeggioHz: room.selectedSolfeggioHz,
     chartCrystals: room.chartCrystals,
     energeticRemedies: room.energeticRemedies || [],
+    withdrawnEmissions: room.withdrawnEmissions || [],
+    clientPerceptionScore: perceptionScore,
+    clientPerceptionMoment: perceptionMoment,
+    clientPerceptionNote: perceptionNote,
     updatedAt: room.updatedAt,
   };
 }
@@ -465,6 +489,10 @@ export function loadClinicalDatabase(): MasterClinicalDatabase {
     joseInitialAnsae.spiritualPsycho.hawkinsHz = 175;
     joseInitialAnsae.spiritualPsycho.hawkinsLevel = getHawkinsLabelByHz(175);
     joseInitialAnsae.spiritualPsycho.stressLevel = 6;
+    joseInitialAnsae.spiritualPsycho.clientPerceptionScore = 4;
+    joseInitialAnsae.spiritualPsycho.clientPerceptionMoment = 'antes';
+    joseInitialAnsae.spiritualPsycho.clientPerceptionNote =
+      'Cansaço acentuado e tensão lombar antes do primeiro ciclo.';
     joseInitialAnsae.auricField.protectionPercent = 44;
     joseInitialAnsae.auricField.protectionLabel = 'Média 50%';
 
@@ -477,6 +505,9 @@ export function loadClinicalDatabase(): MasterClinicalDatabase {
       activatedAt: new Date(Date.now() - 180 * 3600 * 1000).toISOString(),
       completedAt: new Date(Date.now() - 92 * 3600 * 1000).toISOString(),
       updatedAt: new Date(Date.now() - 92 * 3600 * 1000).toISOString(),
+      clientPerceptionScore: 4,
+      clientPerceptionMoment: 'antes',
+      clientPerceptionNote: 'Cansaço acentuado e tensão lombar antes do primeiro ciclo.',
       ansaeRhen: joseInitialAnsae,
     };
     sessions.push(joseInitial);
@@ -560,19 +591,464 @@ export function saveBiometerOverrides(overrides: Record<string, { name?: string;
   }
 }
 
-export function exportClinicalBackupJson(): string {
-  const db = loadClinicalDatabase();
+const CUSTOM_PRINTABLE_GRAPHICS_KEY = 'maestro_custom_printable_graphics_v1';
+const HIDDEN_OFFICIAL_GRAPHICS_KEY = 'maestro_hidden_official_graphics_v1';
+const PRINTABLE_GRAPHIC_OVERRIDES_KEY = 'maestro_printable_graphic_overrides_v1';
+
+export interface PrintableGraphicOverride {
+  title?: string;
+  category?: import('../data/printableGraphicsData').PrintableGraphicCategory;
+  imageUrl?: string;
+  presentation?: string;
+  usageAspects?: string;
+  requiresNorthAlignment?: boolean;
+}
+
+export function loadCustomPrintableGraphics(): import('../data/printableGraphicsData').PrintableGraphic[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRINTABLE_GRAPHICS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomPrintableGraphics(
+  graphics: import('../data/printableGraphicsData').PrintableGraphic[]
+): void {
+  try {
+    localStorage.setItem(CUSTOM_PRINTABLE_GRAPHICS_KEY, JSON.stringify(graphics));
+  } catch (err) {
+    console.error('Erro ao salvar gráficos personalizados:', err);
+    throw err;
+  }
+}
+
+export function loadHiddenOfficialGraphics(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_OFFICIAL_GRAPHICS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveHiddenOfficialGraphics(ids: string[]): void {
+  try {
+    localStorage.setItem(HIDDEN_OFFICIAL_GRAPHICS_KEY, JSON.stringify(ids));
+  } catch (err) {
+    console.error('Erro ao salvar gráficos ocultos:', err);
+  }
+}
+
+export function loadPrintableGraphicOverrides(): Record<string, PrintableGraphicOverride> {
+  try {
+    const raw = localStorage.getItem(PRINTABLE_GRAPHIC_OVERRIDES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function savePrintableGraphicOverrides(
+  overrides: Record<string, PrintableGraphicOverride>
+): void {
+  try {
+    localStorage.setItem(PRINTABLE_GRAPHIC_OVERRIDES_KEY, JSON.stringify(overrides));
+  } catch (err) {
+    console.error('Erro ao salvar edições de gráficos:', err);
+    throw err;
+  }
+}
+
+const CUSTOM_THERAPEUTIC_KITS_KEY = 'maestro_custom_therapeutic_kits_v1';
+
+export function loadCustomTherapeuticKits(): TherapeuticKit[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_THERAPEUTIC_KITS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as TherapeuticKit[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomTherapeuticKits(kits: TherapeuticKit[]): void {
+  try {
+    localStorage.setItem(CUSTOM_THERAPEUTIC_KITS_KEY, JSON.stringify(kits));
+  } catch (err) {
+    console.error('Erro ao salvar kits terapêuticos personalizados:', err);
+  }
+}
+
+export const BACKUP_RESTORED_EVENT = 'maestro-backup-restored';
+
+const ANSAE_DRAFT_PREFIX = 'maestro_quantico_ansae_draft_';
+
+export type BackupRestoreMode = 'merge' | 'replace';
+
+export interface FullBackupPayload {
+  backupVersion: 3;
+  exportedAt: string;
+  app: 'Maestro Quântico';
+  rooms: QuantumRoomSession[];
+  clinicalDatabase: MasterClinicalDatabase;
+  ansaeDrafts: Record<string, ClinicalAnsaeRhenSheet>;
+  customBiometers: BiometerDefinition[];
+  biometerOverrides: Record<string, { name?: string; items: string[] }>;
+  hiddenOfficialBiometers: string[];
+  customPrintableGraphics: PrintableGraphic[];
+  hiddenOfficialGraphics: string[];
+  printableGraphicOverrides: Record<string, PrintableGraphicOverride>;
+  customTherapeuticKits?: TherapeuticKit[];
+}
+
+export interface FullBackupImportSummary {
+  mode: BackupRestoreMode;
+  rooms: QuantumRoomSession[];
+  patientsCount: number;
+  sessionsCount: number;
+  customBiometersCount: number;
+  biometerOverridesCount: number;
+  customGraphicsCount: number;
+  ansaeDraftsCount: number;
+}
+
+function collectAllAnsaeDrafts(): Record<string, ClinicalAnsaeRhenSheet> {
+  const drafts: Record<string, ClinicalAnsaeRhenSheet> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(ANSAE_DRAFT_PREFIX)) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw) as ClinicalAnsaeRhenSheet;
+          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.organs)) {
+            drafts[key] = normalizeAnsaeSheet(parsed);
+          }
+        } catch {
+          // Ignore malformed draft entry
+        }
+      }
+    }
+  } catch {
+    // Ignore storage access error
+  }
+  return drafts;
+}
+
+function clearAllAnsaeDrafts(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(ANSAE_DRAFT_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function mergeById<T extends { id: string; updatedAt?: string }>(
+  existing: T[],
+  incoming: T[]
+): T[] {
+  const map = new Map<string, T>();
+  for (const item of existing) {
+    if (item && item.id) {
+      map.set(item.id, item);
+    }
+  }
+  for (const item of incoming) {
+    if (!item || !item.id) continue;
+    const prev = map.get(item.id);
+    if (!prev) {
+      map.set(item.id, item);
+      continue;
+    }
+    if (prev.updatedAt && item.updatedAt) {
+      const prevTime = new Date(prev.updatedAt).getTime();
+      const nextTime = new Date(item.updatedAt).getTime();
+      if (!Number.isNaN(prevTime) && !Number.isNaN(nextTime) && prevTime > nextTime) {
+        continue;
+      }
+    }
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
+
+export function exportFullBackup(): {
+  filename: string;
+  json: string;
+  payload: FullBackupPayload;
+} {
+  const clinicalDatabase = loadClinicalDatabase();
   const rooms = loadSessions();
-  return JSON.stringify(
-    {
-      exportedAt: new Date().toISOString(),
-      app: 'Maestro Quântico v2.0',
-      clinicalDatabase: db,
-      activeRooms: rooms,
+  const customBiometers = loadCustomBiometers();
+  const biometerOverrides = loadBiometerOverrides();
+  const hiddenOfficialBiometers = loadHiddenOfficialBiometers();
+  const customPrintableGraphics = loadCustomPrintableGraphics();
+  const hiddenOfficialGraphics = loadHiddenOfficialGraphics();
+  const printableGraphicOverrides = loadPrintableGraphicOverrides();
+  const customTherapeuticKits = loadCustomTherapeuticKits();
+  const ansaeDrafts = collectAllAnsaeDrafts();
+
+  const payload: FullBackupPayload = {
+    backupVersion: 3,
+    exportedAt: new Date().toISOString(),
+    app: 'Maestro Quântico',
+    rooms,
+    clinicalDatabase: {
+      ...clinicalDatabase,
+      customBiometers,
     },
-    null,
-    2
-  );
+    ansaeDrafts,
+    customBiometers,
+    biometerOverrides,
+    hiddenOfficialBiometers,
+    customPrintableGraphics,
+    hiddenOfficialGraphics,
+    printableGraphicOverrides,
+    customTherapeuticKits,
+  };
+
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const filename = `maestro-quantico-backup-${yyyy}-${mm}-${dd}.json`;
+
+  return {
+    filename,
+    json: JSON.stringify(payload, null, 2),
+    payload,
+  };
+}
+
+export function downloadFullBackup(): {
+  filename: string;
+  payload: FullBackupPayload;
+} {
+  const { filename, json, payload } = exportFullBackup();
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  saveAs(blob, filename);
+  return { filename, payload };
+}
+
+export async function importFullBackup(
+  file: File,
+  mode: BackupRestoreMode = 'merge'
+): Promise<FullBackupImportSummary> {
+  const rawJson = await file.text();
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(rawJson) as Record<string, unknown>;
+  } catch {
+    throw new Error('O arquivo selecionado não contém JSON válido.');
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Estrutura de backup inválida.');
+  }
+
+  const incomingRoomsRaw = Array.isArray(parsed.rooms)
+    ? (parsed.rooms as QuantumRoomSession[])
+    : Array.isArray(parsed.activeRooms)
+    ? (parsed.activeRooms as QuantumRoomSession[])
+    : null;
+
+  const incomingDb =
+    parsed.clinicalDatabase && typeof parsed.clinicalDatabase === 'object'
+      ? (parsed.clinicalDatabase as MasterClinicalDatabase)
+      : null;
+
+  if (!incomingDb && !incomingRoomsRaw) {
+    throw new Error(
+      'Arquivo incompatível: não foram encontrados registros do Maestro Quântico neste backup.'
+    );
+  }
+
+  const incomingCustomBiometers: BiometerDefinition[] = Array.isArray(parsed.customBiometers)
+    ? (parsed.customBiometers as BiometerDefinition[])
+    : Array.isArray(incomingDb?.customBiometers)
+    ? incomingDb.customBiometers
+    : [];
+
+  const incomingBiometerOverrides: Record<string, { name?: string; items: string[] }> =
+    parsed.biometerOverrides && typeof parsed.biometerOverrides === 'object'
+      ? (parsed.biometerOverrides as Record<string, { name?: string; items: string[] }>)
+      : {};
+
+  const incomingHiddenBiometers: string[] = Array.isArray(parsed.hiddenOfficialBiometers)
+    ? (parsed.hiddenOfficialBiometers as string[])
+    : [];
+
+  const incomingCustomGraphics: PrintableGraphic[] = Array.isArray(parsed.customPrintableGraphics)
+    ? (parsed.customPrintableGraphics as PrintableGraphic[])
+    : [];
+
+  const incomingHiddenGraphics: string[] = Array.isArray(parsed.hiddenOfficialGraphics)
+    ? (parsed.hiddenOfficialGraphics as string[])
+    : [];
+
+  const incomingGraphicOverrides: Record<string, PrintableGraphicOverride> =
+    parsed.printableGraphicOverrides && typeof parsed.printableGraphicOverrides === 'object'
+      ? (parsed.printableGraphicOverrides as Record<string, PrintableGraphicOverride>)
+      : {};
+
+  const incomingDrafts: Record<string, ClinicalAnsaeRhenSheet> =
+    parsed.ansaeDrafts && typeof parsed.ansaeDrafts === 'object'
+      ? (parsed.ansaeDrafts as Record<string, ClinicalAnsaeRhenSheet>)
+      : {};
+
+  const incomingCustomKits: TherapeuticKit[] = Array.isArray(parsed.customTherapeuticKits)
+    ? (parsed.customTherapeuticKits as TherapeuticKit[])
+    : [];
+
+  let finalRooms: QuantumRoomSession[];
+  let finalDb: MasterClinicalDatabase;
+  let finalCustomBiometers: BiometerDefinition[];
+  let finalBiometerOverrides: Record<string, { name?: string; items: string[] }>;
+  let finalHiddenBiometers: string[];
+  let finalCustomGraphics: PrintableGraphic[];
+  let finalHiddenGraphics: string[];
+  let finalGraphicOverrides: Record<string, PrintableGraphicOverride>;
+  let finalCustomKits: TherapeuticKit[];
+
+  if (mode === 'replace') {
+    finalRooms = incomingRoomsRaw ?? [];
+    finalCustomBiometers = incomingCustomBiometers;
+    finalBiometerOverrides = incomingBiometerOverrides;
+    finalHiddenBiometers = Array.from(new Set(incomingHiddenBiometers));
+    finalCustomGraphics = incomingCustomGraphics;
+    finalHiddenGraphics = Array.from(new Set(incomingHiddenGraphics));
+    finalGraphicOverrides = incomingGraphicOverrides;
+    finalCustomKits = incomingCustomKits;
+
+    finalDb = {
+      version: 2,
+      patients: Array.isArray(incomingDb?.patients) ? incomingDb.patients : [],
+      sessions: Array.isArray(incomingDb?.sessions)
+        ? incomingDb.sessions.map((s) => ({
+            ...s,
+            ansaeRhen: normalizeAnsaeSheet(s.ansaeRhen),
+          }))
+        : [],
+      customBiometers: finalCustomBiometers,
+    };
+
+    clearAllAnsaeDrafts();
+    for (const [key, sheet] of Object.entries(incomingDrafts)) {
+      if (key.startsWith(ANSAE_DRAFT_PREFIX) && sheet && Array.isArray(sheet.organs)) {
+        try {
+          localStorage.setItem(key, JSON.stringify(normalizeAnsaeSheet(sheet)));
+        } catch {
+          // Ignore quota errors
+        }
+      }
+    }
+  } else {
+    const existingRooms = loadSessions();
+    const existingDb = loadClinicalDatabase();
+    const existingCustomBiometers = loadCustomBiometers();
+    const existingBiometerOverrides = loadBiometerOverrides();
+    const existingHiddenBiometers = loadHiddenOfficialBiometers();
+    const existingCustomGraphics = loadCustomPrintableGraphics();
+    const existingHiddenGraphics = loadHiddenOfficialGraphics();
+    const existingGraphicOverrides = loadPrintableGraphicOverrides();
+    const existingCustomKits = loadCustomTherapeuticKits();
+
+    finalRooms = incomingRoomsRaw
+      ? mergeById(existingRooms, incomingRoomsRaw)
+      : existingRooms;
+
+    finalCustomBiometers = mergeById(existingCustomBiometers, incomingCustomBiometers);
+    finalBiometerOverrides = { ...existingBiometerOverrides, ...incomingBiometerOverrides };
+    finalHiddenBiometers = Array.from(
+      new Set([...existingHiddenBiometers, ...incomingHiddenBiometers])
+    );
+    finalCustomGraphics = mergeById(existingCustomGraphics, incomingCustomGraphics);
+    finalHiddenGraphics = Array.from(
+      new Set([...existingHiddenGraphics, ...incomingHiddenGraphics])
+    );
+    finalGraphicOverrides = { ...existingGraphicOverrides, ...incomingGraphicOverrides };
+    finalCustomKits = mergeById(existingCustomKits, incomingCustomKits);
+
+    const incomingPatients = Array.isArray(incomingDb?.patients) ? incomingDb.patients : [];
+    const incomingSessions = Array.isArray(incomingDb?.sessions)
+      ? incomingDb.sessions.map((s) => ({
+          ...s,
+          ansaeRhen: normalizeAnsaeSheet(s.ansaeRhen),
+        }))
+      : [];
+
+    finalDb = {
+      version: 2,
+      patients: mergeById(existingDb.patients, incomingPatients),
+      sessions: mergeById(existingDb.sessions, incomingSessions),
+      customBiometers: finalCustomBiometers,
+    };
+
+    for (const [key, sheet] of Object.entries(incomingDrafts)) {
+      if (key.startsWith(ANSAE_DRAFT_PREFIX) && sheet && Array.isArray(sheet.organs)) {
+        try {
+          localStorage.setItem(key, JSON.stringify(normalizeAnsaeSheet(sheet)));
+        } catch {
+          // Ignore quota errors
+        }
+      }
+    }
+  }
+
+  saveSessions(finalRooms);
+  saveCustomBiometers(finalCustomBiometers);
+  saveBiometerOverrides(finalBiometerOverrides);
+  saveHiddenOfficialBiometers(finalHiddenBiometers);
+  saveClinicalDatabase(finalDb);
+  saveCustomTherapeuticKits(finalCustomKits);
+
+  try {
+    saveCustomPrintableGraphics(finalCustomGraphics);
+  } catch {
+    // Ignore quota errors on large custom graphic payloads
+  }
+  saveHiddenOfficialGraphics(finalHiddenGraphics);
+  try {
+    savePrintableGraphicOverrides(finalGraphicOverrides);
+  } catch {
+    // Ignore quota errors
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(BACKUP_RESTORED_EVENT));
+  }
+
+  return {
+    mode,
+    rooms: finalRooms,
+    patientsCount: finalDb.patients.length,
+    sessionsCount: finalDb.sessions.length,
+    customBiometersCount: finalCustomBiometers.length,
+    biometerOverridesCount: Object.keys(finalBiometerOverrides).length,
+    customGraphicsCount: finalCustomGraphics.length,
+    ansaeDraftsCount: Object.keys(incomingDrafts).length,
+  };
+}
+
+export function exportClinicalBackupJson(): string {
+  return exportFullBackup().json;
 }
 
 export function importClinicalBackupJson(rawJson: string): {
@@ -585,18 +1061,64 @@ export function importClinicalBackupJson(rawJson: string): {
   }
 
   const db: MasterClinicalDatabase | undefined = parsed.clinicalDatabase;
-  const rooms: QuantumRoomSession[] | undefined = parsed.activeRooms;
+  const rooms: QuantumRoomSession[] | undefined =
+    Array.isArray(parsed.rooms) ? parsed.rooms : parsed.activeRooms;
 
   if (!db || !Array.isArray(db.patients) || !Array.isArray(db.sessions)) {
     throw new Error('Estrutura de prontuários ausente no arquivo de backup.');
   }
 
   saveClinicalDatabase(db);
-  if (Array.isArray(db.customBiometers)) {
+  if (Array.isArray(parsed.customBiometers)) {
+    saveCustomBiometers(parsed.customBiometers);
+  } else if (Array.isArray(db.customBiometers)) {
     saveCustomBiometers(db.customBiometers);
+  }
+  if (parsed.biometerOverrides && typeof parsed.biometerOverrides === 'object') {
+    saveBiometerOverrides(parsed.biometerOverrides);
+  }
+  if (Array.isArray(parsed.hiddenOfficialBiometers)) {
+    saveHiddenOfficialBiometers(parsed.hiddenOfficialBiometers);
+  }
+  if (Array.isArray(parsed.customPrintableGraphics)) {
+    try {
+      saveCustomPrintableGraphics(parsed.customPrintableGraphics);
+    } catch {
+      // Ignore quota
+    }
+  }
+  if (Array.isArray(parsed.hiddenOfficialGraphics)) {
+    saveHiddenOfficialGraphics(parsed.hiddenOfficialGraphics);
+  }
+  if (parsed.printableGraphicOverrides && typeof parsed.printableGraphicOverrides === 'object') {
+    try {
+      savePrintableGraphicOverrides(parsed.printableGraphicOverrides);
+    } catch {
+      // Ignore quota
+    }
+  }
+  if (parsed.ansaeDrafts && typeof parsed.ansaeDrafts === 'object') {
+    for (const [key, sheet] of Object.entries(
+      parsed.ansaeDrafts as Record<string, ClinicalAnsaeRhenSheet>
+    )) {
+      if (key.startsWith(ANSAE_DRAFT_PREFIX) && sheet && Array.isArray(sheet.organs)) {
+        try {
+          localStorage.setItem(key, JSON.stringify(normalizeAnsaeSheet(sheet)));
+        } catch {
+          // Ignore quota
+        }
+      }
+    }
+  }
+  if (Array.isArray(parsed.customTherapeuticKits)) {
+    saveCustomTherapeuticKits(parsed.customTherapeuticKits);
   }
   if (Array.isArray(rooms)) {
     saveSessions(rooms);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(BACKUP_RESTORED_EVENT));
   }
 
   return {
@@ -606,7 +1128,7 @@ export function importClinicalBackupJson(rawJson: string): {
 }
 
 export function getAnsaeDraftKey(patientId: string): string {
-  return `maestro_quantico_ansae_draft_${patientId || 'default'}`;
+  return `${ANSAE_DRAFT_PREFIX}${patientId || 'default'}`;
 }
 
 export function getAnsaeDraftForSession(session: QuantumRoomSession): ClinicalAnsaeRhenSheet {

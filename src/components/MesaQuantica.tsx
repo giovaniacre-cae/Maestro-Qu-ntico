@@ -2,11 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Ban,
+  BookmarkPlus,
+  CalendarClock,
   Check,
+  CheckCircle2,
+  Clock,
   Compass,
   Copy,
   FileText,
   Gem,
+  Layers,
   Leaf,
   Lock,
   PauseCircle,
@@ -16,10 +21,16 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  Timer,
   Trash2,
   TrendingUp,
   Volume2,
 } from 'lucide-react';
+import {
+  BUILTIN_THERAPEUTIC_KITS,
+  TherapeuticKit,
+  buildKitFromCurrentProtocol,
+} from '../data/therapeuticKits';
 import {
   ClinicalAnsaeRhenSheet,
   ClinicalSessionRecord,
@@ -27,17 +38,26 @@ import {
 } from '../types/clinical';
 import {
   AntiCatharsisProtocol,
+  ChartDurationUnit,
   EnergeticRemedyEmission,
   PatientAnamnesis,
   QuantumGenerationResult,
+  QuantumGeometry,
   SensitivityReading,
 } from '../types/quantum';
 import {
+  computeChartEmissionMetrics,
   formatAngstromsBR,
+  formatChartDurationLabel,
   formatTestemunho,
   getHawkinsLevelInfo,
   resolveCrystalForChart,
 } from '../utils/antiCatharsis';
+import {
+  BACKUP_RESTORED_EVENT,
+  loadCustomTherapeuticKits,
+  saveCustomTherapeuticKits,
+} from '../utils/storage';
 import { solfeggioSynth } from '../utils/audioSynth';
 import {
   AddPendulatedChartPanel,
@@ -78,6 +98,24 @@ interface MesaQuanticaProps {
     payload: AddPendulatedChartPayload
   ) => 'stage1' | 'stage2' | 'single' | void;
   onRemovePendulatedChart?: (
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string
+  ) => void;
+  onApplyTherapeuticKit?: (kit: TherapeuticKit) => {
+    stage1Added: string[];
+    stage2Added: string[];
+    singleAdded: string[];
+  };
+  onActivateChartTimer?: (
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string,
+    config: {
+      durationValue: number;
+      durationUnit: ChartDurationUnit;
+      customExpiresAt?: string;
+    }
+  ) => void;
+  onWithdrawChartEmission?: (
     stageTag: 'stage1' | 'stage2' | 'single',
     geometryName: string
   ) => void;
@@ -125,6 +163,9 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
   onConfirmChartCrystal,
   onAddPendulatedChart,
   onRemovePendulatedChart,
+  onApplyTherapeuticKit,
+  onActivateChartTimer,
+  onWithdrawChartEmission,
   energeticRemedies = [],
   onAddEnergeticRemedy,
   onUpdateEnergeticRemedy,
@@ -145,6 +186,45 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
     selectedTherapeutics || { florals: [], crystals: [], herbs: [], habits: [] }
   );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Live clock for chart countdowns on Mesa
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  // Therapeutic Kits state
+  const [customKits, setCustomKits] = useState<TherapeuticKit[]>(() =>
+    loadCustomTherapeuticKits()
+  );
+  const [isKitsOpen, setIsKitsOpen] = useState<boolean>(true);
+  const [selectedKitId, setSelectedKitId] = useState<string>(BUILTIN_THERAPEUTIC_KITS[0].id);
+  const [kitFeedback, setKitFeedback] = useState<string | null>(null);
+  const [isSaveKitFormOpen, setIsSaveKitFormOpen] = useState<boolean>(false);
+  const [newKitName, setNewKitName] = useState<string>('');
+  const [newKitFocus, setNewKitFocus] = useState<string>('');
+
+  // Chart timer inline editor state
+  const [timerEditorKey, setTimerEditorKey] = useState<string | null>(null);
+  const [timerMode, setTimerMode] = useState<'duration' | 'datetime'>('duration');
+  const [timerValue, setTimerValue] = useState<number>(72);
+  const [timerUnit, setTimerUnit] = useState<ChartDurationUnit>('horas');
+  const [timerCustomEnd, setTimerCustomEnd] = useState<string>('');
+
+  const allKits = useMemo(
+    () => [...BUILTIN_THERAPEUTIC_KITS, ...customKits],
+    [customKits]
+  );
+
+  useEffect(() => {
+    const refreshKits = () => setCustomKits(loadCustomTherapeuticKits());
+    window.addEventListener(BACKUP_RESTORED_EVENT, refreshKits);
+    return () => window.removeEventListener(BACKUP_RESTORED_EVENT, refreshKits);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (selectedTherapeutics) {
@@ -285,6 +365,398 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
 
   const hawkinsInfo = getHawkinsLevelInfo(sensitivity.hawkins);
   const fallbackTestemunho = formatTestemunho(anamnesis);
+
+  const selectedKit = useMemo(
+    () => allKits.find((k) => k.id === selectedKitId) || allKits[0],
+    [allKits, selectedKitId]
+  );
+
+  const handleApplyKitClick = (kit: TherapeuticKit) => {
+    if (!onApplyTherapeuticKit) return;
+    const summary = onApplyTherapeuticKit(kit);
+    if (protocol.mode === 'escalonado') {
+      const parts: string[] = [];
+      if (summary.stage1Added.length > 0) {
+        parts.push(`${summary.stage1Added.length} em Etapa 1 (Assepsia/Proteção)`);
+      }
+      if (summary.stage2Added.length > 0) {
+        parts.push(
+          `${summary.stage2Added.length} protegidos para Etapa 2 (Regeneração/Harmonia pós-12h)`
+        );
+      }
+      setKitFeedback(
+        `${kit.name} aplicado com proteção Anti-Catarse: ${parts.join(' · ')}.`
+      );
+      if (summary.stage1Added.length > 0) {
+        setActiveStageTab('stage1');
+      }
+    } else {
+      setKitFeedback(
+        `${kit.name} carregado na mesa (${summary.singleAdded.length} gráfico(s) em Etapa Única).`
+      );
+    }
+    setTimeout(() => setKitFeedback(null), 6500);
+  };
+
+  const handleSaveCurrentProtocolAsKit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKitName.trim()) return;
+    const built = buildKitFromCurrentProtocol(
+      newKitName,
+      newKitFocus || anamnesis.therapeuticFocus || 'Protocolo clínico personalizado',
+      protocol
+    );
+    const updated = [...customKits, built];
+    saveCustomTherapeuticKits(updated);
+    setCustomKits(updated);
+    setSelectedKitId(built.id);
+    setNewKitName('');
+    setNewKitFocus('');
+    setIsSaveKitFormOpen(false);
+    setKitFeedback(`Kit personalizado "${built.name}" salvo com ${built.charts.length} gráfico(s).`);
+    setTimeout(() => setKitFeedback(null), 5000);
+  };
+
+  const handleDeleteCustomKit = (kitId: string) => {
+    const updated = customKits.filter((k) => k.id !== kitId);
+    saveCustomTherapeuticKits(updated);
+    setCustomKits(updated);
+    if (selectedKitId === kitId) {
+      setSelectedKitId(BUILTIN_THERAPEUTIC_KITS[0].id);
+    }
+  };
+
+  const openTimerEditor = (
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geo: QuantumGeometry
+  ) => {
+    const key = `${stageTag}::${geo.name}`;
+    if (timerEditorKey === key) {
+      setTimerEditorKey(null);
+      return;
+    }
+    setTimerEditorKey(key);
+    setTimerMode('duration');
+    if (geo.durationValue && geo.durationUnit) {
+      setTimerValue(geo.durationValue);
+      setTimerUnit(geo.durationUnit);
+    } else if (geo.category === 'assepsia' || geo.category === 'protecao') {
+      setTimerValue(72);
+      setTimerUnit('horas');
+    } else {
+      setTimerValue(7);
+      setTimerUnit('dias');
+    }
+    const defaultEnd = new Date(Date.now() + 72 * 3600 * 1000);
+    const localIso = new Date(defaultEnd.getTime() - defaultEnd.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setTimerCustomEnd(localIso);
+  };
+
+  const renderGeometryCard = (
+    geo: QuantumGeometry,
+    stageTag: 'stage1' | 'stage2' | 'single'
+  ) => {
+    const isTherapist = geo.source === 'therapist';
+    const editorKey = `${stageTag}::${geo.name}`;
+    const isEditorOpen = timerEditorKey === editorKey;
+    const metrics = computeChartEmissionMetrics(geo, nowMs);
+
+    const statusBadgeClass =
+      metrics.status === 'expired'
+        ? 'bg-[#DC2626]/10 border-[#DC2626]/40 text-[#991B1B]'
+        : metrics.status === 'warning'
+        ? 'bg-[#FEF3C7] border-[#D97706]/50 text-[#92400E]'
+        : metrics.status === 'active'
+        ? 'bg-[#DCFCE7] border-[#16A34A]/40 text-[#166534]'
+        : 'bg-white border-[#E2E8F0] text-[#64748B]';
+
+    const dotClass =
+      metrics.status === 'expired'
+        ? 'bg-[#DC2626] animate-pulse'
+        : metrics.status === 'warning'
+        ? 'bg-[#D97706]'
+        : metrics.status === 'active'
+        ? 'bg-[#16A34A]'
+        : 'bg-[#94A3B8]';
+
+    const barClass =
+      metrics.status === 'expired'
+        ? 'bg-[#DC2626]'
+        : metrics.status === 'warning'
+        ? 'bg-[#D97706]'
+        : 'bg-[#16A34A]';
+
+    return (
+      <div
+        key={geo.id || geo.name}
+        className={`p-4 rounded-lg bg-[#FAF8F5] border space-y-2 ${
+          isTherapist ? 'border-[#0F172A]/40 shadow-sm' : 'border-[#E2E8F0]'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-serif text-sm font-bold text-[#0F172A]">{geo.name}</span>
+              {isTherapist ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
+                  <PendulumIcon className="w-3 h-3 text-[#F59E0B]" />
+                  Pendulado pelo Terapeuta
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-[#64748B] text-[10px] font-medium">
+                  Sugestão do Motor
+                </span>
+              )}
+            </div>
+            {geo.customFocus && (
+              <p className="text-[11px] font-semibold text-[#B45309]">
+                Foco específico: {geo.customFocus}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[11px] font-mono text-[#B45309]">{geo.durationHint}</span>
+            {isTherapist && onRemovePendulatedChart && (
+              <button
+                type="button"
+                onClick={() => onRemovePendulatedChart(stageTag, geo.name)}
+                aria-label={`Remover gráfico ${geo.name}`}
+                title="Remover gráfico adicionado manualmente"
+                className="p-1 text-[#64748B] hover:text-[#BA1A1A] hover:bg-white rounded cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
+
+        <CrystalChartSelector
+          geometryName={geo.name}
+          anchoredCrystal={resolveCrystalForChart(chartCrystals, stageTag, geo.name)}
+          onConfirmCrystal={(crystal) =>
+            onConfirmChartCrystal?.(stageTag, geo.name, crystal)
+          }
+        />
+
+        {/* Controle Temporal na Mesa */}
+        <div className="pt-2 border-t border-[#E2E8F0]/80 space-y-2">
+          {(metrics.hasTimer || metrics.status === 'withdrawn') && (
+            <div className={`p-2.5 rounded-md border text-[11px] space-y-1.5 ${statusBadgeClass}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-semibold">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+                  {metrics.statusLabel}
+                </span>
+                {metrics.hasTimer && metrics.status !== 'withdrawn' && (
+                  <span className="font-mono tabular-nums font-bold">
+                    {metrics.countdownText}
+                  </span>
+                )}
+              </div>
+
+              {metrics.hasTimer && metrics.status !== 'withdrawn' && (
+                <>
+                  <div className="h-1.5 w-full bg-white/80 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${barClass}`}
+                      style={{ width: `${metrics.progressPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] opacity-90 font-mono tabular-nums">
+                    <span>
+                      Prazo: {formatChartDurationLabel(geo.durationValue, geo.durationUnit)}
+                    </span>
+                    {geo.expiresAt && (
+                      <span>
+                        Retirada: {new Date(geo.expiresAt).toLocaleString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {metrics.status === 'withdrawn' && geo.withdrawnAt && (
+                <p className="text-[10px] font-mono">
+                  Retirada em{' '}
+                  {new Date(geo.withdrawnAt).toLocaleString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {onActivateChartTimer && (
+              <button
+                type="button"
+                onClick={() => openTimerEditor(stageTag, geo)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-md hover:border-[#D97706] hover:text-[#B45309] transition-colors cursor-pointer"
+              >
+                <Timer className="w-3.5 h-3.5 text-[#B45309]" />
+                {metrics.hasTimer && metrics.status !== 'withdrawn'
+                  ? 'Reconfigurar Cronômetro'
+                  : 'Ativar Cronômetro na Mesa'}
+              </button>
+            )}
+
+            {metrics.hasTimer &&
+              metrics.status !== 'withdrawn' &&
+              onWithdrawChartEmission && (
+                <button
+                  type="button"
+                  onClick={() => onWithdrawChartEmission(stageTag, geo.name)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-[#166534] bg-white border border-[#16A34A]/40 rounded-md hover:bg-[#DCFCE7] transition-colors cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Registrar Retirada
+                </button>
+              )}
+          </div>
+
+          {isEditorOpen && onActivateChartTimer && (
+            <div className="p-3 rounded-lg bg-white border border-[#D97706]/40 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-[#0F172A] flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-[#B45309]" />
+                  Tempo de Emissão na Mesa
+                </span>
+                <div className="inline-flex rounded border border-[#E2E8F0] p-0.5 bg-[#FAF8F5]">
+                  <button
+                    type="button"
+                    onClick={() => setTimerMode('duration')}
+                    className={`px-2 py-0.5 text-[10px] font-semibold rounded cursor-pointer ${
+                      timerMode === 'duration'
+                        ? 'bg-[#0F172A] text-white'
+                        : 'text-[#64748B]'
+                    }`}
+                  >
+                    Duração
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTimerMode('datetime')}
+                    className={`px-2 py-0.5 text-[10px] font-semibold rounded cursor-pointer ${
+                      timerMode === 'datetime'
+                        ? 'bg-[#0F172A] text-white'
+                        : 'text-[#64748B]'
+                    }`}
+                  >
+                    Data/Hora Final
+                  </button>
+                </div>
+              </div>
+
+              {timerMode === 'duration' ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={timerValue}
+                      onChange={(e) => setTimerValue(Math.max(1, Number(e.target.value) || 1))}
+                      aria-label="Quantidade de tempo"
+                      className="w-20 px-2.5 py-1.5 text-xs font-mono bg-[#FAF8F5] border border-[#CBD5E1] rounded text-[#0F172A]"
+                    />
+                    <select
+                      value={timerUnit}
+                      onChange={(e) => setTimerUnit(e.target.value as ChartDurationUnit)}
+                      aria-label="Unidade de tempo"
+                      className="flex-1 px-2.5 py-1.5 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded text-[#0F172A]"
+                    >
+                      <option value="minutos">Minutos</option>
+                      <option value="horas">Horas</option>
+                      <option value="dias">Dias</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '30 min', v: 30, u: 'minutos' as const },
+                      { label: '24h', v: 24, u: 'horas' as const },
+                      { label: '48h', v: 48, u: 'horas' as const },
+                      { label: '72h', v: 72, u: 'horas' as const },
+                      { label: '7 dias', v: 7, u: 'dias' as const },
+                      { label: '10 dias', v: 10, u: 'dias' as const },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setTimerValue(preset.v);
+                          setTimerUnit(preset.u);
+                        }}
+                        className="px-2 py-0.5 text-[10px] font-mono bg-[#FAF8F5] border border-[#E2E8F0] rounded hover:border-[#D97706] cursor-pointer text-[#45464D]"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] font-medium text-[#64748B] mb-1">
+                    Definir data/hora final para retirada
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={timerCustomEnd}
+                    onChange={(e) => setTimerCustomEnd(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs font-mono bg-[#FAF8F5] border border-[#CBD5E1] rounded text-[#0F172A]"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setTimerEditorKey(null)}
+                  className="px-2.5 py-1 text-[11px] font-medium text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (timerMode === 'datetime' && timerCustomEnd) {
+                      onActivateChartTimer(stageTag, geo.name, {
+                        durationValue: timerValue,
+                        durationUnit: timerUnit,
+                        customExpiresAt: timerCustomEnd,
+                      });
+                    } else {
+                      onActivateChartTimer(stageTag, geo.name, {
+                        durationValue: timerValue,
+                        durationUnit: timerUnit,
+                      });
+                    }
+                    setTimerEditorKey(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold text-white bg-[#0F172A] rounded hover:bg-[#1E293B] cursor-pointer"
+                >
+                  <Clock className="w-3 h-3 text-[#F59E0B]" />
+                  Iniciar Contagem na Mesa
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -556,6 +1028,182 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
           )}
         </div>
 
+        {/* Kits Terapêuticos Prontos em 1 Clique */}
+        <div className="p-4 sm:p-5 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <Layers className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-serif text-sm sm:text-base font-bold text-[#0F172A]">
+                  Kits Terapêuticos Prontos (1 Clique)
+                </h3>
+                <p className="text-xs text-[#64748B]">
+                  Carregue combinações clínicas validadas diretamente na mesa, com roteamento
+                  automático pelo Protocolo Anti-Catarse.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsSaveKitFormOpen((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-lg hover:border-[#D97706] transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <BookmarkPlus className="w-3.5 h-3.5 text-[#B45309]" />
+                + Salvar Protocolo Atual como Kit
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsKitsOpen((prev) => !prev)}
+                className="px-2.5 py-1.5 text-xs font-medium text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+              >
+                {isKitsOpen ? 'Recolher' : 'Expandir'}
+              </button>
+            </div>
+          </div>
+
+          {isSaveKitFormOpen && (
+            <form
+              onSubmit={handleSaveCurrentProtocolAsKit}
+              className="p-4 rounded-lg bg-white border border-[#D97706]/40 grid grid-cols-1 md:grid-cols-12 gap-3 items-end"
+            >
+              <div className="md:col-span-4 space-y-1">
+                <label className="block text-[11px] font-semibold text-[#0F172A]">
+                  Nome do Novo Kit Personalizado
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newKitName}
+                  onChange={(e) => setNewKitName(e.target.value)}
+                  placeholder="Ex: Kit Imunidade & Sono Profundo"
+                  className="w-full px-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
+                />
+              </div>
+              <div className="md:col-span-5 space-y-1">
+                <label className="block text-[11px] font-semibold text-[#0F172A]">
+                  Foco Clínico / Indicação
+                </label>
+                <input
+                  type="text"
+                  value={newKitFocus}
+                  onChange={(e) => setNewKitFocus(e.target.value)}
+                  placeholder="Ex: Recuperação pós-viral e descanso neural"
+                  className="w-full px-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
+                />
+              </div>
+              <div className="md:col-span-3 flex items-center gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsSaveKitFormOpen(false)}
+                  className="px-3 py-2 text-xs font-medium text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer whitespace-nowrap"
+                >
+                  Salvar Kit
+                </button>
+              </div>
+            </form>
+          )}
+
+          {isKitsOpen && (
+            <div className="space-y-3">
+              {/* Quick 1-click dropdown selector */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-white p-3 rounded-lg border border-[#E2E8F0]">
+                <label
+                  htmlFor="quick-kit-selector"
+                  className="text-xs font-semibold text-[#0F172A] whitespace-nowrap"
+                >
+                  Aplicar Kit Terapêutico Pronto:
+                </label>
+                <select
+                  id="quick-kit-selector"
+                  value={selectedKit.id}
+                  onChange={(e) => setSelectedKitId(e.target.value)}
+                  className="flex-1 px-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
+                >
+                  {allKits.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.name} ({k.charts.map((c) => c.name).join(' + ')})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => handleApplyKitClick(selectedKit)}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#F59E0B]" />
+                  Aplicar Kit na Mesa
+                </button>
+              </div>
+
+              {/* Compact Kit Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {allKits.map((kit) => {
+                  const isSelected = kit.id === selectedKit.id;
+                  return (
+                    <div
+                      key={kit.id}
+                      className={`p-3.5 rounded-lg bg-white border flex flex-col justify-between gap-2.5 transition-colors ${
+                        isSelected ? 'border-[#D97706]' : 'border-[#E2E8F0]'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-serif text-xs font-bold text-[#0F172A] leading-snug">
+                            {kit.name}
+                          </h4>
+                          {kit.isCustom && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCustomKit(kit.id)}
+                              title="Excluir kit personalizado"
+                              aria-label={`Excluir ${kit.name}`}
+                              className="p-1 text-[#94A3B8] hover:text-[#BA1A1A] cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#B45309] font-medium">
+                          Foco: {kit.focus}
+                        </p>
+                        <p className="text-[11px] text-[#45464D]">
+                          {kit.charts.map((c) => c.name).join(' · ')}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedKitId(kit.id);
+                          handleApplyKitClick(kit);
+                        }}
+                        className="w-full py-1.5 px-3 text-[11px] font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#CBD5E1] rounded hover:border-[#D97706] hover:bg-[#FEFCE8] transition-colors cursor-pointer"
+                      >
+                        Aplicar em 1 Clique
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {kitFeedback && (
+            <div className="p-3 rounded-lg bg-white border border-[#D97706]/50 text-xs font-medium text-[#0F172A] flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-[#B45309] shrink-0" />
+              <span>{kitFeedback}</span>
+            </div>
+          )}
+        </div>
+
         <AddPendulatedChartPanel
           protocolMode={protocol.mode}
           onAddChart={(payload) => {
@@ -584,66 +1232,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {protocol.stage1.geometries.map((geo) => {
-                const isTherapist = geo.source === 'therapist';
-                return (
-                  <div
-                    key={geo.id || geo.name}
-                    className={`p-4 rounded-lg bg-[#FAF8F5] border space-y-1.5 ${
-                      isTherapist ? 'border-[#0F172A]/40 shadow-sm' : 'border-[#E2E8F0]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-serif text-sm font-bold text-[#0F172A]">
-                            {geo.name}
-                          </span>
-                          {isTherapist ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
-                              <PendulumIcon className="w-3 h-3 text-[#F59E0B]" />
-                              Pendulado pelo Terapeuta
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-[#64748B] text-[10px] font-medium">
-                              Sugestão do Motor
-                            </span>
-                          )}
-                        </div>
-                        {geo.customFocus && (
-                          <p className="text-[11px] font-semibold text-[#B45309]">
-                            Foco específico: {geo.customFocus}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[11px] font-mono text-[#B45309]">
-                          {geo.durationHint}
-                        </span>
-                        {isTherapist && onRemovePendulatedChart && (
-                          <button
-                            type="button"
-                            onClick={() => onRemovePendulatedChart('stage1', geo.name)}
-                            aria-label={`Remover gráfico ${geo.name}`}
-                            title="Remover gráfico adicionado manualmente"
-                            className="p-1 text-[#64748B] hover:text-[#BA1A1A] hover:bg-white rounded cursor-pointer transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
-                    <CrystalChartSelector
-                      geometryName={geo.name}
-                      anchoredCrystal={resolveCrystalForChart(chartCrystals, 'stage1', geo.name)}
-                      onConfirmCrystal={(crystal) =>
-                        onConfirmChartCrystal?.('stage1', geo.name, crystal)
-                      }
-                    />
-                  </div>
-                );
-              })}
+              {protocol.stage1.geometries.map((geo) => renderGeometryCard(geo, 'stage1'))}
             </div>
 
             <div className="p-4 rounded-lg bg-[#BA1A1A]/5 border border-[#BA1A1A]/25 space-y-2">
@@ -704,68 +1293,7 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {stageObj.geometries.map((geo) => {
                       const stageTag = protocol.mode === 'escalonado' ? 'stage2' : 'single';
-                      const isTherapist = geo.source === 'therapist';
-                      return (
-                        <div
-                          key={geo.id || geo.name}
-                          className={`p-4 rounded-lg bg-[#FAF8F5] border space-y-1.5 ${
-                            isTherapist ? 'border-[#0F172A]/40 shadow-sm' : 'border-[#E2E8F0]'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-serif text-sm font-bold text-[#0F172A]">
-                                  {geo.name}
-                                </span>
-                                {isTherapist ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F172A] text-white text-[10px] font-semibold">
-                                    <PendulumIcon className="w-3 h-3 text-[#F59E0B]" />
-                                    Pendulado pelo Terapeuta
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-[#64748B] text-[10px] font-medium">
-                                    Sugestão do Motor
-                                  </span>
-                                )}
-                              </div>
-                              {geo.customFocus && (
-                                <p className="text-[11px] font-semibold text-[#B45309]">
-                                  Foco específico: {geo.customFocus}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[11px] font-mono text-[#B45309]">
-                                {geo.durationHint}
-                              </span>
-                              {isTherapist && onRemovePendulatedChart && (
-                                <button
-                                  type="button"
-                                  onClick={() => onRemovePendulatedChart(stageTag, geo.name)}
-                                  aria-label={`Remover gráfico ${geo.name}`}
-                                  title="Remover gráfico adicionado manualmente"
-                                  className="p-1 text-[#64748B] hover:text-[#BA1A1A] hover:bg-white rounded cursor-pointer transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-xs text-[#45464D] leading-relaxed">{geo.role}</p>
-                          <CrystalChartSelector
-                            geometryName={geo.name}
-                            anchoredCrystal={resolveCrystalForChart(
-                              chartCrystals,
-                              stageTag,
-                              geo.name
-                            )}
-                            onConfirmCrystal={(crystal) =>
-                              onConfirmChartCrystal?.(stageTag, geo.name, crystal)
-                            }
-                          />
-                        </div>
-                      );
+                      return renderGeometryCard(geo, stageTag);
                     })}
                   </div>
                 </>

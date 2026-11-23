@@ -8,12 +8,15 @@ export { getHawkinsLabelByHz };
 import {
   AntiCatharsisProtocol,
   ChakraReading,
+  ChartDurationUnit,
+  ChartEmissionStatus,
   OrganicSystemStatus,
   PatientAnamnesis,
   QuantumGenerationResult,
   QuantumGeometry,
   SensitivityReading,
 } from '../types/quantum';
+import { TherapeuticKit, kitChartSpecToGeometry } from '../data/therapeuticKits';
 
 export function formatAngstromsBR(value?: number | null): string {
   if (value === undefined || value === null || Number.isNaN(value)) {
@@ -473,11 +476,245 @@ export function removeGeometryFromProtocol(
   return protocol;
 }
 
+export function durationUnitToMs(value: number, unit: ChartDurationUnit): number {
+  const safeValue = Number.isFinite(value) && value > 0 ? value : 1;
+  if (unit === 'minutos') return safeValue * 60 * 1000;
+  if (unit === 'horas') return safeValue * 3600 * 1000;
+  return safeValue * 24 * 3600 * 1000;
+}
+
+export function calculateChartExpiresAt(
+  activatedAtIso: string,
+  durationValue: number,
+  durationUnit: ChartDurationUnit
+): string {
+  const startMs = new Date(activatedAtIso).getTime();
+  const baseMs = Number.isNaN(startMs) ? Date.now() : startMs;
+  return new Date(baseMs + durationUnitToMs(durationValue, durationUnit)).toISOString();
+}
+
+export function formatChartDurationLabel(
+  value?: number,
+  unit?: ChartDurationUnit
+): string {
+  if (!value || !unit) return 'Prazo personalizado';
+  if (unit === 'minutos') return `${value} ${value === 1 ? 'minuto' : 'minutos'}`;
+  if (unit === 'horas') return `${value} ${value === 1 ? 'hora' : 'horas'}`;
+  return `${value} ${value === 1 ? 'dia' : 'dias'}`;
+}
+
+export function formatCountdownMs(ms: number): string {
+  const absMs = Math.abs(ms);
+  const totalSeconds = Math.floor(absMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  if (days > 0) {
+    return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+  }
+  return `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+}
+
+export interface ChartEmissionMetrics {
+  hasTimer: boolean;
+  status: ChartEmissionStatus | 'idle';
+  statusLabel: string;
+  remainingMs: number;
+  totalMs: number;
+  progressPercent: number;
+  remainingPercent: number;
+  countdownText: string;
+}
+
+export function computeChartEmissionMetrics(
+  geo: QuantumGeometry,
+  nowMs: number = Date.now()
+): ChartEmissionMetrics {
+  if (geo.status === 'withdrawn') {
+    return {
+      hasTimer: Boolean(geo.activatedAt && geo.expiresAt),
+      status: 'withdrawn',
+      statusLabel: 'Retirada registrada',
+      remainingMs: 0,
+      totalMs: 0,
+      progressPercent: 100,
+      remainingPercent: 0,
+      countdownText: 'Concluída',
+    };
+  }
+
+  if (!geo.activatedAt || !geo.expiresAt) {
+    return {
+      hasTimer: false,
+      status: 'idle',
+      statusLabel: 'Aguardando ativação na mesa',
+      remainingMs: 0,
+      totalMs: 0,
+      progressPercent: 0,
+      remainingPercent: 100,
+      countdownText: '—',
+    };
+  }
+
+  const startMs = new Date(geo.activatedAt).getTime();
+  const endMs = new Date(geo.expiresAt).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    return {
+      hasTimer: false,
+      status: 'idle',
+      statusLabel: 'Aguardando ativação na mesa',
+      remainingMs: 0,
+      totalMs: 0,
+      progressPercent: 0,
+      remainingPercent: 100,
+      countdownText: '—',
+    };
+  }
+
+  const totalMs = Math.max(1000, endMs - startMs);
+  const remainingMs = endMs - nowMs;
+  const elapsedMs = Math.max(0, nowMs - startMs);
+  const progressPercent = Math.max(0, Math.min(100, Math.round((elapsedMs / totalMs) * 100)));
+  const remainingPercent = Math.max(0, Math.min(100, (remainingMs / totalMs) * 100));
+
+  if (remainingMs <= 0) {
+    return {
+      hasTimer: true,
+      status: 'expired',
+      statusLabel: 'Prazo vencido — Retirar / Reavaliar no Pêndulo!',
+      remainingMs,
+      totalMs,
+      progressPercent: 100,
+      remainingPercent: 0,
+      countdownText: `Vencido há ${formatCountdownMs(remainingMs)}`,
+    };
+  }
+
+  if (remainingPercent < 15) {
+    return {
+      hasTimer: true,
+      status: 'warning',
+      statusLabel: 'Aviso prévio — faltando menos de 15% do tempo para retirada',
+      remainingMs,
+      totalMs,
+      progressPercent,
+      remainingPercent,
+      countdownText: formatCountdownMs(remainingMs),
+    };
+  }
+
+  return {
+    hasTimer: true,
+    status: 'active',
+    statusLabel: 'Em emissão',
+    remainingMs,
+    totalMs,
+    progressPercent,
+    remainingPercent,
+    countdownText: formatCountdownMs(remainingMs),
+  };
+}
+
+export function applyTherapeuticKitToProtocol(
+  protocol: AntiCatharsisProtocol,
+  kit: TherapeuticKit
+): {
+  protocol: AntiCatharsisProtocol;
+  stage1Added: string[];
+  stage2Added: string[];
+  singleAdded: string[];
+} {
+  let nextProtocol = protocol;
+  const stage1Added: string[] = [];
+  const stage2Added: string[] = [];
+  const singleAdded: string[] = [];
+
+  for (const spec of kit.charts) {
+    const geo = kitChartSpecToGeometry(spec);
+    if (nextProtocol.mode === 'escalonado' && nextProtocol.stage1 && nextProtocol.stage2) {
+      const targetStage: 'stage1' | 'stage2' =
+        spec.category === 'assepsia' || spec.category === 'protecao' ? 'stage1' : 'stage2';
+      nextProtocol = addGeometryToProtocol(nextProtocol, targetStage, geo).protocol;
+      if (targetStage === 'stage1') {
+        stage1Added.push(spec.name);
+      } else {
+        stage2Added.push(spec.name);
+      }
+    } else {
+      nextProtocol = addGeometryToProtocol(nextProtocol, 'single', geo).protocol;
+      singleAdded.push(spec.name);
+    }
+  }
+
+  return {
+    protocol: nextProtocol,
+    stage1Added,
+    stage2Added,
+    singleAdded,
+  };
+}
+
+function preserveMotorTimers(
+  freshList: QuantumGeometry[],
+  previousList?: QuantumGeometry[]
+): QuantumGeometry[] {
+  if (!previousList || previousList.length === 0) return freshList;
+  return freshList.map((g) => {
+    const prev = previousList.find(
+      (p) => p.name.toLowerCase() === g.name.toLowerCase()
+    );
+    if (!prev || !prev.activatedAt) return g;
+    return {
+      ...g,
+      activatedAt: prev.activatedAt,
+      durationValue: prev.durationValue,
+      durationUnit: prev.durationUnit,
+      expiresAt: prev.expiresAt,
+      status: prev.status,
+      withdrawnAt: prev.withdrawnAt,
+    };
+  });
+}
+
 export function preserveTherapistChartsInProtocol(
   freshProtocol: AntiCatharsisProtocol,
   previousProtocol?: AntiCatharsisProtocol | null
 ): AntiCatharsisProtocol {
   if (!previousProtocol) return freshProtocol;
+
+  let merged: AntiCatharsisProtocol = {
+    ...freshProtocol,
+    stage1: freshProtocol.stage1
+      ? {
+          ...freshProtocol.stage1,
+          geometries: preserveMotorTimers(
+            freshProtocol.stage1.geometries,
+            previousProtocol.stage1?.geometries
+          ),
+        }
+      : null,
+    stage2: freshProtocol.stage2
+      ? {
+          ...freshProtocol.stage2,
+          geometries: preserveMotorTimers(
+            freshProtocol.stage2.geometries,
+            previousProtocol.stage2?.geometries
+          ),
+        }
+      : null,
+    singleStage: freshProtocol.singleStage
+      ? {
+          ...freshProtocol.singleStage,
+          geometries: preserveMotorTimers(
+            freshProtocol.singleStage.geometries,
+            previousProtocol.singleStage?.geometries
+          ),
+        }
+      : null,
+  };
 
   const manualStage1 = (previousProtocol.stage1?.geometries || []).filter(
     (g) => g.source === 'therapist'
@@ -489,7 +726,6 @@ export function preserveTherapistChartsInProtocol(
     (g) => g.source === 'therapist'
   );
 
-  let merged = freshProtocol;
   manualStage1.forEach((g) => {
     merged = addGeometryToProtocol(merged, 'stage1', g).protocol;
   });

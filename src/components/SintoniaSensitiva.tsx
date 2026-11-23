@@ -52,6 +52,7 @@ import {
 } from '../utils/antiCatharsis';
 import {
   ANSAE_SYSTEMS_META,
+  BACKUP_RESTORED_EVENT,
   createDefaultAnsaeRhenSheet,
   loadBiometerOverrides,
   loadClinicalDatabase,
@@ -600,6 +601,15 @@ function loadInitialSheet(
             hawkinsLevel: getHawkinsLabelByHz(sensitivity.hawkins),
             stressLevel: sensitivity.stressLevel,
             spiritualDisturbances: sensitivity.interferenceTypes,
+            clientPerceptionScore:
+              sensitivity.clientPerceptionScore ??
+              parsed.spiritualPsycho.clientPerceptionScore,
+            clientPerceptionMoment:
+              sensitivity.clientPerceptionMoment ??
+              parsed.spiritualPsycho.clientPerceptionMoment,
+            clientPerceptionNote:
+              sensitivity.clientPerceptionNote ??
+              parsed.spiritualPsycho.clientPerceptionNote,
           },
           auricField: {
             ...parsed.auricField,
@@ -627,6 +637,18 @@ function loadInitialSheet(
         hawkinsLevel: getHawkinsLabelByHz(sensitivity.hawkins),
         stressLevel: sensitivity.stressLevel,
         spiritualDisturbances: sensitivity.interferenceTypes,
+        clientPerceptionScore:
+          sensitivity.clientPerceptionScore ??
+          matched.clientPerceptionScore ??
+          matched.ansaeRhen.spiritualPsycho.clientPerceptionScore,
+        clientPerceptionMoment:
+          sensitivity.clientPerceptionMoment ??
+          matched.clientPerceptionMoment ??
+          matched.ansaeRhen.spiritualPsycho.clientPerceptionMoment,
+        clientPerceptionNote:
+          sensitivity.clientPerceptionNote ??
+          matched.clientPerceptionNote ??
+          matched.ansaeRhen.spiritualPsycho.clientPerceptionNote,
       },
       auricField: {
         ...matched.ansaeRhen.auricField,
@@ -642,6 +664,9 @@ function loadInitialSheet(
   base.spiritualPsycho.hawkinsLevel = getHawkinsLabelByHz(sensitivity.hawkins);
   base.spiritualPsycho.stressLevel = sensitivity.stressLevel;
   base.spiritualPsycho.spiritualDisturbances = sensitivity.interferenceTypes;
+  base.spiritualPsycho.clientPerceptionScore = sensitivity.clientPerceptionScore;
+  base.spiritualPsycho.clientPerceptionMoment = sensitivity.clientPerceptionMoment;
+  base.spiritualPsycho.clientPerceptionNote = sensitivity.clientPerceptionNote;
   base.auricField.protectionPercent = sensitivity.auricProtection;
   return base;
 }
@@ -667,6 +692,17 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   const [biometerOverrides, setBiometerOverrides] = useState<
     Record<string, { name?: string; items: string[] }>
   >(() => loadBiometerOverrides());
+
+  useEffect(() => {
+    const syncFromBackup = () => {
+      setCustomBiometers(loadCustomBiometers());
+      setHiddenOfficialBiometers(loadHiddenOfficialBiometers());
+      setBiometerOverrides(loadBiometerOverrides());
+      setSheet(loadInitialSheet(anamnesis, sensitivity));
+    };
+    window.addEventListener(BACKUP_RESTORED_EVENT, syncFromBackup);
+    return () => window.removeEventListener(BACKUP_RESTORED_EVENT, syncFromBackup);
+  }, [anamnesis, sensitivity]);
 
   // Contextual Fixed Biometer Dock state
   const [activeDockContext, setActiveDockContext] =
@@ -893,6 +929,9 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         db.sessions[idx] = {
           ...db.sessions[idx],
           ansaeRhen: sheet,
+          clientPerceptionScore: sheet.spiritualPsycho.clientPerceptionScore,
+          clientPerceptionMoment: sheet.spiritualPsycho.clientPerceptionMoment,
+          clientPerceptionNote: sheet.spiritualPsycho.clientPerceptionNote,
           updatedAt: new Date().toISOString(),
         };
         saveClinicalDatabase(db);
@@ -1054,6 +1093,9 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       subtleInterferences:
         syncedSheet.spiritualPsycho.spiritualDisturbances.length +
         syncedSheet.spiritualPsycho.implantsDetected.length,
+      clientPerceptionScore: syncedSheet.spiritualPsycho.clientPerceptionScore,
+      clientPerceptionMoment: syncedSheet.spiritualPsycho.clientPerceptionMoment,
+      clientPerceptionNote: syncedSheet.spiritualPsycho.clientPerceptionNote,
       ...(syncChakras ? { chakras: mapAnsaeChakrasToLegacy(syncedSheet.chakras) } : {}),
       ...(syncOrgans
         ? { organicSystems: mapAnsaeSystemsToLegacy(syncedSheet.organs, syncedSheet.systems) }
@@ -3247,6 +3289,134 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           </div>
         </section>
       )}
+
+      {/* Escala Subjetiva de Percepção do Consulente (0 a 10) */}
+      <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+          <div className="flex items-start gap-2.5">
+            <HeartHandshake className="w-5 h-5 text-[#B45309] shrink-0 mt-0.5" />
+            <div>
+              <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                Percepção de Bem-Estar do Consulente (0 a 10)
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Registre como o consulente percebe o próprio estado físico, emocional e vital para
+                compor a Linha do Tempo Evolutiva no prontuário.
+              </p>
+            </div>
+          </div>
+
+          <div className="inline-flex items-center p-1 bg-[#FAF8F5] border border-[#E2E8F0] rounded-lg shrink-0">
+            {[
+              { id: 'antes' as const, label: 'Antes do Ciclo' },
+              { id: 'pos' as const, label: 'Pós-Ciclo / Retorno' },
+            ].map((m) => {
+              const currentMoment = sheet.spiritualPsycho.clientPerceptionMoment || 'antes';
+              const active = currentMoment === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        clientPerceptionMoment: m.id,
+                      },
+                    }))
+                  }
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                    active
+                      ? 'bg-[#0F172A] text-white'
+                      : 'text-[#64748B] hover:text-[#0F172A]'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[#64748B]">0 = Mal-estar intenso · 10 = Bem-estar pleno</span>
+            <span className="font-mono tabular-nums font-bold text-[#0F172A]">
+              {typeof sheet.spiritualPsycho.clientPerceptionScore === 'number'
+                ? `Nota: ${sheet.spiritualPsycho.clientPerceptionScore} / 10`
+                : 'Ainda não aferida'}
+            </span>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Nota de percepção de bem-estar de 0 a 10"
+            className="grid grid-cols-6 sm:grid-cols-11 gap-1.5"
+          >
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => {
+              const selected = sheet.spiritualPsycho.clientPerceptionScore === score;
+              const selectedStyle =
+                score <= 3
+                  ? 'bg-[#BA1A1A] text-white border-[#93000A]'
+                  : score <= 6
+                  ? 'bg-[#D97706] text-white border-[#B45309]'
+                  : 'bg-[#16A34A] text-white border-[#15803D]';
+              return (
+                <button
+                  key={score}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() =>
+                    updateSheetAndSync((prev) => ({
+                      ...prev,
+                      spiritualPsycho: {
+                        ...prev.spiritualPsycho,
+                        clientPerceptionScore: score,
+                        clientPerceptionMoment:
+                          prev.spiritualPsycho.clientPerceptionMoment || 'antes',
+                      },
+                    }))
+                  }
+                  className={`py-2 rounded-lg border font-mono tabular-nums text-xs font-bold transition-colors cursor-pointer ${
+                    selected
+                      ? selectedStyle
+                      : 'bg-[#FAF8F5] text-[#0F172A] border-[#CBD5E1] hover:border-[#B45309]'
+                  }`}
+                >
+                  {score}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="pt-1">
+            <label
+              htmlFor="clientPerceptionNoteInput"
+              className="block text-[11px] font-semibold text-[#45464D] mb-1"
+            >
+              Breve relato subjetivo do consulente (opcional)
+            </label>
+            <input
+              id="clientPerceptionNoteInput"
+              type="text"
+              value={sheet.spiritualPsycho.clientPerceptionNote || ''}
+              onChange={(e) =>
+                updateSheetAndSync((prev) => ({
+                  ...prev,
+                  spiritualPsycho: {
+                    ...prev.spiritualPsycho,
+                    clientPerceptionNote: e.target.value,
+                  },
+                }))
+              }
+              placeholder="Ex.: Dormiu melhor após a desimpregnação, redução da pressão no peito, mais disposição..."
+              className="w-full px-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
+            />
+          </div>
+        </div>
+      </section>
 
       {/* Live Anti-Catharsis Preview & Processing Action */}
       <section

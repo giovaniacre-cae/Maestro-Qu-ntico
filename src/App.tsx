@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AnamneseForm } from './components/AnamneseForm';
 import { CentralDocumental } from './components/CentralDocumental';
 import { Dashboard } from './components/Dashboard';
+import { GraficosRadionicosTab } from './components/GraficosRadionicosTab';
 import { MesaQuantica, SelectedTherapeutics } from './components/MesaQuantica';
 import { AddPendulatedChartPayload } from './components/AddPendulatedChartPanel';
 import { SintoniaSensitiva } from './components/SintoniaSensitiva';
@@ -14,11 +15,15 @@ import {
   SessionMilestoneType,
   getHawkinsLabelByHz,
 } from './types/clinical';
+import { TherapeuticKit } from './data/therapeuticKits';
 import {
   AntiCatharsisProtocol,
+  ChartDurationUnit,
+  ChartWithdrawalLogEntry,
   EnergeticRemedyEmission,
   PatientAnamnesis,
   QuantumGenerationResult,
+  QuantumGeometry,
   QuantumRoomSession,
   RoomPhase,
   ScreenId,
@@ -29,7 +34,11 @@ import {
   DEFAULT_ORGANIC_SYSTEMS,
   addGeometryToProtocol,
   applyChartCrystalsToResult,
+  applyTherapeuticKitToProtocol,
+  calculateChartExpiresAt,
+  durationUnitToMs,
   evaluateAntiCatharsis,
+  formatChartDurationLabel,
   getChartCrystalKey,
   preserveTherapistChartsInProtocol,
   removeGeometryFromProtocol,
@@ -209,10 +218,19 @@ export default function App() {
         interferenceTypes: [...baseRecord.ansaeRhen.spiritualPsycho.spiritualDisturbances],
         chakras: DEFAULT_CHAKRAS.map((c) => ({ ...c })),
         organicSystems: DEFAULT_ORGANIC_SYSTEMS.map((s) => ({ ...s })),
+        clientPerceptionScore:
+          baseRecord.clientPerceptionScore ??
+          baseRecord.ansaeRhen.spiritualPsycho.clientPerceptionScore,
+        clientPerceptionMoment: 'pos',
+        clientPerceptionNote: '',
       };
       const clonedSheet: ClinicalAnsaeRhenSheet = normalizeAnsaeSheet(
         JSON.parse(JSON.stringify(baseRecord.ansaeRhen)) as ClinicalAnsaeRhenSheet
       );
+      clonedSheet.spiritualPsycho.clientPerceptionScore =
+        clonedSensitivity.clientPerceptionScore;
+      clonedSheet.spiritualPsycho.clientPerceptionMoment = 'pos';
+      clonedSheet.spiritualPsycho.clientPerceptionNote = '';
 
       saveAnsaeDraftForSession(patient.id, clonedSheet);
 
@@ -283,6 +301,15 @@ export default function App() {
           interferenceTypes: record.ansaeRhen.spiritualPsycho.spiritualDisturbances,
           chakras: DEFAULT_CHAKRAS.map((c) => ({ ...c })),
           organicSystems: DEFAULT_ORGANIC_SYSTEMS.map((s) => ({ ...s })),
+          clientPerceptionScore:
+            record.clientPerceptionScore ??
+            record.ansaeRhen.spiritualPsycho.clientPerceptionScore,
+          clientPerceptionMoment:
+            record.clientPerceptionMoment ??
+            record.ansaeRhen.spiritualPsycho.clientPerceptionMoment,
+          clientPerceptionNote:
+            record.clientPerceptionNote ??
+            record.ansaeRhen.spiritualPsycho.clientPerceptionNote,
         },
         protocol: record.protocol,
         aiResult: record.aiResult,
@@ -292,6 +319,15 @@ export default function App() {
         selectedSolfeggioHz: record.selectedSolfeggioHz || 432,
         chartCrystals: record.chartCrystals || {},
         energeticRemedies: record.energeticRemedies || [],
+        clientPerceptionScore:
+          record.clientPerceptionScore ??
+          record.ansaeRhen.spiritualPsycho.clientPerceptionScore,
+        clientPerceptionMoment:
+          record.clientPerceptionMoment ??
+          record.ansaeRhen.spiritualPsycho.clientPerceptionMoment,
+        clientPerceptionNote:
+          record.clientPerceptionNote ??
+          record.ansaeRhen.spiritualPsycho.clientPerceptionNote,
         updatedAt: nowIso,
       };
       saveAnsaeDraftForSession(record.patientId, normalizeAnsaeSheet(record.ansaeRhen));
@@ -636,6 +672,455 @@ export default function App() {
     ]
   );
 
+  const updateGeometryInProtocol = (
+    protocol: AntiCatharsisProtocol,
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string,
+    updater: (geo: QuantumGeometry) => QuantumGeometry
+  ): AntiCatharsisProtocol => {
+    const targetLower = geometryName.trim().toLowerCase();
+    const mapList = (list: QuantumGeometry[]) =>
+      list.map((g) => (g.name.trim().toLowerCase() === targetLower ? updater(g) : g));
+
+    if (stageTag === 'stage1' && protocol.stage1) {
+      return {
+        ...protocol,
+        stage1: {
+          ...protocol.stage1,
+          geometries: mapList(protocol.stage1.geometries),
+        },
+      };
+    }
+    if (stageTag === 'stage2' && protocol.stage2) {
+      return {
+        ...protocol,
+        stage2: {
+          ...protocol.stage2,
+          geometries: mapList(protocol.stage2.geometries),
+        },
+      };
+    }
+    if (stageTag === 'single' && protocol.singleStage) {
+      return {
+        ...protocol,
+        singleStage: {
+          ...protocol.singleStage,
+          geometries: mapList(protocol.singleStage.geometries),
+        },
+      };
+    }
+    return protocol;
+  };
+
+  const handleApplyTherapeuticKit = useCallback(
+    (kit: TherapeuticKit) => {
+      const { protocol: nextProtocol, stage1Added, stage2Added, singleAdded } =
+        applyTherapeuticKitToProtocol(draftProtocol, kit);
+
+      const nextAiResult = applyChartCrystalsToResult(
+        draftAiResult,
+        nextProtocol,
+        draftAnamnesis,
+        draftSensitivity,
+        draftChartCrystals
+      );
+      const nowIso = new Date().toISOString();
+
+      setDraftProtocol(nextProtocol);
+      setDraftAiResult(nextAiResult);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === draftSessionId
+            ? {
+                ...s,
+                protocol: nextProtocol,
+                aiResult: nextAiResult,
+                updatedAt: nowIso,
+              }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          protocol: nextProtocol,
+          aiResult: nextAiResult,
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+
+      return { stage1Added, stage2Added, singleAdded };
+    },
+    [
+      draftAiResult,
+      draftAnamnesis,
+      draftChartCrystals,
+      draftProtocol,
+      draftSensitivity,
+      draftSessionId,
+    ]
+  );
+
+  const handleActivateChartTimer = useCallback(
+    (
+      stageTag: 'stage1' | 'stage2' | 'single',
+      geometryName: string,
+      config: {
+        durationValue: number;
+        durationUnit: ChartDurationUnit;
+        customExpiresAt?: string;
+      }
+    ) => {
+      const nowIso = new Date().toISOString();
+      const expiresAt = config.customExpiresAt
+        ? new Date(config.customExpiresAt).toISOString()
+        : calculateChartExpiresAt(nowIso, config.durationValue, config.durationUnit);
+
+      const diffMs = Math.max(60000, new Date(expiresAt).getTime() - new Date(nowIso).getTime());
+      const resolvedValue = config.customExpiresAt
+        ? Math.max(1, Math.round(diffMs / 3600000))
+        : config.durationValue;
+      const resolvedUnit: ChartDurationUnit = config.customExpiresAt
+        ? 'horas'
+        : config.durationUnit;
+
+      const nextProtocol = updateGeometryInProtocol(
+        draftProtocol,
+        stageTag,
+        geometryName,
+        (geo) => ({
+          ...geo,
+          activatedAt: nowIso,
+          durationValue: resolvedValue,
+          durationUnit: resolvedUnit,
+          expiresAt,
+          status: 'active',
+          withdrawnAt: undefined,
+        })
+      );
+
+      setDraftProtocol(nextProtocol);
+      setDraftIsAnchored(true);
+
+      const initialPhase: RoomPhase =
+        nextProtocol.mode === 'escalonado' ? 'stage1' : 'single';
+
+      const latestSheet = getAnsaeDraftForSession({
+        id: draftSessionId,
+        anamnesis: draftAnamnesis,
+        sensitivity: draftSensitivity,
+        protocol: nextProtocol,
+        aiResult: draftAiResult,
+        phase: initialPhase,
+        isAnchored: true,
+        activatedAt: nowIso,
+        selectedSolfeggioHz: draftSelectedHz,
+        updatedAt: nowIso,
+      });
+
+      setSessions((prev) => {
+        const exists = prev.some((s) => s.id === draftSessionId);
+        if (exists) {
+          return prev.map((s) =>
+            s.id === draftSessionId
+              ? {
+                  ...s,
+                  anamnesis: draftAnamnesis,
+                  sensitivity: draftSensitivity,
+                  protocol: nextProtocol,
+                  aiResult: draftAiResult,
+                  isAnchored: true,
+                  chartCrystals: draftChartCrystals,
+                  energeticRemedies: draftEnergeticRemedies,
+                  selectedSolfeggioHz: draftSelectedHz,
+                  updatedAt: nowIso,
+                }
+              : s
+          );
+        }
+
+        const createdRoom: QuantumRoomSession = {
+          id: draftSessionId,
+          sessionType: draftSessionType,
+          anamnesis: draftAnamnesis,
+          sensitivity: draftSensitivity,
+          protocol: nextProtocol,
+          aiResult: draftAiResult,
+          phase: initialPhase,
+          isAnchored: true,
+          activatedAt: nowIso,
+          stage1StartedAt: initialPhase === 'stage1' ? nowIso : undefined,
+          selectedSolfeggioHz: draftSelectedHz,
+          chartCrystals: draftChartCrystals,
+          energeticRemedies: draftEnergeticRemedies,
+          withdrawnEmissions: [],
+          updatedAt: nowIso,
+        };
+        return [createdRoom, ...prev];
+      });
+
+      const db = loadClinicalDatabase();
+      const patientId = draftAnamnesis.id || `patient-${draftSessionId}`;
+      if (
+        draftAnamnesis.fullName.trim() &&
+        !db.patients.some((p) => p.id === patientId)
+      ) {
+        db.patients.push({
+          id: patientId,
+          fullName: draftAnamnesis.fullName,
+          birthDate: draftAnamnesis.birthDate,
+          phone: draftAnamnesis.phone,
+          createdAt: nowIso,
+          notes: draftAnamnesis.clinicalNotes,
+        });
+      }
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          ansaeRhen: latestSheet,
+          protocol: nextProtocol,
+          aiResult: draftAiResult,
+          isAnchored: true,
+          chartCrystals: draftChartCrystals,
+          energeticRemedies: draftEnergeticRemedies,
+          clientPerceptionScore:
+            draftSensitivity.clientPerceptionScore ??
+            latestSheet.spiritualPsycho.clientPerceptionScore,
+          clientPerceptionMoment:
+            draftSensitivity.clientPerceptionMoment ??
+            latestSheet.spiritualPsycho.clientPerceptionMoment,
+          clientPerceptionNote:
+            draftSensitivity.clientPerceptionNote ??
+            latestSheet.spiritualPsycho.clientPerceptionNote,
+          updatedAt: nowIso,
+        };
+      } else {
+        db.sessions.unshift({
+          id: draftSessionId,
+          patientId,
+          sessionType: draftSessionType,
+          therapeuticFocus: draftAnamnesis.therapeuticFocus,
+          emotionalHistory: draftAnamnesis.emotionalHistory,
+          physicalSymptoms: draftAnamnesis.physicalSymptoms,
+          medicalTreatments: draftAnamnesis.medicalTreatments,
+          clinicalNotes: draftAnamnesis.clinicalNotes,
+          ansaeRhen: latestSheet,
+          protocol: nextProtocol,
+          aiResult: draftAiResult,
+          phase: initialPhase,
+          isAnchored: true,
+          activatedAt: nowIso,
+          selectedSolfeggioHz: draftSelectedHz,
+          chartCrystals: draftChartCrystals,
+          energeticRemedies: draftEnergeticRemedies,
+          withdrawnEmissions: [],
+          clientPerceptionScore:
+            draftSensitivity.clientPerceptionScore ??
+            latestSheet.spiritualPsycho.clientPerceptionScore,
+          clientPerceptionMoment:
+            draftSensitivity.clientPerceptionMoment ??
+            latestSheet.spiritualPsycho.clientPerceptionMoment,
+          clientPerceptionNote:
+            draftSensitivity.clientPerceptionNote ??
+            latestSheet.spiritualPsycho.clientPerceptionNote,
+          updatedAt: nowIso,
+        });
+      }
+      saveClinicalDatabase(db);
+    },
+    [
+      draftAiResult,
+      draftAnamnesis,
+      draftChartCrystals,
+      draftEnergeticRemedies,
+      draftProtocol,
+      draftSelectedHz,
+      draftSensitivity,
+      draftSessionId,
+      draftSessionType,
+    ]
+  );
+
+  const handleWithdrawChartEmission = useCallback(
+    (
+      sessionId: string,
+      stageTag: 'stage1' | 'stage2' | 'single',
+      geometryName: string
+    ) => {
+      const nowIso = new Date().toISOString();
+      const stageLabel =
+        stageTag === 'stage1'
+          ? 'Etapa 1 — Limpeza & Blindagem'
+          : stageTag === 'stage2'
+          ? 'Etapa 2 — Regeneração & Vitalidade'
+          : 'Etapa Única — Harmonização Direta';
+
+      let targetGeo: QuantumGeometry | undefined;
+      const targetSession = sessions.find((s) => s.id === sessionId);
+      const sourceProtocol =
+        targetSession?.protocol || (sessionId === draftSessionId ? draftProtocol : undefined);
+
+      if (sourceProtocol) {
+        const list =
+          stageTag === 'stage1'
+            ? sourceProtocol.stage1?.geometries || []
+            : stageTag === 'stage2'
+            ? sourceProtocol.stage2?.geometries || []
+            : sourceProtocol.singleStage?.geometries || [];
+        targetGeo = list.find(
+          (g) => g.name.trim().toLowerCase() === geometryName.trim().toLowerCase()
+        );
+      }
+
+      const logEntry: ChartWithdrawalLogEntry = {
+        id: `withdraw-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        geometryName: targetGeo?.name || geometryName,
+        stageLabel,
+        activatedAt: targetGeo?.activatedAt || nowIso,
+        expiresAt: targetGeo?.expiresAt || nowIso,
+        withdrawnAt: nowIso,
+        durationLabel:
+          targetGeo?.durationValue && targetGeo?.durationUnit
+            ? formatChartDurationLabel(targetGeo.durationValue, targetGeo.durationUnit)
+            : targetGeo?.durationHint || 'Personalizado',
+      };
+
+      if (sessionId === draftSessionId) {
+        setDraftProtocol((prev) =>
+          updateGeometryInProtocol(prev, stageTag, geometryName, (geo) => ({
+            ...geo,
+            status: 'withdrawn',
+            withdrawnAt: nowIso,
+          }))
+        );
+      }
+
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            protocol: updateGeometryInProtocol(s.protocol, stageTag, geometryName, (geo) => ({
+              ...geo,
+              status: 'withdrawn',
+              withdrawnAt: nowIso,
+            })),
+            withdrawnEmissions: [logEntry, ...(s.withdrawnEmissions || [])],
+            updatedAt: nowIso,
+          };
+        })
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === sessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          protocol: updateGeometryInProtocol(
+            db.sessions[idx].protocol,
+            stageTag,
+            geometryName,
+            (geo) => ({
+              ...geo,
+              status: 'withdrawn',
+              withdrawnAt: nowIso,
+            })
+          ),
+          withdrawnEmissions: [logEntry, ...(db.sessions[idx].withdrawnEmissions || [])],
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+    },
+    [draftProtocol, draftSessionId, sessions]
+  );
+
+  const handleExtendChartEmission = useCallback(
+    (
+      sessionId: string,
+      stageTag: 'stage1' | 'stage2' | 'single',
+      geometryName: string,
+      extension: {
+        addValue?: number;
+        addUnit?: ChartDurationUnit;
+        customExpiresAt?: string;
+      }
+    ) => {
+      const nowIso = new Date().toISOString();
+      const applyExtension = (geo: QuantumGeometry): QuantumGeometry => {
+        const currentExpiresMs = geo.expiresAt ? new Date(geo.expiresAt).getTime() : Date.now();
+        const baseMs = Number.isNaN(currentExpiresMs)
+          ? Date.now()
+          : Math.max(Date.now(), currentExpiresMs);
+
+        const nextExpiresAt = extension.customExpiresAt
+          ? new Date(extension.customExpiresAt).toISOString()
+          : new Date(
+              baseMs +
+                durationUnitToMs(extension.addValue || 24, extension.addUnit || 'horas')
+            ).toISOString();
+
+        const startMs = geo.activatedAt ? new Date(geo.activatedAt).getTime() : Date.now();
+        const totalDiffMs = Math.max(
+          60000,
+          new Date(nextExpiresAt).getTime() - (Number.isNaN(startMs) ? Date.now() : startMs)
+        );
+        const totalHours = Math.max(1, Math.round(totalDiffMs / 3600000));
+
+        return {
+          ...geo,
+          activatedAt: geo.activatedAt || nowIso,
+          expiresAt: nextExpiresAt,
+          durationValue: totalHours >= 48 && totalHours % 24 === 0 ? totalHours / 24 : totalHours,
+          durationUnit: totalHours >= 48 && totalHours % 24 === 0 ? 'dias' : 'horas',
+          status: 'active',
+          withdrawnAt: undefined,
+        };
+      };
+
+      if (sessionId === draftSessionId) {
+        setDraftProtocol((prev) =>
+          updateGeometryInProtocol(prev, stageTag, geometryName, applyExtension)
+        );
+      }
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? {
+                ...s,
+                protocol: updateGeometryInProtocol(s.protocol, stageTag, geometryName, applyExtension),
+                updatedAt: nowIso,
+              }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === sessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          protocol: updateGeometryInProtocol(
+            db.sessions[idx].protocol,
+            stageTag,
+            geometryName,
+            applyExtension
+          ),
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+    },
+    [draftSessionId]
+  );
+
   const persistRemediesUpdate = useCallback(
     (nextRemedies: EnergeticRemedyEmission[]) => {
       const nowIso = new Date().toISOString();
@@ -770,6 +1255,7 @@ export default function App() {
       });
     }
     const existingRecIdx = db.sessions.findIndex((s) => s.id === draftSessionId);
+    const existingRec = existingRecIdx >= 0 ? db.sessions[existingRecIdx] : undefined;
     const recordV2: ClinicalSessionRecord = {
       id: draftSessionId,
       patientId,
@@ -788,6 +1274,16 @@ export default function App() {
       selectedSolfeggioHz: draftSelectedHz,
       chartCrystals: draftChartCrystals,
       energeticRemedies: draftEnergeticRemedies,
+      withdrawnEmissions: existingRec?.withdrawnEmissions || [],
+      clientPerceptionScore:
+        draftSensitivity.clientPerceptionScore ??
+        latestSheet.spiritualPsycho.clientPerceptionScore,
+      clientPerceptionMoment:
+        draftSensitivity.clientPerceptionMoment ??
+        latestSheet.spiritualPsycho.clientPerceptionMoment,
+      clientPerceptionNote:
+        draftSensitivity.clientPerceptionNote ??
+        latestSheet.spiritualPsycho.clientPerceptionNote,
       updatedAt: nowIso,
     };
     if (existingRecIdx >= 0) {
@@ -813,6 +1309,15 @@ export default function App() {
                 selectedSolfeggioHz: draftSelectedHz,
                 chartCrystals: draftChartCrystals,
                 energeticRemedies: draftEnergeticRemedies,
+                clientPerceptionScore:
+                  draftSensitivity.clientPerceptionScore ??
+                  latestSheet.spiritualPsycho.clientPerceptionScore,
+                clientPerceptionMoment:
+                  draftSensitivity.clientPerceptionMoment ??
+                  latestSheet.spiritualPsycho.clientPerceptionMoment,
+                clientPerceptionNote:
+                  draftSensitivity.clientPerceptionNote ??
+                  latestSheet.spiritualPsycho.clientPerceptionNote,
                 updatedAt: nowIso,
               }
             : s
@@ -833,6 +1338,15 @@ export default function App() {
         selectedSolfeggioHz: draftSelectedHz,
         chartCrystals: draftChartCrystals,
         energeticRemedies: draftEnergeticRemedies,
+        clientPerceptionScore:
+          draftSensitivity.clientPerceptionScore ??
+          latestSheet.spiritualPsycho.clientPerceptionScore,
+        clientPerceptionMoment:
+          draftSensitivity.clientPerceptionMoment ??
+          latestSheet.spiritualPsycho.clientPerceptionMoment,
+        clientPerceptionNote:
+          draftSensitivity.clientPerceptionNote ??
+          latestSheet.spiritualPsycho.clientPerceptionNote,
         updatedAt: nowIso,
       };
       return [newRoom, ...prev];
@@ -904,12 +1418,25 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     };
 
+  const handleBackupRestored = useCallback(
+    (restoredRooms: QuantumRoomSession[]) => {
+      setSessions(restoredRooms);
+      const matchingCurrent = restoredRooms.find((s) => s.id === draftSessionId);
+      const target = matchingCurrent || restoredRooms[0];
+      if (target) {
+        loadSessionIntoDraft(target);
+      }
+    },
+    [draftSessionId, loadSessionIntoDraft]
+  );
+
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-[#0F172A] flex flex-col">
       <TopNav
         activeScreen={activeScreen}
         onNavigate={setActiveScreen}
         onNewConsultation={handleNewConsultation}
+        onBackupRestored={handleBackupRestored}
       />
 
       <main className="flex-1 max-w-[1280px] w-full mx-auto px-4 sm:px-8 py-8">
@@ -933,6 +1460,8 @@ export default function App() {
             onReevaluateSession={handleReevaluateSession}
             onResumeTreatment={handleResumeTreatment}
             onStartNewForPatient={handleStartNewForPatient}
+            onWithdrawChartEmission={handleWithdrawChartEmission}
+            onExtendChartEmission={handleExtendChartEmission}
             onRestoreBackup={(restoredRooms) => {
               setSessions(restoredRooms);
               if (restoredRooms[0]) {
@@ -952,6 +1481,17 @@ export default function App() {
                 preserveTherapistChartsInProtocol(
                   evaluateAntiCatharsis(updated, draftSensitivity, draftAnsaeSheet),
                   draftProtocol
+                )
+              );
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.id === draftSessionId
+                    ? {
+                        ...s,
+                        anamnesis: updated,
+                        updatedAt: new Date().toISOString(),
+                      }
+                    : s
                 )
               );
             }}
@@ -981,12 +1521,33 @@ export default function App() {
                 selectedSolfeggioHz: draftSelectedHz,
                 updatedAt: new Date().toISOString(),
               });
+              const nextProtocol = preserveTherapistChartsInProtocol(
+                evaluateAntiCatharsis(draftAnamnesis, updated, latestSheet),
+                draftProtocol
+              );
               setDraftSensitivity(updated);
               setDraftAnsaeSheet(latestSheet);
-              setDraftProtocol(
-                preserveTherapistChartsInProtocol(
-                  evaluateAntiCatharsis(draftAnamnesis, updated, latestSheet),
-                  draftProtocol
+              setDraftProtocol(nextProtocol);
+              const nowIso = new Date().toISOString();
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.id === draftSessionId
+                    ? {
+                        ...s,
+                        sensitivity: updated,
+                        protocol: nextProtocol,
+                        clientPerceptionScore:
+                          updated.clientPerceptionScore ??
+                          latestSheet.spiritualPsycho.clientPerceptionScore,
+                        clientPerceptionMoment:
+                          updated.clientPerceptionMoment ??
+                          latestSheet.spiritualPsycho.clientPerceptionMoment,
+                        clientPerceptionNote:
+                          updated.clientPerceptionNote ??
+                          latestSheet.spiritualPsycho.clientPerceptionNote,
+                        updatedAt: nowIso,
+                      }
+                    : s
                 )
               );
             }}
@@ -1014,6 +1575,11 @@ export default function App() {
             onConfirmChartCrystal={handleConfirmChartCrystal}
             onAddPendulatedChart={handleAddPendulatedChart}
             onRemovePendulatedChart={handleRemovePendulatedChart}
+            onApplyTherapeuticKit={handleApplyTherapeuticKit}
+            onActivateChartTimer={handleActivateChartTimer}
+            onWithdrawChartEmission={(stageTag, geometryName) =>
+              handleWithdrawChartEmission(draftSessionId, stageTag, geometryName)
+            }
             energeticRemedies={draftEnergeticRemedies}
             onAddEnergeticRemedy={handleAddEnergeticRemedy}
             onUpdateEnergeticRemedy={handleUpdateEnergeticRemedy}
@@ -1044,6 +1610,8 @@ export default function App() {
             onBackToSensitivity={() => setActiveScreen('sensitivity')}
           />
         )}
+
+        {activeScreen === 'radionic-charts' && <GraficosRadionicosTab />}
 
         {activeScreen === 'documents' && (
           <CentralDocumental

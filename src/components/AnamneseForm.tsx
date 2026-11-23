@@ -8,6 +8,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  ShieldCheck,
   Sparkles,
   UserCheck,
   UserPlus,
@@ -43,6 +44,11 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    setTranscript(anamnesis.sessionTranscript || '');
+    setCopilotAnalysis(anamnesis.copilotAnalysis || null);
+  }, [anamnesis.id, anamnesis.sessionTranscript, anamnesis.copilotAnalysis]);
 
   useEffect(() => {
     let timer: any = null;
@@ -204,10 +210,32 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     onChange({ ...anamnesis, [field]: value });
   };
 
+  const handleLgpdToggle = (checked: boolean) => {
+    onChange({
+      ...anamnesis,
+      lgpdConsent: checked,
+      lgpdConsentDate: checked ? new Date().toISOString() : undefined,
+    });
+  };
+
+  const formatConsentTimestamp = (iso?: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const canProceed =
     anamnesis.fullName.trim().length >= 3 &&
     anamnesis.birthDate.trim().length > 0 &&
-    anamnesis.therapeuticFocus.trim().length >= 3;
+    anamnesis.therapeuticFocus.trim().length >= 3 &&
+    Boolean(anamnesis.lgpdConsent);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -599,9 +627,56 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
             </div>
           </div>
 
+          {/* Bloco Ciência e Consentimento (LGPD) */}
+          <div
+            className={`rounded-xl border p-4 transition-colors ${
+              anamnesis.lgpdConsent
+                ? 'bg-[#DCFCE7]/35 border-[#16A34A]/45'
+                : 'bg-[#FAF8F5] border-[#D97706]/45'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck
+                  className={`w-4 h-4 shrink-0 ${
+                    anamnesis.lgpdConsent ? 'text-[#16A34A]' : 'text-[#B45309]'
+                  }`}
+                />
+                <span className="text-xs font-bold text-[#0F172A]">
+                  Ciência e Consentimento (LGPD) *
+                </span>
+              </div>
+              {anamnesis.lgpdConsent && anamnesis.lgpdConsentDate && (
+                <span className="text-[11px] font-mono tabular-nums text-[#166534]">
+                  Registrado em {formatConsentTimestamp(anamnesis.lgpdConsentDate)}
+                </span>
+              )}
+            </div>
+
+            <label
+              htmlFor="lgpdConsent"
+              className="flex items-start gap-2.5 cursor-pointer select-none"
+            >
+              <input
+                id="lgpdConsent"
+                type="checkbox"
+                checked={Boolean(anamnesis.lgpdConsent)}
+                onChange={(e) => handleLgpdToggle(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-[#CBD5E1] text-[#0F172A] accent-[#0F172A] focus:ring-[#D97706] shrink-0 cursor-pointer"
+              />
+              <span className="text-xs leading-relaxed text-[#334155]">
+                Consulente ciente de que a Radiestesia Terapêutica atua como suporte vibracional
+                integrativo complementar, não substituindo diagnóstico ou tratamento
+                médico/psicológico, e autoriza o registro confidencial dos seus dados.
+              </span>
+            </label>
+          </div>
+
           <div className="pt-4 border-t border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <p className="text-xs text-[#64748B]">
-              Campos com * são obrigatórios para formatar o Testemunho Informacional.
+              {!anamnesis.lgpdConsent
+                ? 'Campos com * e confirmação de ciência LGPD são obrigatórios para avançar.'
+                : 'Campos com * são obrigatórios para formatar o Testemunho Informacional.'}
             </p>
             <button
               type="submit"

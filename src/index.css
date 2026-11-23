@@ -100,3 +100,83 @@ input[type="range"].clinical-slider::-moz-range-thumb {
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
 }
+
+/* A4 Radionic Plate Print Layout */
+.radionic-print-portal {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  body.printing-radionic-charts {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body.printing-radionic-charts #root {
+    display: none !important;
+  }
+
+  body.printing-radionic-charts .radionic-print-portal {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .radionic-print-page {
+    width: 100%;
+    height: calc(297mm - 16mm);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff !important;
+    page-break-after: always;
+    break-after: page;
+    box-sizing: border-box;
+    padding: 2mm;
+    overflow: hidden;
+  }
+
+  .radionic-print-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .radionic-print-north {
+    font-family: var(--font-mono);
+    font-size: 11pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #000000 !important;
+    text-align: center;
+    padding-bottom: 4mm;
+    flex-shrink: 0;
+  }
+
+  .radionic-print-image-wrap {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff !important;
+  }
+
+  .radionic-print-image {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    filter: grayscale(100%) contrast(1.22) brightness(1.03);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

@@ -3,6 +3,8 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  CalendarPlus,
+  CheckCircle2,
   Clock,
   Download,
   FileText,
@@ -15,6 +17,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Timer,
   Trash2,
   TrendingUp,
   Upload,
@@ -26,8 +29,18 @@ import {
   MasterPatient,
   SessionMilestoneType,
 } from '../types/clinical';
-import { QuantumRoomSession, RoomPhase } from '../types/quantum';
-import { formatBirthDateBR, getHawkinsLevelInfo } from '../utils/antiCatharsis';
+import {
+  ChartDurationUnit,
+  QuantumGeometry,
+  QuantumRoomSession,
+  RoomPhase,
+} from '../types/quantum';
+import {
+  computeChartEmissionMetrics,
+  formatBirthDateBR,
+  formatChartDurationLabel,
+  getHawkinsLevelInfo,
+} from '../utils/antiCatharsis';
 import {
   exportClinicalBackupJson,
   importClinicalBackupJson,
@@ -35,6 +48,7 @@ import {
   roomToClinicalRecord,
   saveClinicalDatabase,
 } from '../utils/storage';
+import { PatientEvolutionChart } from './PatientEvolutionChart';
 
 interface DashboardProps {
   sessions: QuantumRoomSession[];
@@ -47,6 +61,21 @@ interface DashboardProps {
   onReevaluateSession?: (patient: MasterPatient, baseRecord: ClinicalSessionRecord) => void;
   onResumeTreatment?: (record: ClinicalSessionRecord) => void;
   onStartNewForPatient?: (patient: MasterPatient) => void;
+  onWithdrawChartEmission?: (
+    sessionId: string,
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string
+  ) => void;
+  onExtendChartEmission?: (
+    sessionId: string,
+    stageTag: 'stage1' | 'stage2' | 'single',
+    geometryName: string,
+    extension: {
+      addValue?: number;
+      addUnit?: ChartDurationUnit;
+      customExpiresAt?: string;
+    }
+  ) => void;
   onRestoreBackup?: (rooms: QuantumRoomSession[]) => void;
 }
 
@@ -99,6 +128,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onReevaluateSession,
   onResumeTreatment,
   onStartNewForPatient,
+  onWithdrawChartEmission,
+  onExtendChartEmission,
   onRestoreBackup,
 }) => {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -112,6 +143,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [extendingPlateKey, setExtendingPlateKey] = useState<string | null>(null);
+  const [extendValue, setExtendValue] = useState<number>(24);
+  const [extendUnit, setExtendUnit] = useState<ChartDurationUnit>('horas');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -149,7 +183,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
         changed = true;
       } else {
         const currentRec = nextSessions[existingRecordIdx];
-        if (currentRec.updatedAt !== room.updatedAt || currentRec.phase !== room.phase) {
+        const roomPerceptionScore =
+          room.clientPerceptionScore ?? room.sensitivity.clientPerceptionScore;
+        const roomPerceptionMoment =
+          room.clientPerceptionMoment ?? room.sensitivity.clientPerceptionMoment;
+        const roomPerceptionNote =
+          room.clientPerceptionNote ?? room.sensitivity.clientPerceptionNote;
+
+        if (
+          currentRec.updatedAt !== room.updatedAt ||
+          currentRec.phase !== room.phase ||
+          currentRec.clientPerceptionScore !== roomPerceptionScore
+        ) {
+          const syncedHawkinsHz = room.sensitivity.hawkins;
           nextSessions[existingRecordIdx] = {
             ...currentRec,
             phase: room.phase,
@@ -159,6 +205,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
             selectedSolfeggioHz: room.selectedSolfeggioHz,
             chartCrystals: room.chartCrystals,
             energeticRemedies: room.energeticRemedies || [],
+            withdrawnEmissions:
+              room.withdrawnEmissions || currentRec.withdrawnEmissions || [],
+            clientPerceptionScore:
+              roomPerceptionScore ?? currentRec.clientPerceptionScore,
+            clientPerceptionMoment:
+              roomPerceptionMoment ?? currentRec.clientPerceptionMoment,
+            clientPerceptionNote:
+              roomPerceptionNote ?? currentRec.clientPerceptionNote,
+            ansaeRhen: {
+              ...currentRec.ansaeRhen,
+              auricField: {
+                ...currentRec.ansaeRhen.auricField,
+                protectionPercent: room.sensitivity.auricProtection,
+              },
+              spiritualPsycho: {
+                ...currentRec.ansaeRhen.spiritualPsycho,
+                bovis: room.sensitivity.bovis,
+                hawkinsAgathaHz: syncedHawkinsHz,
+                hawkinsHz: syncedHawkinsHz,
+                stressLevel: room.sensitivity.stressLevel,
+                clientPerceptionScore:
+                  roomPerceptionScore ??
+                  currentRec.ansaeRhen.spiritualPsycho.clientPerceptionScore,
+                clientPerceptionMoment:
+                  roomPerceptionMoment ??
+                  currentRec.ansaeRhen.spiritualPsycho.clientPerceptionMoment,
+                clientPerceptionNote:
+                  roomPerceptionNote ??
+                  currentRec.ansaeRhen.spiritualPsycho.clientPerceptionNote,
+              },
+            },
             updatedAt: room.updatedAt,
             completedAt: room.phase === 'completed' ? room.updatedAt : currentRec.completedAt,
           };
@@ -274,6 +351,80 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (filterMode === 'stage2') return session.phase === 'stage2' || session.phase === 'single';
     return true;
   });
+
+  const activePlateEmissions = useMemo(() => {
+    const items: Array<{
+      key: string;
+      session: QuantumRoomSession;
+      stageTag: 'stage1' | 'stage2' | 'single';
+      stageLabel: string;
+      geometry: QuantumGeometry;
+      metrics: ReturnType<typeof computeChartEmissionMetrics>;
+    }> = [];
+
+    for (const session of sessions) {
+      const stages: Array<{
+        tag: 'stage1' | 'stage2' | 'single';
+        label: string;
+        geos: QuantumGeometry[];
+      }> = [
+        {
+          tag: 'stage1',
+          label: 'Etapa 1 — Limpeza & Blindagem',
+          geos: session.protocol.stage1?.geometries || [],
+        },
+        {
+          tag: 'stage2',
+          label: 'Etapa 2 — Regeneração & Vitalidade',
+          geos: session.protocol.stage2?.geometries || [],
+        },
+        {
+          tag: 'single',
+          label: 'Etapa Única — Harmonização Direta',
+          geos: session.protocol.singleStage?.geometries || [],
+        },
+      ];
+
+      for (const st of stages) {
+        for (const geo of st.geos) {
+          const metrics = computeChartEmissionMetrics(geo, nowMs);
+          if (metrics.hasTimer && metrics.status !== 'withdrawn') {
+            items.push({
+              key: `${session.id}::${st.tag}::${geo.name}`,
+              session,
+              stageTag: st.tag,
+              stageLabel: st.label,
+              geometry: geo,
+              metrics,
+            });
+          }
+        }
+      }
+    }
+
+    const rank: Record<string, number> = {
+      expired: 0,
+      warning: 1,
+      active: 2,
+    };
+
+    return items.sort((a, b) => {
+      const ra = rank[a.metrics.status] ?? 3;
+      const rb = rank[b.metrics.status] ?? 3;
+      if (ra !== rb) return ra - rb;
+      return a.metrics.remainingMs - b.metrics.remainingMs;
+    });
+  }, [nowMs, sessions]);
+
+  const expiredPlatesCount = activePlateEmissions.filter(
+    (p) => p.metrics.status === 'expired'
+  ).length;
+  const warningPlatesCount = activePlateEmissions.filter(
+    (p) => p.metrics.status === 'warning'
+  ).length;
+  const healthyPlatesCount = activePlateEmissions.filter(
+    (p) => p.metrics.status === 'active'
+  ).length;
 
   const patientsWithHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
@@ -540,6 +691,271 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 Etapa 2 ou Harmonização Direta
               </p>
             </div>
+          </section>
+
+          {/* Monitor de Placas & Emissões Ativas */}
+          <section className="bg-white border border-[#D97706]/40 rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+              <div className="flex items-start gap-3">
+                <Timer className="w-5 h-5 text-[#B45309] shrink-0 mt-0.5" />
+                <div>
+                  <h2 className="font-serif text-xl font-bold text-[#0F172A]">
+                    Monitor de Placas & Emissões Ativas
+                  </h2>
+                  <p className="text-xs text-[#64748B] mt-0.5">
+                    Controle em tempo real dos prazos de exposição sobre os gráficos radiônicos,
+                    com semáforo de saturação e registro de retirada no prontuário.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-xs font-mono tabular-nums shrink-0">
+                <span className="inline-flex items-center gap-1.5 text-[#166534] font-semibold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#16A34A]" />
+                  {healthyPlatesCount} Em emissão
+                </span>
+                <span aria-hidden="true" className="text-[#CBD5E1]">
+                  ·
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[#92400E] font-semibold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#D97706]" />
+                  {warningPlatesCount} Aviso prévio
+                </span>
+                <span aria-hidden="true" className="text-[#CBD5E1]">
+                  ·
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[#991B1B] font-semibold">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full bg-[#DC2626] ${
+                      expiredPlatesCount > 0 ? 'animate-pulse' : ''
+                    }`}
+                  />
+                  {expiredPlatesCount} Vencida{expiredPlatesCount === 1 ? '' : 's'}
+                </span>
+              </div>
+            </div>
+
+            {activePlateEmissions.length === 0 ? (
+              <div className="p-5 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] text-center space-y-1">
+                <p className="text-sm font-medium text-[#0F172A]">
+                  Nenhuma placa radiônica com cronômetro ativo no momento.
+                </p>
+                <p className="text-xs text-[#64748B]">
+                  Abra a Mesa Quântica de qualquer consulente e clique em{' '}
+                  <strong>&ldquo;Ativar Cronômetro na Mesa&rdquo;</strong> no gráfico desejado para
+                  monitorar a contagem regressiva e alertas de retirada aqui.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {activePlateEmissions.map(
+                  ({ key, session, stageTag, stageLabel, geometry, metrics }) => {
+                    const isExtending = extendingPlateKey === key;
+                    const cardTone =
+                      metrics.status === 'expired'
+                        ? 'border-[#DC2626]/50 bg-[#FEF2F2]/60'
+                        : metrics.status === 'warning'
+                        ? 'border-[#D97706]/50 bg-[#FFFBEB]/70'
+                        : 'border-[#E2E8F0] bg-[#FAF8F5]';
+
+                    const dotTone =
+                      metrics.status === 'expired'
+                        ? 'bg-[#DC2626] animate-pulse'
+                        : metrics.status === 'warning'
+                        ? 'bg-[#D97706]'
+                        : 'bg-[#16A34A]';
+
+                    const labelTone =
+                      metrics.status === 'expired'
+                        ? 'text-[#991B1B]'
+                        : metrics.status === 'warning'
+                        ? 'text-[#92400E]'
+                        : 'text-[#166534]';
+
+                    const barTone =
+                      metrics.status === 'expired'
+                        ? 'bg-[#DC2626]'
+                        : metrics.status === 'warning'
+                        ? 'bg-[#D97706]'
+                        : 'bg-[#16A34A]';
+
+                    return (
+                      <div
+                        key={key}
+                        className={`p-4 rounded-xl border space-y-3 transition-colors ${cardTone}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-semibold text-[#B45309]">
+                              {session.anamnesis.fullName || 'Consulente'} · {stageLabel}
+                            </p>
+                            <h3 className="font-serif text-base font-bold text-[#0F172A] mt-0.5">
+                              {geometry.name}
+                            </h3>
+                            <p className="text-[11px] text-[#64748B] font-mono tabular-nums mt-0.5">
+                              Prazo: {formatChartDurationLabel(geometry.durationValue, geometry.durationUnit)}{' '}
+                              · Retirada prevista:{' '}
+                              {geometry.expiresAt
+                                ? new Date(geometry.expiresAt).toLocaleString('pt-BR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '—'}
+                            </p>
+                          </div>
+
+                          <span className="font-mono tabular-nums text-sm font-bold text-[#0F172A] shrink-0">
+                            {metrics.countdownText}
+                          </span>
+                        </div>
+
+                        {/* Semáforo de Saturação & Barra Temporal */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className={`inline-flex items-center gap-1.5 font-semibold ${labelTone}`}>
+                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotTone}`} />
+                              {metrics.statusLabel}
+                            </span>
+                            <span className="font-mono tabular-nums text-[11px] text-[#45464D]">
+                              {metrics.progressPercent}% decorrido
+                            </span>
+                          </div>
+                          <div className="h-2 w-full bg-white border border-[#E2E8F0] rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${barTone}`}
+                              style={{ width: `${metrics.progressPercent}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Ações Diretas */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {onWithdrawChartEmission && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onWithdrawChartEmission(session.id, stageTag, geometry.name);
+                                  showNotice(
+                                    'success',
+                                    `Retirada de "${geometry.name}" registrada no histórico de ${session.anamnesis.fullName}.`
+                                  );
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] cursor-pointer whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-[#F59E0B]" />
+                                Registrar Retirada & Concluir
+                              </button>
+                            )}
+
+                            {onExtendChartEmission && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExtendingPlateKey(isExtending ? null : key)
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0F172A] bg-white border border-[#CBD5E1] rounded-lg hover:border-[#D97706] cursor-pointer whitespace-nowrap"
+                              >
+                                <CalendarPlus className="w-3.5 h-3.5 text-[#B45309]" />
+                                Prorrogar Prazo
+                              </button>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => onOpenTable(session.id)}
+                            className="text-[11px] font-semibold text-[#B45309] hover:underline cursor-pointer"
+                          >
+                            Abrir Mesa →
+                          </button>
+                        </div>
+
+                        {isExtending && onExtendChartEmission && (
+                          <div className="p-3 rounded-lg bg-white border border-[#D97706]/40 space-y-2.5">
+                            <p className="text-[11px] font-semibold text-[#0F172A]">
+                              Prorrogar exposição da placa {geometry.name}:
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {[
+                                { label: '+12h', v: 12, u: 'horas' as const },
+                                { label: '+24h', v: 24, u: 'horas' as const },
+                                { label: '+48h', v: 48, u: 'horas' as const },
+                                { label: '+7 dias', v: 7, u: 'dias' as const },
+                              ].map((q) => (
+                                <button
+                                  key={q.label}
+                                  type="button"
+                                  onClick={() => {
+                                    onExtendChartEmission(session.id, stageTag, geometry.name, {
+                                      addValue: q.v,
+                                      addUnit: q.u,
+                                    });
+                                    setExtendingPlateKey(null);
+                                    showNotice(
+                                      'success',
+                                      `Prazo de "${geometry.name}" prorrogado em ${q.label}.`
+                                    );
+                                  }}
+                                  className="px-2.5 py-1 text-[11px] font-mono font-semibold bg-[#FAF8F5] border border-[#CBD5E1] rounded hover:border-[#D97706] cursor-pointer text-[#0F172A]"
+                                >
+                                  {q.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#E2E8F0]">
+                              <input
+                                type="number"
+                                min={1}
+                                max={365}
+                                value={extendValue}
+                                onChange={(e) =>
+                                  setExtendValue(Math.max(1, Number(e.target.value) || 1))
+                                }
+                                aria-label="Quantidade adicional"
+                                className="w-16 px-2 py-1 text-xs font-mono bg-[#FAF8F5] border border-[#CBD5E1] rounded text-[#0F172A]"
+                              />
+                              <select
+                                value={extendUnit}
+                                onChange={(e) =>
+                                  setExtendUnit(e.target.value as ChartDurationUnit)
+                                }
+                                aria-label="Unidade adicional"
+                                className="px-2 py-1 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded text-[#0F172A]"
+                              >
+                                <option value="minutos">Minutos</option>
+                                <option value="horas">Horas</option>
+                                <option value="dias">Dias</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onExtendChartEmission(session.id, stageTag, geometry.name, {
+                                    addValue: extendValue,
+                                    addUnit: extendUnit,
+                                  });
+                                  setExtendingPlateKey(null);
+                                  showNotice(
+                                    'success',
+                                    `Prazo de "${geometry.name}" prorrogado (+${extendValue} ${extendUnit}).`
+                                  );
+                                }}
+                                className="px-3 py-1 text-[11px] font-semibold text-white bg-[#0F172A] rounded hover:bg-[#1E293B] cursor-pointer"
+                              >
+                                Aplicar Prorrogação
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                )}
+              </div>
+            )}
           </section>
 
           {/* Segmented Filter Bar */}
@@ -846,6 +1262,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   ? latestSession.ansaeRhen.spiritualPsycho.stressLevel -
                     firstSession.ansaeRhen.spiritualPsycho.stressLevel
                   : 0;
+                const firstPerception =
+                  firstSession?.clientPerceptionScore ??
+                  firstSession?.ansaeRhen.spiritualPsycho.clientPerceptionScore;
+                const latestPerception =
+                  latestSession?.clientPerceptionScore ??
+                  latestSession?.ansaeRhen.spiritualPsycho.clientPerceptionScore;
+                const hasPerceptionDelta =
+                  hasComparison &&
+                  typeof firstPerception === 'number' &&
+                  typeof latestPerception === 'number';
+                const perceptionDelta = hasPerceptionDelta
+                  ? latestPerception - firstPerception
+                  : 0;
 
                 return (
                   <article
@@ -904,7 +1333,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                           <div className="bg-white border border-[#E2E8F0] rounded-lg p-3">
                             <p className="text-[11px] text-[#64748B]">Biômetro Bovis</p>
                             <p className="mt-1 font-mono tabular-nums text-xs text-[#45464D]">
@@ -981,8 +1410,38 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               {stressDelta > 0 ? `+${stressDelta}` : stressDelta} nível
                             </p>
                           </div>
+
+                          <div className="bg-white border border-[#E2E8F0] rounded-lg p-3">
+                            <p className="text-[11px] text-[#64748B]">Percepção Consulente</p>
+                            <p className="mt-1 font-mono tabular-nums text-xs text-[#45464D]">
+                              {typeof firstPerception === 'number' ? `${firstPerception}` : '—'} →{' '}
+                              <strong className="text-sm text-[#0F172A]">
+                                {typeof latestPerception === 'number'
+                                  ? `${latestPerception} / 10`
+                                  : '—'}
+                              </strong>
+                            </p>
+                            <p
+                              className={`mt-0.5 font-mono text-[11px] font-semibold ${
+                                hasPerceptionDelta
+                                  ? perceptionDelta >= 0
+                                    ? 'text-[#16A34A]'
+                                    : 'text-[#BA1A1A]'
+                                  : 'text-[#64748B]'
+                              }`}
+                            >
+                              {hasPerceptionDelta
+                                ? `${perceptionDelta > 0 ? `+${perceptionDelta}` : perceptionDelta} pts`
+                                : 'Sem comparativo'}
+                            </p>
+                          </div>
                         </div>
                       </div>
+                    )}
+
+                    {/* Linha do Tempo Evolutiva Visual (SVG) */}
+                    {pSessions.length > 0 && (
+                      <PatientEvolutionChart sessions={pSessions} />
                     )}
 
                     {/* Sessions Timeline */}
@@ -993,6 +1452,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <div className="space-y-2.5">
                         {pSessions.map((rec) => {
                           const isLinkedToRoom = sessions.some((s) => s.id === rec.id);
+                          const recPerception =
+                            rec.clientPerceptionScore ??
+                            rec.ansaeRhen.spiritualPsycho.clientPerceptionScore;
+                          const recPerceptionNote =
+                            rec.clientPerceptionNote ??
+                            rec.ansaeRhen.spiritualPsycho.clientPerceptionNote;
                           return (
                             <div
                               key={rec.id}
@@ -1023,7 +1488,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                   }{' '}
                                   · Aura {rec.ansaeRhen.auricField.protectionPercent}% · Estresse{' '}
                                   {rec.ansaeRhen.spiritualPsycho.stressLevel}/9
+                                  {typeof recPerception === 'number'
+                                    ? ` · Percepção ${recPerception}/10`
+                                    : ''}
                                 </p>
+                                {recPerceptionNote && recPerceptionNote.trim() !== '' && (
+                                  <p className="text-[11px] text-[#45464D] italic">
+                                    Relato: &ldquo;{recPerceptionNote}&rdquo;
+                                  </p>
+                                )}
+                                {rec.withdrawnEmissions && rec.withdrawnEmissions.length > 0 && (
+                                  <div className="pt-1.5 space-y-1">
+                                    <p className="text-[11px] font-semibold text-[#166534]">
+                                      Placas retiradas / concluídas ({rec.withdrawnEmissions.length}):
+                                    </p>
+                                    <ul className="text-[11px] text-[#45464D] space-y-0.5 font-mono">
+                                      {rec.withdrawnEmissions.map((w) => (
+                                        <li key={w.id}>
+                                          • {w.geometryName} ({w.durationLabel}) — retirada em{' '}
+                                          {new Date(w.withdrawnAt).toLocaleString('pt-BR', {
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          })}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="flex flex-wrap items-center gap-2 shrink-0">

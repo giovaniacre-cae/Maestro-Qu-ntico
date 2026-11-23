@@ -154,7 +154,7 @@ function getGeminiClient(): GoogleGenAI {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '15mb' }));
 
   // Allow cross-origin API requests when frontend is wrapped in Median.co or GitHub Pages
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
@@ -786,11 +786,99 @@ Nenhum texto adicional fora do JSON.`
     }
   });
 
-  // Serve official biometer PNGs directly in both development and production
+  // Leitura OCR Inteligente de Gráficos Radiônicos via gemini-3.8-flash
+  app.post('/api/graficos/extract-ocr', async (req: Request, res: Response) => {
+    try {
+      const { imageBase64, mimeType, titleHint } = req.body;
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        res.status(400).json({ error: 'imageBase64 é obrigatório para leitura OCR.' });
+        return;
+      }
+
+      const ai = getGeminiClient();
+      const cleanBase64 = imageBase64.includes('base64,')
+        ? imageBase64.split('base64,')[1]
+        : imageBase64;
+      const cleanMime = typeof mimeType === 'string' && mimeType.trim() ? mimeType.trim() : 'image/png';
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: [
+          {
+            inlineData: {
+              data: cleanBase64,
+              mimeType: cleanMime,
+            },
+          },
+          {
+            text: `Analise cuidadosamente esta imagem de um gráfico ou placa radiônica${titleHint ? ` (Referência informada: ${titleHint})` : ''}.
+Sua tarefa é executar OCR completo (leitura óptica de caracteres) e identificação estruturada para preencher o cadastro terapêutico no sistema Maestro Quântico:
+
+1. Identifique se a imagem possui texto explicativo/descritivo visível além do próprio desenho geométrico:
+   - Defina "hasText": true se houver parágrafos, instruções, tópicos, título legível ou descrições explicativas na imagem (ignore meros rodapés genéricos se não houver conteúdo, ou transcreva tudo fielmente em "rawExtractedText"). Defina "hasText": false se for apenas uma placa geométrica pura sem texto explicativo relevante.
+2. Transcreva integralmente todo texto encontrado na imagem em "rawExtractedText" (ou "" se não houver texto).
+3. Preencha os campos estruturados em português brasileiro culto:
+   - "title": Nome/título do gráfico radiônico extraído do cabeçalho/texto da imagem (ou reconhecido pela geometria caso visível; deixe "" se impossível identificar).
+   - "presentation": Texto completo da apresentação, finalidade energética, atuação terapêutica e descrição extraída da imagem. Se houver texto explicativo na imagem, preserve todas as informações fielmente em prosa bem organizada. Se NÃO houver texto explicativo na imagem ("hasText": false), retorne string vazia "" para "presentation".
+   - "usageAspects": Orientações práticas de uso extraídas da imagem (alinhamento ao Norte Magnético, preparo de testemunho, tempo de exposição, uso em água, ambientes, cristais, leito). Se NÃO houver texto explicativo na imagem ("hasText": false), retorne string vazia "" para "usageAspects".
+   - "suggestedCategory": Escolha a categoria mais compatível entre: "Limpeza & Purificação", "Potencialização & Geometria Sagrada", "Proteção & Defesa Espiritual", "Saúde Física & Vitalidade", "Harmonização & Chakras", "Prosperidade & Materialização", "Relacionamentos & Afeição" ou "Personalizados".
+   - "requiresNorthAlignment": true se o texto mencionar alinhamento ao Norte Magnético / bússola / orientação cardinal; caso contrário false.`,
+          },
+        ],
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            'Você é um especialista em radiestesia clínica, radiônica e OCR documental. Extraia fielmente textos de imagens de placas radiônicas em português brasileiro sem inventar texto inexistente quando a imagem for apenas geométrica.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              hasText: { type: Type.BOOLEAN },
+              rawExtractedText: { type: Type.STRING },
+              title: { type: Type.STRING },
+              presentation: { type: Type.STRING },
+              usageAspects: { type: Type.STRING },
+              suggestedCategory: { type: Type.STRING },
+              requiresNorthAlignment: { type: Type.BOOLEAN },
+            },
+            required: [
+              'hasText',
+              'rawExtractedText',
+              'title',
+              'presentation',
+              'usageAspects',
+              'suggestedCategory',
+              'requiresNorthAlignment',
+            ],
+          },
+        },
+      });
+
+      const rawText = (response?.text ?? '').trim();
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida do leitor OCR Gemini.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText);
+      res.json(parsed);
+    } catch (error) {
+      console.error('Erro na rota /api/graficos/extract-ocr:', error);
+      const msg =
+        error instanceof Error ? error.message : 'Erro interno ao processar OCR da imagem.';
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // Serve official biometer & radionic graphic assets directly in both development and production
   const publicDir = path.resolve(__dirname, 'public');
   const publicBiometrosDir = path.join(publicDir, 'biometros');
   if (fs.existsSync(publicBiometrosDir)) {
     app.use('/biometros', express.static(publicBiometrosDir, { maxAge: '1h' }));
+  }
+  const publicGraficosDir = path.join(publicDir, 'graficos');
+  if (fs.existsSync(publicGraficosDir)) {
+    app.use('/graficos', express.static(publicGraficosDir, { maxAge: '1h' }));
   }
 
   // Vite middleware in development, static dist in production

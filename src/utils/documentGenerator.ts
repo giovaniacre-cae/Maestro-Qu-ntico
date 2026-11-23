@@ -2,6 +2,7 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  Footer,
   ImageRun,
   Packer,
   Paragraph,
@@ -92,6 +93,40 @@ function sanitizeFileName(name: string): string {
     .replace(/[^a-zA-Z0-9]+/g, '_')
     .replace(/^_|_$/g, '')
     .toLowerCase();
+}
+
+export const INTEGRATIVE_ETHICAL_DISCLAIMER =
+  'Ressalva Ética Integrativa: A Radiestesia Terapêutica (ANSAE/RHEN), a Ressonância Harmônica e as práticas vibracionais descritas neste documento atuam estritamente como suporte integrativo complementar, não substituindo consultas, diagnósticos, exames ou tratamentos médicos e psicológicos convencionais. Registro tratado sob sigilo terapêutico conforme a LGPD.';
+
+function formatLgpdConsentLabel(lgpdConsent?: boolean, lgpdConsentDate?: string): string {
+  if (!lgpdConsent) return 'Pendente de registro na Anamnese';
+  if (lgpdConsentDate) {
+    return `Ciência e consentimento LGPD registrados em ${formatDateTimeBR(lgpdConsentDate)}`;
+  }
+  return 'Ciência e consentimento LGPD registrados pelo consulente';
+}
+
+function buildDocxEthicalFooter(): Footer {
+  return new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        border: {
+          top: { style: BorderStyle.SINGLE, size: 4, color: BORDER_HEX },
+        },
+        spacing: { before: 80, after: 0 },
+        children: [
+          new TextRun({
+            text: INTEGRATIVE_ETHICAL_DISCLAIMER,
+            size: 15,
+            italics: true,
+            color: MUTED_HEX,
+            font: 'Calibri',
+          }),
+        ],
+      }),
+    ],
+  });
 }
 
 function formatDateTimeBR(iso?: string): string {
@@ -496,6 +531,36 @@ export async function downloadTherapistDocx(
                 children: [
                   new TextRun({
                     text: anamnesis.therapeuticFocus,
+                    size: 19,
+                    color: SLATE_TEXT_HEX,
+                    font: 'Calibri',
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      new TableRow({
+        children: [
+          buildTableCell('Consentimento LGPD', true, true),
+          new TableCell({
+            columnSpan: 3,
+            margins: { top: 80, bottom: 80, left: 120, right: 120 },
+            borders: {
+              top: { style: BorderStyle.SINGLE, size: 4, color: BORDER_HEX },
+              bottom: { style: BorderStyle.SINGLE, size: 4, color: BORDER_HEX },
+              left: { style: BorderStyle.SINGLE, size: 4, color: BORDER_HEX },
+              right: { style: BorderStyle.SINGLE, size: 4, color: BORDER_HEX },
+            },
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: formatLgpdConsentLabel(
+                      anamnesis.lgpdConsent,
+                      anamnesis.lgpdConsentDate
+                    ),
                     size: 19,
                     color: SLATE_TEXT_HEX,
                     font: 'Calibri',
@@ -1161,13 +1226,14 @@ export async function downloadTherapistDocx(
 
           buildSectionHeading(
             comparisonParagraphs.length > 0
-              ? '13. Ressalva Ética e Responsabilidade Terapêutica'
-              : '12. Ressalva Ética e Responsabilidade Terapêutica'
+              ? '13. Ressalva Ética Integrativa e Responsabilidade Terapêutica'
+              : '12. Ressalva Ética Integrativa e Responsabilidade Terapêutica'
           ),
-          buildBodyParagraph(
-            'Este relatório documenta procedimentos de Radiestesia Terapêutica (ANSAE/RHEN), Ressonância Harmônica e Terapias Vibracionais Integrativas. Os atendimentos têm caráter estritamente complementar, educativo e harmonizador do campo bioenergético, não substituindo consultas médicas, exames diagnósticos, prescrições farmacológicas ou acompanhamentos psicoterápicos convencionais.'
-          ),
+          buildBodyParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER),
         ],
+        footers: {
+          default: buildDocxEthicalFooter(),
+        },
       },
     ],
   });
@@ -1201,6 +1267,9 @@ export async function downloadPatientGuideDocx(
             margin: { top: 900, bottom: 900, left: 1000, right: 1000 },
           },
         },
+        footers: {
+          default: buildDocxEthicalFooter(),
+        },
         children: [
           ...buildDocxOfficialHeader(
             'Guia de Orientação e Conscientização Vibracional',
@@ -1223,7 +1292,14 @@ export async function downloadPatientGuideDocx(
               protocol.mode === 'escalonado'
                 ? 'Cuidado em 2 etapas suaves (Limpeza e depois Vitalização)'
                 : 'Harmonização Integrativa Direta (7 a 10 dias)'
-            }.`
+            }.${
+              anamnesis.lgpdConsent
+                ? ` • ${formatLgpdConsentLabel(
+                    anamnesis.lgpdConsent,
+                    anamnesis.lgpdConsentDate
+                  )}.`
+                : ''
+            }`
           ),
 
           buildDocxWelcomeCard(welcomeText),
@@ -1342,6 +1418,8 @@ export async function downloadPatientGuideDocx(
           buildBodyParagraph(
             'Qualquer percepção, sonho significativo ou dúvida durante os próximos dias pode ser compartilhada diretamente pelo WhatsApp de atendimento. Caminhamos juntos com serenidade, ética e respeito ao seu ritmo.'
           ),
+          buildSectionHeading('Ressalva Ética Integrativa'),
+          buildBodyParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER),
         ],
       },
     ],
@@ -1368,7 +1446,7 @@ class MaestroPdfBuilder {
 
   private ensureSpace(neededMm: number): void {
     const pageHeight = this.doc.internal.pageSize.getHeight();
-    if (this.y + neededMm > pageHeight - 16) {
+    if (this.y + neededMm > pageHeight - 22) {
       this.doc.addPage();
       this.y = 18;
     }
@@ -1657,7 +1735,7 @@ class MaestroPdfBuilder {
       const rowHeight = Math.max(7, maxLines * 3.9 + 2.6);
 
       const pageHeight = this.doc.internal.pageSize.getHeight();
-      if (this.y + rowHeight > pageHeight - 16) {
+      if (this.y + rowHeight > pageHeight - 22) {
         this.doc.addPage();
         this.y = 18;
         drawHeaderRow();
@@ -1685,7 +1763,40 @@ class MaestroPdfBuilder {
     this.y += 4;
   }
 
+  private applyEthicalFooterToAllPages(): void {
+    const totalPages = this.doc.getNumberOfPages();
+    const pageHeight = this.doc.internal.pageSize.getHeight();
+
+    for (let i = 1; i <= totalPages; i++) {
+      this.doc.setPage(i);
+      this.doc.setDrawColor(226, 232, 240);
+      this.doc.setLineWidth(0.3);
+      this.doc.line(this.margin, pageHeight - 17, this.pageWidth - this.margin, pageHeight - 17);
+
+      this.doc.setFont('helvetica', 'italic');
+      this.doc.setFontSize(6.8);
+      this.doc.setTextColor(100, 116, 139);
+      const footerLines: string[] = this.doc.splitTextToSize(
+        INTEGRATIVE_ETHICAL_DISCLAIMER,
+        this.contentWidth - 18
+      );
+      footerLines.slice(0, 3).forEach((line, idx) => {
+        this.doc.text(line, this.margin, pageHeight - 13.5 + idx * 3.1);
+      });
+
+      this.doc.setFont('helvetica', 'normal');
+      this.doc.setFontSize(7);
+      this.doc.text(
+        `Pág. ${i}/${totalPages}`,
+        this.pageWidth - this.margin,
+        pageHeight - 13.5,
+        { align: 'right' }
+      );
+    }
+  }
+
   public save(filename: string): void {
+    this.applyEthicalFooterToAllPages();
     this.doc.save(filename);
   }
 }
@@ -1729,6 +1840,10 @@ export async function downloadTherapistPdf(
     ['Contato', anamnesis.phone || 'Não informado'],
     ['Data do Registro', formatDateTimeBR(session.activatedAt)],
     ['Foco Terapêutico', anamnesis.therapeuticFocus],
+    [
+      'Consentimento LGPD',
+      formatLgpdConsentLabel(anamnesis.lgpdConsent, anamnesis.lgpdConsentDate),
+    ],
     ['Pergunta Raiz', sheet.rootProblems.join(', ') || 'Avaliação Geral'],
     ['Histórico Emocional', anamnesis.emotionalHistory || 'Sem observações adicionais'],
     ['Sintomas Físicos', anamnesis.physicalSymptoms || 'Sem sintomas registrados'],
@@ -2025,10 +2140,8 @@ export async function downloadTherapistPdf(
     );
   }
 
-  pdf.addSectionTitle('11. Ressalva Ética');
-  pdf.addParagraph(
-    'Este protocolo integra Radiestesia Terapêutica (ANSAE/RHEN) e Ressonância Harmônica em caráter complementar e educativo, não substituindo diagnósticos, consultas ou tratamentos médicos e psicológicos convencionais.'
-  );
+  pdf.addSectionTitle('11. Ressalva Ética Integrativa');
+  pdf.addParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER);
 
   pdf.save(`relatorio_tecnico_${sanitizeFileName(anamnesis.fullName)}.pdf`);
 }
@@ -2058,6 +2171,12 @@ export async function downloadPatientGuidePdf(
     `${anamnesis.fullName} • Foco: ${anamnesis.therapeuticFocus}`,
     'Paciente: '
   );
+  if (anamnesis.lgpdConsent) {
+    pdf.addParagraph(
+      formatLgpdConsentLabel(anamnesis.lgpdConsent, anamnesis.lgpdConsentDate),
+      'Consentimento LGPD: '
+    );
+  }
   pdf.addParagraph(
     protocol.mode === 'escalonado'
       ? 'Protocolo suave em 2 etapas (Limpeza/Blindagem inicial de 48h–72h, pausa de 12h e Vitalização de 7–10 dias).'
@@ -2152,6 +2271,9 @@ export async function downloadPatientGuidePdf(
     );
   }
 
+  pdf.addSectionTitle('Ressalva Ética Integrativa');
+  pdf.addParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER);
+
   pdf.save(`guia_paciente_${sanitizeFileName(anamnesis.fullName)}.pdf`);
 }
 
@@ -2221,6 +2343,7 @@ export function buildWhatsAppShareUrl(
     ``,
     `_Giovani Caetano • Terapeuta Vibracional_`,
     `_(68) 99247-6436 | (11) 95056-5215_`,
+    `_Ressalva Ética: Apoio vibracional integrativo complementar; não substitui diagnóstico ou tratamento médico/psicológico (LGPD)._`,
   ]
     .filter((line) => line !== undefined)
     .join('\n');

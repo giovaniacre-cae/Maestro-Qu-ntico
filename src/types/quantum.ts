@@ -1,4 +1,10 @@
-export type ScreenId = 'dashboard' | 'anamnesis' | 'sensitivity' | 'quantum-table' | 'documents';
+export type ScreenId =
+  | 'dashboard'
+  | 'anamnesis'
+  | 'sensitivity'
+  | 'quantum-table'
+  | 'radionic-charts'
+  | 'documents';
 
 export type RoomPhase = 'stage1' | 'rest' | 'stage2' | 'single' | 'completed';
 
@@ -22,6 +28,8 @@ export interface PatientAnamnesis {
   clinicalNotes: string;
   sessionTranscript?: string;
   copilotAnalysis?: CopilotAnalysisResult | null;
+  lgpdConsent?: boolean;
+  lgpdConsentDate?: string;
 }
 
 export interface ChakraReading {
@@ -50,7 +58,14 @@ export interface SensitivityReading {
   interferenceTypes: string[];
   chakras: ChakraReading[];
   organicSystems: OrganicSystemStatus[];
+  clientPerceptionScore?: number; // 0 - 10
+  clientPerceptionMoment?: 'antes' | 'pos';
+  clientPerceptionNote?: string;
 }
+
+export type ChartDurationUnit = 'minutos' | 'horas' | 'dias';
+
+export type ChartEmissionStatus = 'active' | 'warning' | 'expired' | 'withdrawn';
 
 export interface QuantumGeometry {
   id?: string;
@@ -61,6 +76,12 @@ export interface QuantumGeometry {
   anchoredCrystal?: string;
   source?: 'motor' | 'therapist';
   customFocus?: string;
+  activatedAt?: string;
+  durationValue?: number;
+  durationUnit?: ChartDurationUnit;
+  expiresAt?: string;
+  status?: ChartEmissionStatus;
+  withdrawnAt?: string;
 }
 
 export interface AntiCatharsisProtocol {
@@ -171,6 +192,16 @@ export interface EnergeticRemedyEmission {
   activatedAt?: string;
 }
 
+export interface ChartWithdrawalLogEntry {
+  id: string;
+  geometryName: string;
+  stageLabel: string;
+  activatedAt: string;
+  expiresAt: string;
+  withdrawnAt: string;
+  durationLabel: string;
+}
+
 export interface QuantumRoomSession {
   id: string;
   sessionType?: 'Avaliação Inicial' | 'Pós-Tratamento 1' | 'Pós-Tratamento 2' | 'Novo Ciclo';
@@ -187,5 +218,9 @@ export interface QuantumRoomSession {
   selectedSolfeggioHz: number;
   chartCrystals?: Record<string, string>;
   energeticRemedies?: EnergeticRemedyEmission[];
+  withdrawnEmissions?: ChartWithdrawalLogEntry[];
+  clientPerceptionScore?: number; // 0 - 10
+  clientPerceptionMoment?: 'antes' | 'pos';
+  clientPerceptionNote?: string;
   updatedAt: string;
 }
