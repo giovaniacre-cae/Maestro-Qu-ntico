@@ -834,31 +834,28 @@ export const GraficosRadionicosTab: React.FC<GraficosRadionicosTabProps> = ({
         signal: controller.signal,
         body: JSON.stringify({
           query: cleanQuery,
-          availableGraphics: allGraphics.map((g) => ({
-            number: String(g.number),
-            title: g.title,
-            category: g.category,
-          })),
+          graphicsList: allGraphics.map((g) => `${g.number} - ${g.title}`),
         }),
       });
 
-      const contentType = res.headers.get('content-type') || '';
-      const payload = contentType.includes('application/json')
-        ? await res.json()
-        : { error: `Servidor retornou HTTP ${res.status}` };
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(payload?.error || `Erro HTTP ${res.status}`);
+        const serverError =
+          data && typeof data.error === 'string' && data.error.trim()
+            ? data.error.trim()
+            : `Erro HTTP ${res.status} ao consultar o servidor.`;
+        throw new Error(serverError);
       }
 
       const normalizedResult: AiProtocolConsultResponse = {
-        protocolTitle: String(payload?.protocolTitle || `Protocolo para ${cleanQuery}`),
-        clinicalRationale: String(payload?.clinicalRationale || ''),
-        recommendedSequence: Array.isArray(payload?.recommendedSequence)
-          ? payload.recommendedSequence
+        protocolTitle: String(data?.protocolTitle || `Protocolo para ${cleanQuery}`),
+        clinicalRationale: String(data?.clinicalRationale || ''),
+        recommendedSequence: Array.isArray(data?.recommendedSequence)
+          ? data.recommendedSequence
           : [],
-        witnessTemplate: String(payload?.witnessTemplate || ''),
-        kineticCommand: String(payload?.kineticCommand || ''),
+        witnessTemplate: String(data?.witnessTemplate || ''),
+        kineticCommand: String(data?.kineticCommand || ''),
         isLocalFallback: false,
       };
 

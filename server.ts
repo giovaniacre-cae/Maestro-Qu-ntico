@@ -870,12 +870,12 @@ Sua tarefa é executar OCR completo (leitura óptica de caracteres) e identifica
     }
   });
 
-  // Rota dedicada e rápida para recomendação de protocolo radiônico via gemini-3.8-flash
+  // Rota dedicada e ultra-rápida para recomendação de protocolo radiônico via gemini-3.8-flash
   app.post('/api/graficos/recommend-protocol', async (req: Request, res: Response) => {
     try {
-      const { query, availableGraphics } = req.body as {
+      const { query, graphicsList } = req.body as {
         query?: string;
-        availableGraphics?: Array<{ number?: string; title?: string; category?: string }>;
+        graphicsList?: string[];
       };
 
       const cleanQuery = typeof query === 'string' ? query.trim() : '';
@@ -885,71 +885,75 @@ Sua tarefa é executar OCR completo (leitura óptica de caracteres) e identifica
       }
 
       const ai = getGeminiClient();
-      const catalogText = Array.isArray(availableGraphics) && availableGraphics.length > 0
-        ? availableGraphics
-            .slice(0, 70)
-            .map((g) => `Nº ${g.number || '?'} | ${g.title || ''} (${g.category || ''})`)
-            .join('\n')
-        : 'Decágono Duplo, Desimpregnador, Anti Magia, Harmonia, Turbilhão com Prosperador, Desembaraçador Material, SCAP Cabalístico.';
+      const catalogText =
+        Array.isArray(graphicsList) && graphicsList.length > 0
+          ? graphicsList.slice(0, 80).join('\n')
+          : '1 - Desimpregnador\n2 - Decágono Duplo\n11 - Harmonia\n12 - Anti Magia\n25 - Turbilhão com Prosperador';
 
-      const prompt = `Você é um radiestesista clínico sênior do sistema Maestro Quântico.
-Propósito / demanda buscada pelo terapeuta: "${cleanQuery}"
+      const prompt = `Você é um radiestesista clínico do sistema Maestro Quântico.
+Propósito buscado: "${cleanQuery}"
 
-Gráficos radiônicos disponíveis no catálogo atual (use EXATAMENTE os títulos desta lista):
+Placas disponíveis no acervo (use exatamente os nomes desta lista):
 ${catalogText}
 
-Monte uma recomendação clínica objetiva e imediata em JSON estrito respeitando o Protocolo Anti-Catarse:
-- Etapa 1 (Limpeza / Desobstrução / Proteção) SEMPRE antes da Etapa 2 (Potencialização / Aceleração / Turbilhão), iniciando pela valorização do testemunho no Decágono Duplo quando pertinente.
-- Nunca combine Turbilhão e Harmonia simultaneamente na mesma etapa.
-- Retorne:
-  - "protocolTitle": título claro do protocolo clínico;
-  - "clinicalRationale": explicação objetiva (2 a 4 linhas) da atuação radiônica para "${cleanQuery}";
-  - "recommendedSequence": 3 a 5 etapas ordenadas com { "step" (ex: "Etapa 0 — Preparo", "Etapa 1 — Limpeza", "Etapa 2 — Aceleração"), "graphicTitle" (título exato da lista), "role" (função específica), "alignment" (ex: "Norte Magnético 357°" ou "Simetria omnidirecional"), "durationHint" (ex: "15–20 min" ou "48h–72h no pêndulo") };
-  - "witnessTemplate": modelo pronto para escrita a lápis grafite em papel branco liso;
-  - "kineticCommand": comando cinético completo para rotação horária do pêndulo (em 1ª pessoa do presente do indicativo, encerrando com "Está ativado, colapsado e manifestado na ordem cósmica.").`;
+Monte um protocolo radiônico clínico objetivo respeitando o Protocolo Anti-Catarse (Etapa 1 de Limpeza/Proteção antes da Etapa 2 de Aceleração/Harmonização; nunca misturar Turbilhão e Harmonia juntos).
+Retorne EXCLUSIVAMENTE um JSON válido exatamente neste formato curto:
+{
+  "protocolTitle": "Título do Protocolo",
+  "clinicalRationale": "Explicação clínica objetiva em 2 frases.",
+  "recommendedSequence": [
+    { "step": "Etapa 1", "graphicTitle": "Nome exato da placa", "role": "Função", "alignment": "Norte 357° ou Livre", "durationHint": "24h a 48h" }
+  ],
+  "witnessTemplate": "Texto pronto para escrita a grafite no papel branco.",
+  "kineticCommand": "Comando cinético completo para rotação horária do pêndulo encerrando com Está ativado, colapsado e manifestado na ordem cósmica."
+}`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          systemInstruction:
-            'Você é um especialista clínico em radiestesia terapêutica e radiônica. Responda de forma concisa, precisa e rápida exclusivamente em JSON válido.',
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              protocolTitle: { type: Type.STRING },
-              clinicalRationale: { type: Type.STRING },
-              recommendedSequence: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    step: { type: Type.STRING },
-                    graphicTitle: { type: Type.STRING },
-                    role: { type: Type.STRING },
-                    alignment: { type: Type.STRING },
-                    durationHint: { type: Type.STRING },
-                  },
-                  required: ['step', 'graphicTitle', 'role', 'alignment', 'durationHint'],
-                },
-              },
-              witnessTemplate: { type: Type.STRING },
-              kineticCommand: { type: Type.STRING },
+      const callRecommend = async (useFallbackLite: boolean) => {
+        if (!useFallbackLite) {
+          return ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: prompt,
+            config: {
+              thinkingConfig: { thinkingBudget: 0 },
+              responseMimeType: 'application/json',
+              abortSignal: AbortSignal.timeout(5000),
             },
-            required: [
-              'protocolTitle',
-              'clinicalRationale',
-              'recommendedSequence',
-              'witnessTemplate',
-              'kineticCommand',
-            ],
+          });
+        }
+        return ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: prompt,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+            responseMimeType: 'application/json',
+            abortSignal: AbortSignal.timeout(6000),
           },
-        },
-      });
+        });
+      };
 
-      const rawText = (response?.text ?? '').trim();
+      let response;
+      try {
+        response = await callRecommend(false);
+      } catch (primaryErr) {
+        const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        const shouldTryFallback =
+          /503|404|UNAVAILABLE|NOT_FOUND|high demand|overloaded|abort|timeout/i.test(primaryMsg);
+        if (!shouldTryFallback) {
+          throw primaryErr;
+        }
+        console.warn(
+          '[POST /api/graficos/recommend-protocol] gemini-3.8-flash indisponível, alternando para gemini-3.1-flash-lite:',
+          primaryMsg
+        );
+        response = await callRecommend(true);
+      }
+
+      const rawText = (response?.text ?? '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
       if (!rawText) {
         res.status(502).json({ error: 'Resposta vazia recebida do modelo Gemini.' });
         return;
@@ -957,12 +961,24 @@ Monte uma recomendação clínica objetiva e imediata em JSON estrito respeitand
 
       const parsed = JSON.parse(rawText);
       res.json(parsed);
-    } catch (error) {
-      console.error('Erro na rota /api/graficos/recommend-protocol:', error);
-      const msg =
-        error instanceof Error
-          ? error.message
+    } catch (err) {
+      console.error('[POST /api/graficos/recommend-protocol] Erro detalhado na chamada @google/genai:', {
+        message: err instanceof Error ? err.message : String(err),
+        name: err instanceof Error ? err.name : undefined,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      let msg =
+        err instanceof Error && err.message
+          ? err.message
           : 'Erro interno ao consultar protocolo radiônico.';
+      try {
+        const parsedErr = JSON.parse(msg);
+        if (parsedErr?.error?.message) {
+          msg = String(parsedErr.error.message);
+        }
+      } catch {
+        // Keep raw message when not JSON
+      }
       res.status(500).json({ error: msg });
     }
   });
