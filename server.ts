@@ -173,6 +173,67 @@ async function startServer() {
     res.json({ status: 'ok', service: 'maestro-quantico' });
   });
 
+  const MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024;
+  const ALLOWED_GEMINI_AUDIO_MIMES = new Set([
+    'audio/ogg',
+    'audio/mp3',
+    'audio/mp4',
+    'audio/wav',
+    'audio/webm',
+    'audio/aac',
+    'audio/flac',
+  ]);
+
+  function normalizeAudioMimeTypeServer(rawMime?: string, fileName?: string): string | null {
+    const baseMime = typeof rawMime === 'string' ? rawMime.split(';')[0].trim().toLowerCase() : '';
+    const ext = typeof fileName === 'string' ? path.extname(fileName).trim().toLowerCase() : '';
+
+    const byAlias: Record<string, string> = {
+      'audio/ogg': 'audio/ogg',
+      'application/ogg': 'audio/ogg',
+      'audio/opus': 'audio/ogg',
+      'audio/mpeg': 'audio/mp3',
+      'audio/mp3': 'audio/mp3',
+      'audio/mp4': 'audio/mp4',
+      'audio/x-m4a': 'audio/mp4',
+      'audio/m4a': 'audio/mp4',
+      'video/mp4': 'audio/mp4',
+      'audio/wav': 'audio/wav',
+      'audio/x-wav': 'audio/wav',
+      'audio/wave': 'audio/wav',
+      'audio/webm': 'audio/webm',
+      'video/webm': 'audio/webm',
+      'audio/aac': 'audio/aac',
+      'audio/flac': 'audio/flac',
+    };
+
+    if (baseMime && byAlias[baseMime]) {
+      return byAlias[baseMime];
+    }
+
+    const byExt: Record<string, string> = {
+      '.ogg': 'audio/ogg',
+      '.opus': 'audio/ogg',
+      '.mp3': 'audio/mp3',
+      '.m4a': 'audio/mp4',
+      '.mp4': 'audio/mp4',
+      '.wav': 'audio/wav',
+      '.webm': 'audio/webm',
+      '.aac': 'audio/aac',
+      '.flac': 'audio/flac',
+    };
+
+    if (ext && byExt[ext]) {
+      return byExt[ext];
+    }
+
+    if (baseMime && ALLOWED_GEMINI_AUDIO_MIMES.has(baseMime)) {
+      return baseMime;
+    }
+
+    return null;
+  }
+
   // Motor de Ressonância Harmônica e Gerador de Comandos via Gemini API
   app.post('/api/quantum/generate', async (req: Request, res: Response) => {
     try {
@@ -734,6 +795,190 @@ Retorne um JSON contendo estritamente as seguintes chaves:
     }
   });
 
+  // Transcrição Multimodal de Áudio Presencial + Extração Estruturada da Anamnese via gemini-3.8-flash
+  app.post('/api/anamnese/transcribe', async (req: Request, res: Response) => {
+    try {
+      const {
+        audioBase64,
+        mimeType,
+        fileName,
+        patientName,
+        partialTranscript,
+        interagentType,
+      } = req.body as {
+        audioBase64?: string;
+        mimeType?: string;
+        fileName?: string;
+        patientName?: string;
+        partialTranscript?: string;
+        interagentType?: 'humano' | 'pet';
+      };
+
+      const rawAudio = typeof audioBase64 === 'string' ? audioBase64.trim() : '';
+      if (!rawAudio) {
+        res.status(400).json({ error: 'Nenhum áudio gravado foi enviado para transcrição.' });
+        return;
+      }
+
+      const cleanBase64 = rawAudio.includes('base64,')
+        ? rawAudio.split('base64,')[1].trim()
+        : rawAudio;
+
+      if (!cleanBase64) {
+        res.status(400).json({ error: 'Conteúdo Base64 do áudio está vazio.' });
+        return;
+      }
+
+      const byteLength = Buffer.from(cleanBase64, 'base64').byteLength;
+      if (byteLength === 0) {
+        res.status(400).json({ error: 'O áudio gravado está vazio. Verifique o microfone e tente novamente.' });
+        return;
+      }
+      if (byteLength > MAX_AUDIO_UPLOAD_BYTES) {
+        res.status(500).json({
+          error: 'A gravação excedeu o limite máximo de 15 MB para envio direto.',
+        });
+        return;
+      }
+
+      const resolvedMime = normalizeAudioMimeTypeServer(mimeType, fileName || 'consulta.webm');
+      if (!resolvedMime) {
+        res.status(400).json({
+          error: 'Formato de áudio gravado não suportado para transcrição.',
+        });
+        return;
+      }
+
+      const cleanName =
+        typeof patientName === 'string' && patientName.trim()
+          ? patientName.trim()
+          : 'Paciente';
+      const isPet = interagentType === 'pet';
+      const partialHint =
+        typeof partialTranscript === 'string' && partialTranscript.trim()
+          ? `\nRascunho parcial captado em tempo real (use apenas como apoio se ajudar nomes próprios): "${partialTranscript.trim()}"`
+          : '';
+
+      const ai = getGeminiClient();
+
+      const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
+Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${partialHint}
+
+Execute duas ações em uma única resposta JSON:
+1. Transcreva fielmente em português brasileiro tudo o que foi relatado no áudio (sintomas, queixas, emoções, diagnósticos, histórico e intenção).
+2. Extraia os campos estruturados da ficha de anamnese.
+
+Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
+{
+  "transcript": "Transcrição limpa, pontuada e fiel do áudio da consulta em português.",
+  "clinicalComplaints": "Resumo detalhado dos sintomas físicos, dores localizadas, diagnósticos citados e tempo de evolução.",
+  "psychosomaticMapping": "Correlação psicossomática profunda entre os sintomas físicos relatados e os conflitos emocionais, traumas, estresse ou padrões mentais identificados na fala.",
+  "centralIntention": "Intenção Central de Tratamento sintetizada no Padrão Maestro.",
+  "suggestedFocus": "Escolha o foco principal mais compatível entre: Saúde Física, Equilíbrio Emocional, Limpeza Espiritual, Prosperidade/Material, Relacionamentos ou Saúde Animal / PETS.",
+  "highlightedOrgansAndChakras": ["Lista de órgãos, sistemas ANSAE e chakras associados às queixas"]
+}`;
+
+      const contents = [
+        {
+          inlineData: {
+            data: cleanBase64,
+            mimeType: resolvedMime,
+          },
+        },
+        { text: prompt },
+      ];
+
+      const callTranscribe = async (useFallbackLite: boolean) => {
+        if (!useFallbackLite) {
+          return ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents,
+            config: {
+              thinkingConfig: { thinkingBudget: 0 },
+              responseMimeType: 'application/json',
+              abortSignal: AbortSignal.timeout(30000),
+            },
+          });
+        }
+        return ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+            responseMimeType: 'application/json',
+            abortSignal: AbortSignal.timeout(30000),
+          },
+        });
+      };
+
+      let response;
+      try {
+        response = await callTranscribe(false);
+      } catch (primaryErr) {
+        const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        const shouldTryFallback =
+          /503|404|UNAVAILABLE|NOT_FOUND|high demand|overloaded|abort|timeout/i.test(primaryMsg);
+        if (!shouldTryFallback) {
+          throw primaryErr;
+        }
+        console.warn(
+          '[POST /api/anamnese/transcribe] gemini-3.8-flash indisponível, alternando para gemini-3.1-flash-lite:',
+          primaryMsg
+        );
+        response = await callTranscribe(true);
+      }
+
+      const rawText = (response?.text ?? '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida ao transcrever o áudio da anamnese.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText) as {
+        transcript?: unknown;
+        clinicalComplaints?: unknown;
+        psychosomaticMapping?: unknown;
+        centralIntention?: unknown;
+        suggestedFocus?: unknown;
+        highlightedOrgansAndChakras?: unknown;
+      };
+
+      const cleanStr = (v: unknown) =>
+        typeof v === 'string' ? v.replace(/\*/g, '').trim() : '';
+
+      res.json({
+        transcript: cleanStr(parsed.transcript),
+        clinicalComplaints: cleanStr(parsed.clinicalComplaints),
+        psychosomaticMapping: cleanStr(parsed.psychosomaticMapping),
+        centralIntention: cleanStr(parsed.centralIntention),
+        suggestedFocus: cleanStr(parsed.suggestedFocus) || 'Harmonização Integral',
+        highlightedOrgansAndChakras: Array.isArray(parsed.highlightedOrgansAndChakras)
+          ? parsed.highlightedOrgansAndChakras.map((item) => cleanStr(item)).filter(Boolean)
+          : [],
+      });
+    } catch (error) {
+      console.error('Erro na rota /api/anamnese/transcribe:', error);
+      let msg =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Erro interno ao transcrever e extrair dados da anamnese.';
+      try {
+        const parsedErr = JSON.parse(msg);
+        if (parsedErr?.error?.message) {
+          msg = String(parsedErr.error.message);
+        }
+      } catch {
+        // Keep raw message when not JSON
+      }
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // Leitura Óptica Inteligente de Biômetros via Gemini Vision
   app.post('/api/biometros/extract-sectors', async (req: Request, res: Response) => {
     try {
@@ -1203,67 +1448,6 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas duas chaves exatas:
       res.status(500).json({ error: msg });
     }
   });
-
-  const MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024;
-  const ALLOWED_GEMINI_AUDIO_MIMES = new Set([
-    'audio/ogg',
-    'audio/mp3',
-    'audio/mp4',
-    'audio/wav',
-    'audio/webm',
-    'audio/aac',
-    'audio/flac',
-  ]);
-
-  function normalizeAudioMimeTypeServer(rawMime?: string, fileName?: string): string | null {
-    const baseMime = typeof rawMime === 'string' ? rawMime.split(';')[0].trim().toLowerCase() : '';
-    const ext = typeof fileName === 'string' ? path.extname(fileName).trim().toLowerCase() : '';
-
-    const byAlias: Record<string, string> = {
-      'audio/ogg': 'audio/ogg',
-      'application/ogg': 'audio/ogg',
-      'audio/opus': 'audio/ogg',
-      'audio/mpeg': 'audio/mp3',
-      'audio/mp3': 'audio/mp3',
-      'audio/mp4': 'audio/mp4',
-      'audio/x-m4a': 'audio/mp4',
-      'audio/m4a': 'audio/mp4',
-      'video/mp4': 'audio/mp4',
-      'audio/wav': 'audio/wav',
-      'audio/x-wav': 'audio/wav',
-      'audio/wave': 'audio/wav',
-      'audio/webm': 'audio/webm',
-      'video/webm': 'audio/webm',
-      'audio/aac': 'audio/aac',
-      'audio/flac': 'audio/flac',
-    };
-
-    if (baseMime && byAlias[baseMime]) {
-      return byAlias[baseMime];
-    }
-
-    const byExt: Record<string, string> = {
-      '.ogg': 'audio/ogg',
-      '.opus': 'audio/ogg',
-      '.mp3': 'audio/mp3',
-      '.m4a': 'audio/mp4',
-      '.mp4': 'audio/mp4',
-      '.wav': 'audio/wav',
-      '.webm': 'audio/webm',
-      '.aac': 'audio/aac',
-      '.flac': 'audio/flac',
-    };
-
-    if (ext && byExt[ext]) {
-      return byExt[ext];
-    }
-
-    if (baseMime && ALLOWED_GEMINI_AUDIO_MIMES.has(baseMime)) {
-      return baseMime;
-    }
-
-    return null;
-  }
 
   // Endpoint Multimodal para Transcrição de Áudio (WhatsApp/Celular) + Análise Clínica Cruzada
   app.post('/api/clinical/analyze-dream-audio', async (req: Request, res: Response) => {

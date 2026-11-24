@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AlertCircle,
   ArrowRight,
   Bot,
   Check,
@@ -7,11 +8,14 @@ import {
   Pause,
   PawPrint,
   Play,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
+  Square,
   User,
   UserCheck,
   UserPlus,
+  Volume2,
 } from 'lucide-react';
 import {
   CopilotAnalysisResult,
@@ -31,6 +35,67 @@ interface AnamneseFormProps {
   onProceedToSensitivity: () => void;
 }
 
+const VU_BAR_COUNT = 18;
+const IDLE_VU_BARS = new Array<number>(VU_BAR_COUNT).fill(8);
+const MAX_RECORDING_BYTES = 15 * 1024 * 1024;
+
+function pickSupportedRecorderMimeType(): string {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return '';
+  }
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ];
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) {
+      return mime;
+    }
+  }
+  return '';
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const base64 = result.includes('base64,') ? result.split('base64,')[1] : result;
+      if (!base64) {
+        reject(new Error('Não foi possível codificar o áudio gravado.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Falha ao ler os dados da gravação de áudio.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function describeMicrophoneError(err: unknown): string {
+  const name = err instanceof DOMException || err instanceof Error ? err.name : '';
+  const msg = err instanceof Error ? err.message : '';
+
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Permissão de acesso ao microfone negada. Clique no ícone de cadeado ou microfone na barra de endereço para liberar o uso e tente novamente (em ambientes incorporados/iframe, confirme se a política do navegador permite microfone).';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'Nenhum microfone detectado neste dispositivo. Conecte um microfone ou fone com áudio e tente novamente.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'O microfone está ocupado ou bloqueado por outro aplicativo. Feche outros programas de chamada/gravação e tente novamente.';
+  }
+  if (name === 'SecurityError' || /iframe|permissions policy|secure/i.test(msg)) {
+    return 'O navegador ou iframe bloqueou a captura de microfone por restrição de segurança/HTTPS. Você pode colar a transcrição manualmente ou abrir em janela direta.';
+  }
+  return msg
+    ? `Não foi possível acessar o microfone (${msg}). Verifique as permissões do navegador.`
+    : 'Não foi possível iniciar o microfone neste dispositivo.';
+}
+
 export const AnamneseForm: React.FC<AnamneseFormProps> = ({
   anamnesis,
   existingSessions,
@@ -39,18 +104,46 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
   onResetForm,
   onProceedToSensitivity,
 }) => {
-  const [isListening, setIsListening] = useState<boolean>(false);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [transcript, setTranscript] = useState<string>(anamnesis.sessionTranscript || '');
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [copilotAnalysis, setCopilotAnalysis] = useState<CopilotAnalysisResult | null>(
     anamnesis.copilotAnalysis || null
   );
   const [copilotError, setCopilotError] = useState<string | null>(null);
+  const [micStatusNote, setMicStatusNote] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [vuBars, setVuBars] = useState<number[]>(IDLE_VU_BARS);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null);
+
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+
+  const isRecordingRef = useRef<boolean>(false);
+  const isPausedRef = useRef<boolean>(false);
+  const anamnesisRef = useRef<PatientAnamnesis>(anamnesis);
+  const transcriptRef = useRef<string>(transcript);
+  const recordedAudioUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    anamnesisRef.current = anamnesis;
+  }, [anamnesis]);
+
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   useEffect(() => {
     setTranscript(anamnesis.sessionTranscript || '');
@@ -58,8 +151,8 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
   }, [anamnesis.id, anamnesis.sessionTranscript, anamnesis.copilotAnalysis]);
 
   useEffect(() => {
-    let timer: any = null;
-    if (isListening && !isPaused) {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    if (isRecording && !isPaused) {
       timer = setInterval(() => {
         setDurationSeconds((s) => s + 1);
       }, 1000);
@@ -67,108 +160,463 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isListening, isPaused]);
+  }, [isRecording, isPaused]);
 
-  const startListening = () => {
-    setCopilotError(null);
+  const stopVuMeterLoop = () => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    setAudioLevel(0);
+    setVuBars(IDLE_VU_BARS);
+  };
+
+  const startVuMeterLoop = () => {
+    stopVuMeterLoop();
+    const analyser = analyserRef.current;
+    if (!analyser) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const tick = () => {
+      if (!isRecordingRef.current || isPausedRef.current || !analyserRef.current) {
+        return;
+      }
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const avg = bufferLength > 0 ? sum / bufferLength : 0;
+      const normalizedPct = Math.min(100, Math.round((avg / 110) * 100));
+      setAudioLevel(normalizedPct);
+
+      const nextBars: number[] = [];
+      const usefulBins = Math.max(1, Math.min(bufferLength, VU_BAR_COUNT));
+      for (let b = 0; b < VU_BAR_COUNT; b++) {
+        const binIndex = Math.min(bufferLength - 1, Math.floor((b / VU_BAR_COUNT) * usefulBins));
+        const val = dataArray[binIndex] ?? 0;
+        const heightPct = Math.max(10, Math.min(100, Math.round((val / 160) * 100)));
+        nextBars.push(heightPct);
+      }
+      setVuBars(nextBars);
+
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
+
+    rafIdRef.current = requestAnimationFrame(tick);
+  };
+
+  const releaseMediaResources = () => {
+    stopVuMeterLoop();
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch {
+        // Ignore stop errors
+      }
+      recognitionRef.current = null;
+    }
+
+    if (audioSourceRef.current) {
+      try {
+        audioSourceRef.current.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      audioSourceRef.current = null;
+    }
+
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      analyserRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      try {
+        void audioContextRef.current.close();
+      } catch {
+        // Ignore close errors
+      }
+      audioContextRef.current = null;
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // Ignore track stop errors
+        }
+      });
+      mediaStreamRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      isRecordingRef.current = false;
+      isPausedRef.current = false;
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state !== 'inactive'
+      ) {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // Ignore stop errors on unmount
+        }
+      }
+      releaseMediaResources();
+      if (recordedAudioUrlRef.current) {
+        URL.revokeObjectURL(recordedAudioUrlRef.current);
+        recordedAudioUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const startLiveSpeechRecognition = () => {
     const SpeechAPI =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
     if (!SpeechAPI) {
-      setCopilotError(
-        'Reconhecimento de fala nativo não suportado neste navegador. Você pode digitar ou colar a transcrição manualmente abaixo.'
+      setMicStatusNote(
+        'Microfone conectado e gravando áudio real. A transcrição completa será gerada pela IA ao finalizar a consulta.'
       );
-      setIsListening(true);
-      setIsPaused(false);
       return;
     }
 
     try {
-      if (!recognitionRef.current) {
-        const recognition = new SpeechAPI();
-        recognition.lang = 'pt-BR';
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.onresult = (event: any) => {
-          let finalStr = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              finalStr += event.results[i][0].transcript + ' ';
-            }
+      const recognition = new SpeechAPI();
+      recognition.lang = 'pt-BR';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: any) => {
+        let finalStr = '';
+        let interimStr = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const piece = event.results[i][0]?.transcript || '';
+          if (event.results[i].isFinal) {
+            finalStr += piece + ' ';
+          } else {
+            interimStr += piece;
           }
-          if (finalStr) {
-            setTranscript((prev) => {
-              const next = (prev ? prev + ' ' : '') + finalStr.trim();
-              onChange({ ...anamnesis, sessionTranscript: next });
-              return next;
-            });
+        }
+        setInterimTranscript(interimStr.trim());
+        if (finalStr.trim()) {
+          setTranscript((prev) => {
+            const next = (prev ? `${prev.trim()} ` : '') + finalStr.trim();
+            transcriptRef.current = next;
+            onChange({ ...anamnesisRef.current, sessionTranscript: next });
+            return next;
+          });
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') {
+          setMicStatusNote(
+            'Transcrição nativa indisponível neste navegador/iframe, mas a gravação de áudio real continua ativa para transcrição via IA.'
+          );
+        }
+      };
+
+      recognition.onend = () => {
+        setInterimTranscript('');
+        if (isRecordingRef.current && !isPausedRef.current) {
+          try {
+            recognition.start();
+          } catch {
+            // Ignore restart race when stopping
           }
-        };
-        recognition.onerror = (e: any) => {
-          console.warn('Speech recognition error:', e);
-        };
-        recognition.onend = () => {
-          if (isListening && !isPaused) {
-            try {
-              recognition.start();
-            } catch {}
-          }
-        };
-        recognitionRef.current = recognition;
-      }
-      recognitionRef.current.start();
-      setIsListening(true);
-      setIsPaused(false);
-    } catch (err) {
-      console.error('Failed to start recognition:', err);
-      setIsListening(true);
-      setIsPaused(false);
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch {
+      setMicStatusNote(
+        'Gravação de áudio real ativa! A transcrição será processada automaticamente pela IA ao finalizar.'
+      );
     }
   };
 
-  const pauseListening = () => {
+  const startRecording = async () => {
+    setCopilotError(null);
+    setMicStatusNote(null);
+    setSuccessNotice(null);
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function'
+    ) {
+      setCopilotError(
+        'Este navegador ou contexto não permite captura de microfone (verifique se está em HTTPS ou fora de um iframe bloqueado).'
+      );
+      return;
+    }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      setCopilotError(describeMicrophoneError(err));
+      return;
+    }
+
+    // Revoke previous conference recording if starting a fresh recording
+    if (recordedAudioUrlRef.current) {
+      URL.revokeObjectURL(recordedAudioUrlRef.current);
+      recordedAudioUrlRef.current = null;
+    }
+    setRecordedAudioUrl(null);
+    setRecordedAudioBlob(null);
+    setDurationSeconds(0);
+    setInterimTranscript('');
+
+    mediaStreamRef.current = stream;
+
+    // 1. Setup AudioContext + AnalyserNode for live VU Meter
+    try {
+      const AudioCtx =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        const audioCtx = new AudioCtx();
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.72;
+        source.connect(analyser);
+
+        audioContextRef.current = audioCtx;
+        audioSourceRef.current = source;
+        analyserRef.current = analyser;
+      }
+    } catch (audioCtxErr) {
+      console.warn('Não foi possível inicializar o medidor VU:', audioCtxErr);
+    }
+
+    // 2. Setup MediaRecorder (webm/opus or mp4 fallback for Safari/iOS)
+    try {
+      if (typeof MediaRecorder === 'undefined') {
+        throw new Error('MediaRecorder não suportado neste navegador.');
+      }
+      const chosenMime = pickSupportedRecorderMimeType();
+      const recorder = chosenMime
+        ? new MediaRecorder(stream, { mimeType: chosenMime })
+        : new MediaRecorder(stream);
+
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (ev: BlobEvent) => {
+        if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data);
+        }
+      };
+
+      recorder.start(500);
+      mediaRecorderRef.current = recorder;
+    } catch (recErr) {
+      releaseMediaResources();
+      setCopilotError(
+        recErr instanceof Error
+          ? `Não foi possível iniciar o gravador de áudio: ${recErr.message}`
+          : 'Não foi possível iniciar o gravador de áudio neste navegador.'
+      );
+      return;
+    }
+
+    isRecordingRef.current = true;
+    isPausedRef.current = false;
+    setIsRecording(true);
+    setIsPaused(false);
+    startVuMeterLoop();
+    startLiveSpeechRecognition();
+  };
+
+  const pauseRecording = () => {
+    isPausedRef.current = true;
     setIsPaused(true);
+    setInterimTranscript('');
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.pause();
+      } catch {
+        // Ignore pause unsupported
+      }
+    }
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch {}
+      } catch {
+        // Ignore stop errors
+      }
     }
+
+    stopVuMeterLoop();
   };
 
-  const resumeListening = () => {
+  const resumeRecording = async () => {
+    isPausedRef.current = false;
     setIsPaused(false);
+
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+      } catch {
+        // Ignore resume errors
+      }
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      try {
+        mediaRecorderRef.current.resume();
+      } catch {
+        // Ignore resume unsupported
+      }
+    }
+
+    startVuMeterLoop();
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
-      } catch {}
+      } catch {
+        // Ignore restart errors
+      }
     }
   };
 
-  const stopAndAnalyze = async () => {
-    setIsListening(false);
-    setIsPaused(false);
-    if (recognitionRef.current) {
+  const finalizeRecorderToBlob = (): Promise<Blob | null> => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      if (audioChunksRef.current.length > 0) {
+        const mime = recorder?.mimeType || 'audio/webm';
+        return Promise.resolve(new Blob(audioChunksRef.current, { type: mime }));
+      }
+      return Promise.resolve(null);
+    }
+
+    return new Promise((resolve) => {
+      recorder.onstop = () => {
+        const mime = recorder.mimeType || pickSupportedRecorderMimeType() || 'audio/webm';
+        const blob =
+          audioChunksRef.current.length > 0
+            ? new Blob(audioChunksRef.current, { type: mime })
+            : null;
+        resolve(blob);
+      };
       try {
-        recognitionRef.current.stop();
-      } catch {}
-    }
+        recorder.stop();
+      } catch {
+        resolve(null);
+      }
+    });
+  };
 
-    const currentText = transcript.trim();
-    if (!currentText) {
-      setCopilotError(
-        'Nenhum conteúdo na transcrição para analisar. Fale ao microfone ou digite a anamnese abaixo.'
-      );
-      return;
-    }
-
+  const processCapturedDataWithAI = async (blobToProcess: Blob | null, textFallback: string) => {
     setIsAnalyzing(true);
     setCopilotError(null);
+    setMicStatusNote(null);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 35000);
+
     try {
+      if (blobToProcess && blobToProcess.size > 0 && blobToProcess.size <= MAX_RECORDING_BYTES) {
+        const audioBase64 = await blobToBase64(blobToProcess);
+        const mimeType = blobToProcess.type || 'audio/webm';
+        const ext = mimeType.includes('mp4')
+          ? 'mp4'
+          : mimeType.includes('ogg')
+          ? 'ogg'
+          : 'webm';
+
+        const res = await fetch('/api/anamnese/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            audioBase64,
+            mimeType,
+            fileName: `consulta.${ext}`,
+            patientName: anamnesisRef.current.fullName,
+            partialTranscript: textFallback,
+            interagentType: anamnesisRef.current.interagentType,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || 'Erro ao transcrever o áudio da consulta.');
+        }
+
+        const resolvedTranscript = (data.transcript || textFallback || '').trim();
+        const analysisData: CopilotAnalysisResult = {
+          clinicalComplaints: data.clinicalComplaints || '',
+          psychosomaticMapping: data.psychosomaticMapping || '',
+          centralIntention: data.centralIntention || '',
+          suggestedFocus: data.suggestedFocus || '',
+          highlightedOrgansAndChakras: Array.isArray(data.highlightedOrgansAndChakras)
+            ? data.highlightedOrgansAndChakras
+            : [],
+        };
+
+        if (resolvedTranscript) {
+          setTranscript(resolvedTranscript);
+          transcriptRef.current = resolvedTranscript;
+        }
+        setCopilotAnalysis(analysisData);
+
+        const latestAnamnesis = anamnesisRef.current;
+        onChange({
+          ...latestAnamnesis,
+          sessionTranscript: resolvedTranscript,
+          copilotAnalysis: analysisData,
+          physicalSymptoms: analysisData.clinicalComplaints || latestAnamnesis.physicalSymptoms,
+          emotionalHistory: analysisData.psychosomaticMapping || latestAnamnesis.emotionalHistory,
+          therapeuticFocus: analysisData.centralIntention || latestAnamnesis.therapeuticFocus,
+        });
+        setSuccessNotice(
+          'Áudio transcrito e ficha preenchida automaticamente pela Copiloto IA!'
+        );
+        setTimeout(() => setSuccessNotice(null), 4500);
+        return;
+      }
+
+      if (blobToProcess && blobToProcess.size > MAX_RECORDING_BYTES && !textFallback.trim()) {
+        throw new Error(
+          'O áudio gravado excedeu 15 MB e não há transcrição parcial de apoio. Cole o resumo na caixa abaixo.'
+        );
+      }
+
+      const cleanText = textFallback.trim();
+      if (!cleanText) {
+        throw new Error(
+          'Nenhum áudio captado ou texto digitado para analisar. Verifique seu microfone ou digite a anamnese abaixo.'
+        );
+      }
+
       const res = await fetch('/api/anamnese/copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
-          transcript: currentText,
-          patientName: anamnesis.fullName,
+          transcript: cleanText,
+          patientName: anamnesisRef.current.fullName,
         }),
       });
       const data = await res.json();
@@ -177,22 +625,59 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       }
       setCopilotAnalysis(data);
 
-      // Auto-fill form fields immediately
+      const latestAnamnesis = anamnesisRef.current;
       onChange({
-        ...anamnesis,
-        sessionTranscript: currentText,
+        ...latestAnamnesis,
+        sessionTranscript: cleanText,
         copilotAnalysis: data,
-        physicalSymptoms: data.clinicalComplaints || anamnesis.physicalSymptoms,
-        emotionalHistory: data.psychosomaticMapping || anamnesis.emotionalHistory,
-        therapeuticFocus: data.centralIntention || anamnesis.therapeuticFocus,
+        physicalSymptoms: data.clinicalComplaints || latestAnamnesis.physicalSymptoms,
+        emotionalHistory: data.psychosomaticMapping || latestAnamnesis.emotionalHistory,
+        therapeuticFocus: data.centralIntention || latestAnamnesis.therapeuticFocus,
       });
       setSuccessNotice('Análise concluída e ficha preenchida automaticamente pela Copiloto IA!');
       setTimeout(() => setSuccessNotice(null), 4000);
     } catch (err) {
-      setCopilotError(err instanceof Error ? err.message : 'Erro ao comunicar com o servidor.');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setCopilotError(
+          'Tempo limite excedido ao processar a gravação. Você pode reproduzir o áudio abaixo e clicar em "Reprocessar Áudio com IA".'
+        );
+      } else {
+        setCopilotError(
+          err instanceof Error ? err.message : 'Erro ao comunicar com o servidor.'
+        );
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       setIsAnalyzing(false);
     }
+  };
+
+  const stopAndAnalyze = async () => {
+    const wasRecording = isRecordingRef.current;
+    isRecordingRef.current = false;
+    isPausedRef.current = false;
+    setIsRecording(false);
+    setIsPaused(false);
+    setInterimTranscript('');
+
+    let capturedBlob = recordedAudioBlob;
+    if (wasRecording) {
+      capturedBlob = await finalizeRecorderToBlob();
+      releaseMediaResources();
+      mediaRecorderRef.current = null;
+
+      if (capturedBlob && capturedBlob.size > 0) {
+        if (recordedAudioUrlRef.current) {
+          URL.revokeObjectURL(recordedAudioUrlRef.current);
+        }
+        const url = URL.createObjectURL(capturedBlob);
+        recordedAudioUrlRef.current = url;
+        setRecordedAudioUrl(url);
+        setRecordedAudioBlob(capturedBlob);
+      }
+    }
+
+    await processCapturedDataWithAI(capturedBlob, transcriptRef.current);
   };
 
   const applySuggestions = () => {
@@ -392,28 +877,29 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {!isListening ? (
+            {!isRecording ? (
               <button
                 type="button"
-                onClick={startListening}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-[#DC2626] rounded-lg hover:bg-[#B91C1C] shadow-sm cursor-pointer whitespace-nowrap"
+                disabled={isAnalyzing}
+                onClick={startRecording}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-[#DC2626] rounded-lg hover:bg-[#B91C1C] disabled:opacity-50 shadow-sm cursor-pointer whitespace-nowrap"
               >
-                <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
-                Iniciar Escuta / Gravação
+                <Mic className="w-3.5 h-3.5" />
+                Iniciar Escuta Ativa
               </button>
             ) : isPaused ? (
               <button
                 type="button"
-                onClick={resumeListening}
+                onClick={resumeRecording}
                 className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#FEF3C7] border border-[#D97706]/50 rounded-lg hover:bg-[#FDE68A] cursor-pointer whitespace-nowrap"
               >
                 <Play className="w-3.5 h-3.5 text-[#B45309]" />
-                Retomar Escuta
+                Retomar Gravação
               </button>
             ) : (
               <button
                 type="button"
-                onClick={pauseListening}
+                onClick={pauseRecording}
                 className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#FEF3C7] border border-[#D97706]/50 rounded-lg hover:bg-[#FDE68A] cursor-pointer whitespace-nowrap"
               >
                 <Pause className="w-3.5 h-3.5 text-[#B45309]" />
@@ -423,52 +909,141 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
 
             <button
               type="button"
-              disabled={isAnalyzing || (!transcript.trim() && !isListening)}
+              disabled={isAnalyzing || (!transcript.trim() && !isRecording && !recordedAudioBlob)}
               onClick={stopAndAnalyze}
               className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm cursor-pointer whitespace-nowrap"
             >
               {isAnalyzing ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Analisando com Copiloto IA...
+                  Transcrevendo e Analisando (IA)...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-3.5 h-3.5 text-[#F59E0B]" />
-                  Encerrar e Analisar com Copiloto IA
+                  {isRecording ? (
+                    <Square className="w-3.5 h-3.5 text-[#F59E0B]" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-[#F59E0B]" />
+                  )}
+                  Finalizar &amp; Extrair Dados para Anamnese
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* Live Status & Timer */}
-        {(isListening || durationSeconds > 0) && (
-          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] text-xs">
-            <div className="flex items-center gap-2">
-              {isListening && !isPaused ? (
-                <>
-                  <span className="w-3 h-3 rounded-full bg-[#DC2626] animate-ping" />
-                  <span className="font-bold text-[#DC2626]">Captando áudio em tempo real...</span>
-                </>
-              ) : isPaused ? (
-                <>
-                  <span className="w-3 h-3 rounded-full bg-[#D97706]" />
-                  <span className="font-bold text-[#B45309]">Gravação pausada</span>
-                </>
-              ) : (
-                <span className="font-semibold text-[#64748B]">Escuta encerrada</span>
-              )}
+        {/* Live Recording Telemetry Panel + VU Meter + Conference Player */}
+        {(isRecording || durationSeconds > 0 || recordedAudioUrl) && (
+          <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {isRecording && !isPaused ? (
+                  <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#DC2626] text-white text-[11px] font-bold tracking-wider uppercase">
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    ● GRAVANDO ÁUDIO
+                  </span>
+                ) : isPaused ? (
+                  <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#FEF3C7] border border-[#D97706]/50 text-[#92400E] text-[11px] font-bold tracking-wider uppercase">
+                    <span className="w-2 h-2 rounded-full bg-[#D97706]" />
+                    GRAVAÇÃO PAUSADA
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-white border border-[#CBD5E1] text-[#475569] text-[11px] font-semibold uppercase tracking-wider">
+                    ÁUDIO CAPTURADO PARA CONFERÊNCIA
+                  </span>
+                )}
+
+                <span className="text-xs text-[#45464D]">
+                  {isRecording && !isPaused
+                    ? 'Microfone ativo · captando voz em tempo real'
+                    : isPaused
+                    ? 'Clique em "Retomar Gravação" para continuar'
+                    : 'Reproduza abaixo para conferir ou clique em reprocessar'}
+                </span>
+              </div>
+
+              <div className="font-mono tabular-nums text-sm font-bold text-[#0F172A]">
+                {formatTimer(durationSeconds)}
+              </div>
             </div>
-            <div className="font-mono font-semibold text-[#0F172A]">
-              Duração da Consulta: {formatTimer(durationSeconds)}
-            </div>
+
+            {/* Dynamic VU Meter Waveform */}
+            {isRecording && (
+              <div className="p-3 rounded-lg bg-white border border-[#E2E8F0] space-y-2">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-[#0F172A]">
+                    <Volume2 className="w-3.5 h-3.5 text-[#B45309]" />
+                    Nível de Captação do Microfone (VU Meter)
+                  </span>
+                  <span className="font-mono tabular-nums font-semibold text-[#B45309]">
+                    {isPaused ? '0%' : `${audioLevel}%`}
+                  </span>
+                </div>
+                <div
+                  className="h-10 flex items-end justify-between gap-1 px-1"
+                  aria-label="Medidor visual de ondas de áudio do microfone"
+                >
+                  {vuBars.map((barHeight, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex-1 rounded-sm transition-[height] duration-75 ${
+                        isPaused
+                          ? 'bg-[#CBD5E1]'
+                          : barHeight > 65
+                          ? 'bg-[#DC2626]'
+                          : barHeight > 32
+                          ? 'bg-[#D97706]'
+                          : 'bg-[#0F172A]/60'
+                      }`}
+                      style={{ height: `${isPaused ? 10 : barHeight}%` }}
+                    />
+                  ))}
+                </div>
+                {interimTranscript && (
+                  <p className="text-[11px] italic text-[#64748B] truncate pt-1 border-t border-[#E2E8F0]">
+                    Ouvindo: &ldquo;{interimTranscript}&rdquo;
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Conference Audio Player */}
+            {recordedAudioUrl && !isRecording && (
+              <div className="p-3 rounded-lg bg-white border border-[#D97706]/35 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-[#0F172A]">
+                    Player de Conferência da Consulta Gravada
+                  </span>
+                  {recordedAudioBlob && (
+                    <button
+                      type="button"
+                      disabled={isAnalyzing}
+                      onClick={() =>
+                        void processCapturedDataWithAI(recordedAudioBlob, transcriptRef.current)
+                      }
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#CBD5E1] rounded-md hover:border-[#D97706] disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                    >
+                      <RefreshCw className="w-3 h-3 text-[#B45309]" />
+                      Reprocessar Áudio com IA
+                    </button>
+                  )}
+                </div>
+                <audio controls src={recordedAudioUrl} className="w-full h-9" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {micStatusNote && (
+          <div className="p-3 rounded-xl bg-[#FFFBEB] border border-[#D97706]/35 text-xs text-[#92400E]">
+            {micStatusNote}
           </div>
         )}
 
         {copilotError && (
-          <div className="p-3 rounded-xl bg-[#FEF2F2] border border-[#BA1A1A]/40 text-xs text-[#93000A]">
-            {copilotError}
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-[#FEF2F2] border border-[#BA1A1A]/40 text-xs text-[#93000A]">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{copilotError}</span>
           </div>
         )}
 
