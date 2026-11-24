@@ -31,9 +31,12 @@ import {
 } from './antiCatharsis';
 import { formatRemedyDurationLabel } from './energeticRemedies';
 import {
+  DEFAULT_CLINIC_LOGO_URL,
+  ProfessionalProfile,
   getAnsaeDraftForSession,
   getOrganPsychosomaticMeaning,
   getPreviousSessionForPatient,
+  getProfessionalProfile,
   getSystemPsychosomaticMeaning,
   normalizeAnsaeSheet,
 } from './storage';
@@ -44,8 +47,42 @@ const SLATE_TEXT_HEX = '334155';
 const MUTED_HEX = '64748B';
 const BORDER_HEX = 'CBD5E1';
 const LIGHT_BG_HEX = 'FAF8F5';
-const MAESTRO_LOGO_URL =
-  './assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png';
+
+function normalizeHex6(color: string | undefined, fallback: string): string {
+  if (!color) return fallback;
+  const cleaned = color.trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+    return cleaned.toUpperCase();
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
+    return `${cleaned[0]}${cleaned[0]}${cleaned[1]}${cleaned[1]}${cleaned[2]}${cleaned[2]}`.toUpperCase();
+  }
+  return fallback;
+}
+
+function hexToRgbTuple(
+  color: string | undefined,
+  fallback: [number, number, number]
+): [number, number, number] {
+  const hex = normalizeHex6(color, '');
+  if (hex.length !== 6) return fallback;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return fallback;
+  return [r, g, b];
+}
+
+function buildProfileContactLine(profile: ProfessionalProfile): string {
+  return [
+    profile.subtitleLine.trim(),
+    profile.contacts.trim() ? `Contatos: ${profile.contacts.trim()}` : '',
+    profile.emailOrSocial.trim(),
+    (profile.website || '').trim(),
+  ]
+    .filter(Boolean)
+    .join(' • ');
+}
 
 export interface DocumentExportContext {
   ansaeSheet?: ClinicalAnsaeRhenSheet;
@@ -54,18 +91,80 @@ export interface DocumentExportContext {
   welcomeMessage?: string;
 }
 
-interface MaestroLogoAssets {
+interface ActiveLogoAssets {
   bytes: Uint8Array;
   dataUrl: string;
+  docxType: 'png' | 'jpg';
+  pdfFormat: 'PNG' | 'JPEG';
+  aspectRatio: number;
 }
 
-let cachedLogoPromise: Promise<MaestroLogoAssets | null> | null = null;
+let cachedDefaultLogoPromise: Promise<ActiveLogoAssets | null> | null = null;
 
-async function loadMaestroLogo(): Promise<MaestroLogoAssets | null> {
-  if (!cachedLogoPromise) {
-    cachedLogoPromise = (async () => {
+function dataUrlToUint8Array(dataUrl: string): Uint8Array {
+  const commaIdx = dataUrl.indexOf(',');
+  const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function measureImageAspect(dataUrl: string): Promise<number> {
+  if (typeof Image === 'undefined') return 1;
+  return new Promise<number>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve(img.naturalWidth / img.naturalHeight);
+      } else {
+        resolve(1);
+      }
+    };
+    img.onerror = () => resolve(1);
+    img.src = dataUrl;
+  });
+}
+
+async function normalizeDataUrlToPng(dataUrl: string): Promise<{
+  dataUrl: string;
+  aspectRatio: number;
+}> {
+  const aspectRatio = await measureImageAspect(dataUrl);
+  if (typeof document === 'undefined') {
+    return { dataUrl, aspectRatio };
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || 256;
+      const h = img.naturalHeight || 256;
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve({ dataUrl, aspectRatio });
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve({
+        dataUrl: canvas.toDataURL('image/png'),
+        aspectRatio: w / h,
+      });
+    };
+    img.onerror = () => resolve({ dataUrl, aspectRatio });
+    img.src = dataUrl;
+  });
+}
+
+async function loadDefaultClinicLogo(): Promise<ActiveLogoAssets | null> {
+  if (!cachedDefaultLogoPromise) {
+    cachedDefaultLogoPromise = (async () => {
       try {
-        const res = await fetch(MAESTRO_LOGO_URL);
+        const res = await fetch(DEFAULT_CLINIC_LOGO_URL);
         if (!res.ok) return null;
         const buffer = await res.arrayBuffer();
         const bytes = new Uint8Array(buffer);
@@ -74,16 +173,59 @@ async function loadMaestroLogo(): Promise<MaestroLogoAssets | null> {
           binary += String.fromCharCode(bytes[i]);
         }
         const base64 = btoa(binary);
+        const dataUrl = `data:image/png;base64,${base64}`;
+        const aspectRatio = await measureImageAspect(dataUrl);
         return {
           bytes,
-          dataUrl: `data:image/png;base64,${base64}`,
+          dataUrl,
+          docxType: 'png',
+          pdfFormat: 'PNG',
+          aspectRatio,
         };
       } catch {
         return null;
       }
     })();
   }
-  return cachedLogoPromise;
+  return cachedDefaultLogoPromise;
+}
+
+async function loadActiveProfileLogo(
+  profile: ProfessionalProfile
+): Promise<ActiveLogoAssets | null> {
+  if (profile.logoDataUrl && profile.logoDataUrl.startsWith('data:image/')) {
+    try {
+      const isPng = profile.logoDataUrl.startsWith('data:image/png');
+      const isJpeg =
+        profile.logoDataUrl.startsWith('data:image/jpeg') ||
+        profile.logoDataUrl.startsWith('data:image/jpg');
+
+      if (isPng || isJpeg) {
+        const bytes = dataUrlToUint8Array(profile.logoDataUrl);
+        const aspectRatio = await measureImageAspect(profile.logoDataUrl);
+        return {
+          bytes,
+          dataUrl: profile.logoDataUrl,
+          docxType: isJpeg ? 'jpg' : 'png',
+          pdfFormat: isJpeg ? 'JPEG' : 'PNG',
+          aspectRatio,
+        };
+      }
+
+      const normalized = await normalizeDataUrlToPng(profile.logoDataUrl);
+      const bytes = dataUrlToUint8Array(normalized.dataUrl);
+      return {
+        bytes,
+        dataUrl: normalized.dataUrl,
+        docxType: 'png',
+        pdfFormat: 'PNG',
+        aspectRatio: normalized.aspectRatio,
+      };
+    } catch {
+      return loadDefaultClinicLogo();
+    }
+  }
+  return loadDefaultClinicLogo();
 }
 
 function sanitizeFileName(name: string): string {
@@ -244,25 +386,52 @@ export function applyVocativeToWelcomeMessage(text: string, vocative: string): s
 
 function buildDocxOfficialHeader(
   subtitle: string,
-  logoBytes: Uint8Array | null
+  logo: ActiveLogoAssets | null,
+  profile: ProfessionalProfile
 ): Paragraph[] {
+  const primaryHex = normalizeHex6(profile.primaryColor, NAVY_HEX);
+  const accentHex = normalizeHex6(profile.accentColor, AMBER_HEX);
   const paragraphs: Paragraph[] = [];
 
-  if (logoBytes) {
+  if (logo) {
+    const height = 68;
+    const width = Math.min(160, Math.max(40, Math.round(height * logo.aspectRatio)));
     paragraphs.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
         children: [
           new ImageRun({
-            data: logoBytes,
-            transformation: { width: 68, height: 68 },
-            type: 'png',
+            data: logo.bytes,
+            transformation: { width, height },
+            type: logo.docxType,
           }),
         ],
       })
     );
   }
+
+  const therapistChildren: TextRun[] = [
+    new TextRun({
+      text: profile.therapistName,
+      bold: true,
+      size: 20,
+      color: primaryHex,
+      font: 'Calibri',
+    }),
+  ];
+  if (profile.credentials.trim()) {
+    therapistChildren.push(
+      new TextRun({
+        text: ` | ${profile.credentials.trim()}`,
+        size: 20,
+        color: SLATE_TEXT_HEX,
+        font: 'Calibri',
+      })
+    );
+  }
+
+  const contactLine = buildProfileContactLine(profile);
 
   paragraphs.push(
     new Paragraph({
@@ -270,10 +439,10 @@ function buildDocxOfficialHeader(
       spacing: { after: 80 },
       children: [
         new TextRun({
-          text: 'MAESTRO TERAPIAS VIBRACIONAIS',
+          text: profile.clinicName.toUpperCase(),
           bold: true,
           size: 32,
-          color: NAVY_HEX,
+          color: primaryHex,
           font: 'Georgia',
         }),
       ],
@@ -287,7 +456,7 @@ function buildDocxOfficialHeader(
           italics: true,
           bold: true,
           size: 24,
-          color: AMBER_HEX,
+          color: accentHex,
           font: 'Georgia',
         }),
       ],
@@ -295,28 +464,14 @@ function buildDocxOfficialHeader(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [
-        new TextRun({
-          text: 'Giovani Caetano',
-          bold: true,
-          size: 20,
-          color: NAVY_HEX,
-          font: 'Calibri',
-        }),
-        new TextRun({
-          text: ' | Terapeuta Vibracional • Radiestesista Terapêutico • Neuroterapia & Hipnoterapia',
-          size: 20,
-          color: SLATE_TEXT_HEX,
-          font: 'Calibri',
-        }),
-      ],
+      children: therapistChildren,
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 180 },
       border: {
         bottom: {
-          color: AMBER_HEX,
+          color: accentHex,
           space: 8,
           style: BorderStyle.SINGLE,
           size: 16,
@@ -324,7 +479,7 @@ function buildDocxOfficialHeader(
       },
       children: [
         new TextRun({
-          text: 'Consultoria Holística Integrativa • Contatos: (68) 99247-6436 | (11) 95056-5215',
+          text: contactLine || profile.clinicName,
           size: 19,
           color: MUTED_HEX,
           font: 'Calibri',
@@ -336,7 +491,7 @@ function buildDocxOfficialHeader(
   return paragraphs;
 }
 
-function buildSectionHeading(title: string): Paragraph {
+function buildSectionHeading(title: string, primaryHex = NAVY_HEX): Paragraph {
   return new Paragraph({
     spacing: { before: 240, after: 120 },
     border: {
@@ -352,14 +507,18 @@ function buildSectionHeading(title: string): Paragraph {
         text: title,
         bold: true,
         size: 24,
-        color: NAVY_HEX,
+        color: primaryHex,
         font: 'Georgia',
       }),
     ],
   });
 }
 
-function buildBodyParagraph(text: string, boldPrefix?: string): Paragraph {
+function buildBodyParagraph(
+  text: string,
+  boldPrefix?: string,
+  primaryHex = NAVY_HEX
+): Paragraph {
   const children: TextRun[] = [];
   if (boldPrefix) {
     children.push(
@@ -367,7 +526,7 @@ function buildBodyParagraph(text: string, boldPrefix?: string): Paragraph {
         text: boldPrefix,
         bold: true,
         size: 21,
-        color: NAVY_HEX,
+        color: primaryHex,
         font: 'Calibri',
       })
     );
@@ -386,7 +545,12 @@ function buildBodyParagraph(text: string, boldPrefix?: string): Paragraph {
   });
 }
 
-function buildTableCell(text: string, bold = false, shaded = false): TableCell {
+function buildTableCell(
+  text: string,
+  bold = false,
+  shaded = false,
+  primaryHex = NAVY_HEX
+): TableCell {
   return new TableCell({
     shading: shaded
       ? { type: ShadingType.CLEAR, color: 'auto', fill: LIGHT_BG_HEX }
@@ -405,7 +569,7 @@ function buildTableCell(text: string, bold = false, shaded = false): TableCell {
             text,
             bold,
             size: 19,
-            color: bold ? NAVY_HEX : SLATE_TEXT_HEX,
+            color: bold ? primaryHex : SLATE_TEXT_HEX,
             font: 'Calibri',
           }),
         ],
@@ -414,7 +578,7 @@ function buildTableCell(text: string, bold = false, shaded = false): TableCell {
   });
 }
 
-function buildDocxWelcomeCard(text: string): Table {
+function buildDocxWelcomeCard(text: string, accentHex = AMBER_HEX): Table {
   const paragraphs = text
     .split('\n')
     .map((line) => line.trim())
@@ -432,7 +596,7 @@ function buildDocxWelcomeCard(text: string): Table {
               top: { style: BorderStyle.NONE, size: 0, color: 'F1F5F9' },
               bottom: { style: BorderStyle.NONE, size: 0, color: 'F1F5F9' },
               right: { style: BorderStyle.NONE, size: 0, color: 'F1F5F9' },
-              left: { style: BorderStyle.SINGLE, size: 24, color: AMBER_HEX },
+              left: { style: BorderStyle.SINGLE, size: 24, color: accentHex },
             },
             children: (paragraphs.length > 0 ? paragraphs : [text]).map(
               (line, idx, arr) =>
@@ -468,7 +632,10 @@ export async function downloadTherapistDocx(
 ): Promise<void> {
   const { anamnesis, sensitivity, protocol, aiResult } = session;
   const { sheet, prev, sessionType } = resolveDocContext(session, ctx);
-  const logo = await loadMaestroLogo();
+  const profile = getProfessionalProfile();
+  const primaryHex = normalizeHex6(profile.primaryColor, NAVY_HEX);
+  const accentHex = normalizeHex6(profile.accentColor, AMBER_HEX);
+  const logo = await loadActiveProfileLogo(profile);
   const hawkinsHz =
     sheet.spiritualPsycho.hawkinsHz ??
     sheet.spiritualPsycho.hawkinsAgathaHz ??
@@ -904,7 +1071,7 @@ export async function downloadTherapistDocx(
             text: `${t.geometria} — ${t.etapa}`,
             bold: true,
             size: 22,
-            color: NAVY_HEX,
+            color: primaryHex,
             font: 'Georgia',
           }),
           ...(isTherapist
@@ -913,7 +1080,7 @@ export async function downloadTherapistDocx(
                   text: ' [Pendulado pelo Terapeuta]',
                   bold: true,
                   size: 18,
-                  color: AMBER_HEX,
+                  color: accentHex,
                 }),
               ]
             : []),
@@ -923,7 +1090,7 @@ export async function downloadTherapistDocx(
                   text: ` | Cristal Ancorado: ${cr}`,
                   bold: true,
                   size: 18,
-                  color: '92400E',
+                  color: accentHex,
                 }),
               ]
             : []),
@@ -948,7 +1115,7 @@ export async function downloadTherapistDocx(
           new TextRun({
             text: t.testemunhoFormatado,
             size: 20,
-            color: NAVY_HEX,
+            color: primaryHex,
             font: 'Courier New',
           }),
         ],
@@ -964,7 +1131,7 @@ export async function downloadTherapistDocx(
               text: `COMANDO DE ATIVAÇÃO: ${c.tituloComando}`,
               bold: true,
               size: 20,
-              color: AMBER_HEX,
+              color: accentHex,
               font: 'Calibri',
             }),
           ],
@@ -1018,13 +1185,13 @@ export async function downloadTherapistDocx(
               })`,
               bold: true,
               size: 21,
-              color: NAVY_HEX,
+              color: primaryHex,
               font: 'Calibri',
             }),
           ],
         }),
-        buildBodyParagraph(rem.dosageInstruction, 'Posologia Sutil: '),
-        buildBodyParagraph(rem.testimonyText, 'Testemunho Informacional: '),
+        buildBodyParagraph(rem.dosageInstruction, 'Posologia Sutil: ', primaryHex),
+        buildBodyParagraph(rem.testimonyText, 'Testemunho Informacional: ', primaryHex),
         new Paragraph({
           spacing: { after: 120, line: 276 },
           children: [
@@ -1032,7 +1199,7 @@ export async function downloadTherapistDocx(
               text: `"${rem.activationCommand}"`,
               italics: true,
               size: 21,
-              color: AMBER_HEX,
+              color: accentHex,
               font: 'Georgia',
             }),
           ],
@@ -1119,9 +1286,10 @@ export async function downloadTherapistDocx(
         children: [
           ...buildDocxOfficialHeader(
             'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional',
-            logo?.bytes ?? null
+            logo,
+            profile
           ),
-          buildSectionHeading('1. Quadro de Identificação e Anamnese'),
+          buildSectionHeading('1. Quadro de Identificação e Anamnese', primaryHex),
           identificationTable,
           new Paragraph({ spacing: { after: 100 } }),
           buildBodyParagraph(
@@ -1141,18 +1309,18 @@ export async function downloadTherapistDocx(
             'Tratamentos Médicos Vigentes: '
           ),
 
-          buildSectionHeading('2. Campos Eletromagnéticos (Corpos Sutis)'),
+          buildSectionHeading('2. Campos Eletromagnéticos (Corpos Sutis)', primaryHex),
           emTable,
 
-          buildSectionHeading('3. Sete Chakras & Glândulas Correspondentes'),
+          buildSectionHeading('3. Sete Chakras & Glândulas Correspondentes', primaryHex),
           chakraTable,
 
-          buildSectionHeading('4. Campo Áurico, Cromoterapia & Dimensão Espiritual'),
+          buildSectionHeading('4. Campo Áurico, Cromoterapia & Dimensão Espiritual', primaryHex),
           bioAuraTable,
           new Paragraph({ spacing: { before: 120, after: 60 } }),
           lifeAreasTable,
 
-          buildSectionHeading('5. Sistemas Orgânicos e Órgãos/Glândulas (ANSAE)'),
+          buildSectionHeading('5. Sistemas Orgânicos e Órgãos/Glândulas (ANSAE)', primaryHex),
           buildBodyParagraph('Aferição dos 15 Sistemas Orgânicos:', ''),
           systemsTable,
           new Paragraph({ spacing: { before: 140, after: 60 } }),
@@ -1165,7 +1333,7 @@ export async function downloadTherapistDocx(
                 ),
               ]),
 
-          buildSectionHeading('6. Biômetros Virtuais Consultados'),
+          buildSectionHeading('6. Biômetros Virtuais Consultados', primaryHex),
           ...(sheet.biometerReadings.length > 0
             ? sheet.biometerReadings.map((b) =>
                 buildBodyParagraph(b.selectedItem, `${b.biometerName}: `)
@@ -1174,7 +1342,7 @@ export async function downloadTherapistDocx(
 
           ...(comparisonParagraphs.length > 0
             ? [
-                buildSectionHeading('7. Comparativo Evolutivo (Antes × Depois)'),
+                buildSectionHeading('7. Comparativo Evolutivo (Antes × Depois)', primaryHex),
                 ...comparisonParagraphs,
               ]
             : []),
@@ -1182,7 +1350,8 @@ export async function downloadTherapistDocx(
           buildSectionHeading(
             comparisonParagraphs.length > 0
               ? '8. Análise da Causa Raiz & Diagnóstico Psicossomático'
-              : '7. Análise da Causa Raiz & Diagnóstico Psicossomático'
+              : '7. Análise da Causa Raiz & Diagnóstico Psicossomático',
+            primaryHex
           ),
           ...(aiResult?.analiseCausaRaiz
             ? [buildBodyParagraph(aiResult.analiseCausaRaiz, 'Causa Raiz Cruzada: ')]
@@ -1195,14 +1364,16 @@ export async function downloadTherapistDocx(
           buildSectionHeading(
             comparisonParagraphs.length > 0
               ? '9. Cronograma Anti-Catarse em Etapas'
-              : '8. Cronograma Anti-Catarse em Etapas'
+              : '8. Cronograma Anti-Catarse em Etapas',
+            primaryHex
           ),
           ...stageParagraphs,
 
           buildSectionHeading(
             comparisonParagraphs.length > 0
               ? '10. Painel de Testemunhos e Comandos Quânticos'
-              : '9. Painel de Testemunhos e Comandos Quânticos'
+              : '9. Painel de Testemunhos e Comandos Quânticos',
+            primaryHex
           ),
           ...(testimonyCommandTables.length > 0
             ? testimonyCommandTables
@@ -1211,14 +1382,16 @@ export async function downloadTherapistDocx(
           buildSectionHeading(
             comparisonParagraphs.length > 0
               ? '11. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)'
-              : '10. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)'
+              : '10. Painel de Envio de Medicamentos Energéticos (Radionics via Decágono Duplo / SCAP)',
+            primaryHex
           ),
           ...energeticRemedyParagraphs,
 
           buildSectionHeading(
             comparisonParagraphs.length > 0
               ? '12. Prescrições Integrativas & Hábitos'
-              : '11. Prescrições Integrativas & Hábitos'
+              : '11. Prescrições Integrativas & Hábitos',
+            primaryHex
           ),
           ...(prescricaoParagraphs.length > 0
             ? prescricaoParagraphs
@@ -1227,7 +1400,8 @@ export async function downloadTherapistDocx(
           buildSectionHeading(
             comparisonParagraphs.length > 0
               ? '13. Ressalva Ética Integrativa e Responsabilidade Terapêutica'
-              : '12. Ressalva Ética Integrativa e Responsabilidade Terapêutica'
+              : '12. Ressalva Ética Integrativa e Responsabilidade Terapêutica',
+            primaryHex
           ),
           buildBodyParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER),
         ],
@@ -1250,7 +1424,10 @@ export async function downloadPatientGuideDocx(
 ): Promise<void> {
   const { anamnesis, aiResult, protocol } = session;
   const { sheet, prev } = resolveDocContext(session, ctx);
-  const logo = await loadMaestroLogo();
+  const profile = getProfessionalProfile();
+  const primaryHex = normalizeHex6(profile.primaryColor, NAVY_HEX);
+  const accentHex = normalizeHex6(profile.accentColor, AMBER_HEX);
+  const logo = await loadActiveProfileLogo(profile);
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const chakrasAuraGuide =
     aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
@@ -1273,7 +1450,8 @@ export async function downloadPatientGuideDocx(
         children: [
           ...buildDocxOfficialHeader(
             'Guia de Orientação e Conscientização Vibracional',
-            logo?.bytes ?? null
+            logo,
+            profile
           ),
           new Paragraph({
             spacing: { before: 120, after: 140 },
@@ -1282,7 +1460,7 @@ export async function downloadPatientGuideDocx(
                 text: `Preparado especialmente para ${anamnesis.fullName}`,
                 bold: true,
                 size: 24,
-                color: NAVY_HEX,
+                color: primaryHex,
                 font: 'Georgia',
               }),
             ],
@@ -1302,9 +1480,9 @@ export async function downloadPatientGuideDocx(
             }`
           ),
 
-          buildDocxWelcomeCard(welcomeText),
+          buildDocxWelcomeCard(welcomeText, accentHex),
 
-          buildSectionHeading('Compreendendo seu Momento Energético'),
+          buildSectionHeading('Compreendendo seu Momento Energético', primaryHex),
           buildBodyParagraph(
             aiResult?.orientacaoPacienteResumo ||
               'Seu campo energético passou por uma avaliação cuidadosa para identificar onde há acúmulo de cansaço emocional e onde precisamos fortalecer sua vitalidade. Nosso objetivo é restaurar seu equilíbrio natural com suavidade, respeitando o tempo do seu corpo e das suas emoções.'
@@ -1312,7 +1490,7 @@ export async function downloadPatientGuideDocx(
 
           ...(prev || aiResult?.comparativoEvolutivo
             ? [
-                buildSectionHeading('Sua Evolução Neste Ciclo'),
+                buildSectionHeading('Sua Evolução Neste Ciclo', primaryHex),
                 buildBodyParagraph(
                   aiResult?.comparativoEvolutivo ||
                     `Sua vitalidade avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e sua proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
@@ -1320,64 +1498,72 @@ export async function downloadPatientGuideDocx(
               ]
             : []),
 
-          buildSectionHeading('Chakras, Cores da Aura & Hábitos na Prática'),
+          buildSectionHeading('Chakras, Cores da Aura & Hábitos na Prática', primaryHex),
           ...chakrasAuraGuide
             .split('\n\n')
             .filter(Boolean)
             .map((p) => buildBodyParagraph(p)),
 
-          buildSectionHeading('A Relação entre Mente, Emoção e Corpo'),
+          buildSectionHeading('A Relação entre Mente, Emoção e Corpo', primaryHex),
           buildBodyParagraph(
             'Pensamentos recorrentes, preocupações prolongadas e emoções guardadas funcionam como sinais que influenciam diretamente o ritmo do nosso sistema nervoso, do sono, da digestão e da imunidade. Quando organizamos o campo vibracional e cultivamos hábitos tranquilos no dia a dia, o organismo encontra espaço para se autorregular com mais leveza.'
           ),
 
-          buildSectionHeading('Os 4 Pilares Diários de Autocuidado'),
+          buildSectionHeading('Os 4 Pilares Diários de Autocuidado', primaryHex),
           buildBodyParagraph(
             pilares?.hidratacaoFitoterapia ||
               'Beba água pura em pequenos goles ao longo do dia (ao menos 2 litros) e utilize os chás suaves recomendados para auxiliar a limpeza e a calma interna.',
-            '1. Hidratação e Fitoterapia: '
+            '1. Hidratação e Fitoterapia: ',
+            primaryHex
           ),
           buildBodyParagraph(
             pilares?.higieneMentalOracao ||
               'Reserve 10 minutos diários de silêncio, respiração profunda ou oração, escolhendo pensamentos de serenidade e evitando excesso de notícias ou telas antes de dormir.',
-            '2. Higiene Mental e Oração: '
+            '2. Higiene Mental e Oração: ',
+            primaryHex
           ),
           buildBodyParagraph(
             pilares?.ambiente ||
               'Mantenha seu quarto arejado, organizado e com luz suave ao entardecer. Um ambiente limpo e silencioso sustenta a harmonia conquistada na sessão.',
-            '3. Harmonia do Ambiente: '
+            '3. Harmonia do Ambiente: ',
+            primaryHex
           ),
           buildBodyParagraph(
             pilares?.acompanhamentoMedico ||
               'Continue seguindo todas as orientações, exames e medicamentos indicados pelo seu médico de confiança. A terapia vibracional caminha sempre de mãos dadas com o cuidado médico convencional.',
-            '4. Acompanhamento Médico Convencional: '
+            '4. Acompanhamento Médico Convencional: ',
+            primaryHex
           ),
 
           ...(aiResult?.prescricoes
             ? [
-                buildSectionHeading('Apoios Naturais, Cristais e Frequências'),
+                buildSectionHeading('Apoios Naturais, Cristais e Frequências', primaryHex),
                 buildBodyParagraph(
                   aiResult.prescricoes.floraisBach.join(' • '),
-                  'Florais de Bach sugeridos: '
+                  'Florais de Bach sugeridos: ',
+                  primaryHex
                 ),
                 ...(aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0
                   ? [
                       buildBodyParagraph(
                         aiResult.prescricoes.cristais.join(' • '),
-                        'Cristais de apoio: '
+                        'Cristais de apoio: ',
+                        primaryHex
                       ),
                     ]
                   : []),
                 buildBodyParagraph(
                   aiResult.prescricoes.fitoterapiaChas.join(' • '),
-                  'Chás e Infusões acolhedoras: '
+                  'Chás e Infusões acolhedoras: ',
+                  primaryHex
                 ),
                 ...(aiResult.prescricoes.bonsHabitos &&
                 aiResult.prescricoes.bonsHabitos.length > 0
                   ? [
                       buildBodyParagraph(
                         aiResult.prescricoes.bonsHabitos.join(' • '),
-                        'Hábitos práticos recomendados: '
+                        'Hábitos práticos recomendados: ',
+                        primaryHex
                       ),
                     ]
                   : []),
@@ -1385,7 +1571,8 @@ export async function downloadPatientGuideDocx(
                   aiResult.prescricoes.frequenciasSolfeggio
                     .map((f) => `${f.nome} — ${f.indicacao}`)
                     .join(' | '),
-                  'Músicas / Frequências Solfeggio para ouvir em repouso: '
+                  'Músicas / Frequências Solfeggio para ouvir em repouso: ',
+                  primaryHex
                 ),
               ]
             : []),
@@ -1393,7 +1580,7 @@ export async function downloadPatientGuideDocx(
           ...(session.energeticRemedies &&
           session.energeticRemedies.some((r) => r.isActive)
             ? [
-                buildSectionHeading('Remédios Sutis em Emissão Vibracional à Distância'),
+                buildSectionHeading('Remédios Sutis em Emissão Vibracional à Distância', primaryHex),
                 buildBodyParagraph(
                   'Para apoiar sua recuperação e conforto energético ao longo deste ciclo, estamos enviando vibracionalmente à distância os seguintes remédios sutis:'
                 ),
@@ -1404,21 +1591,23 @@ export async function downloadPatientGuideDocx(
                       `${r.category} · ${formatRemedyDurationLabel(r.durationHours)} — ${
                         r.dosageInstruction
                       }`,
-                      `• ${r.items.join(' + ')}: `
+                      `• ${r.items.join(' + ')}: `,
+                      primaryHex
                     )
                   ),
                 buildBodyParagraph(
                   'Este apoio vibracional atua exclusivamente em nível sutil e integrativo. Nunca suspenda nem altere medicações prescritas pelo seu médico.',
-                  'Aviso Ético Importante: '
+                  'Aviso Ético Importante: ',
+                  primaryHex
                 ),
               ]
             : []),
 
-          buildSectionHeading('Mensagem de Acompanhamento'),
+          buildSectionHeading('Mensagem de Acompanhamento', primaryHex),
           buildBodyParagraph(
             'Qualquer percepção, sonho significativo ou dúvida durante os próximos dias pode ser compartilhada diretamente pelo WhatsApp de atendimento. Caminhamos juntos com serenidade, ética e respeito ao seu ritmo.'
           ),
-          buildSectionHeading('Ressalva Ética Integrativa'),
+          buildSectionHeading('Ressalva Ética Integrativa', primaryHex),
           buildBodyParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER),
         ],
       },
@@ -1437,11 +1626,17 @@ class MaestroPdfBuilder {
   private pageWidth: number;
   private margin: number = 18;
   private contentWidth: number;
+  private profile: ProfessionalProfile;
+  private primaryRgb: [number, number, number];
+  private accentRgb: [number, number, number];
 
-  constructor() {
+  constructor(profile: ProfessionalProfile) {
     this.doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     this.pageWidth = this.doc.internal.pageSize.getWidth();
     this.contentWidth = this.pageWidth - this.margin * 2;
+    this.profile = profile;
+    this.primaryRgb = hexToRgbTuple(profile.primaryColor, [15, 23, 42]);
+    this.accentRgb = hexToRgbTuple(profile.accentColor, [180, 83, 9]);
   }
 
   private ensureSpace(neededMm: number): void {
@@ -1452,50 +1647,59 @@ class MaestroPdfBuilder {
     }
   }
 
-  public addOfficialHeader(subtitle: string, logoDataUrl: string | null = null): void {
+  public addOfficialHeader(subtitle: string, logo: ActiveLogoAssets | null = null): void {
     const center = this.pageWidth / 2;
 
-    if (logoDataUrl) {
-      const logoSize = 26;
-      this.doc.addImage(logoDataUrl, 'PNG', center - logoSize / 2, this.y - 4, logoSize, logoSize);
-      this.y += logoSize + 1;
+    if (logo) {
+      const logoHeight = 24;
+      const logoWidth = Math.min(58, Math.max(16, logoHeight * logo.aspectRatio));
+      this.doc.addImage(
+        logo.dataUrl,
+        logo.pdfFormat,
+        center - logoWidth / 2,
+        this.y - 4,
+        logoWidth,
+        logoHeight
+      );
+      this.y += logoHeight + 1;
     }
 
     this.doc.setFont('times', 'bold');
     this.doc.setFontSize(15);
-    this.doc.setTextColor(15, 23, 42);
-    this.doc.text('MAESTRO TERAPIAS VIBRACIONAIS', center, this.y, { align: 'center' });
+    this.doc.setTextColor(...this.primaryRgb);
+    this.doc.text(this.profile.clinicName.toUpperCase(), center, this.y, { align: 'center' });
     this.y += 6.5;
 
     this.doc.setFont('times', 'italic');
     this.doc.setFontSize(11.5);
-    this.doc.setTextColor(180, 83, 9);
+    this.doc.setTextColor(...this.accentRgb);
     this.doc.text(subtitle, center, this.y, { align: 'center' });
     this.y += 6;
 
+    const therapistLine = this.profile.credentials.trim()
+      ? `${this.profile.therapistName} | ${this.profile.credentials.trim()}`
+      : this.profile.therapistName;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(9.5);
-    this.doc.setTextColor(15, 23, 42);
-    this.doc.text(
-      'Giovani Caetano | Terapeuta Vibracional • Radiestesista Terapêutico • Neuroterapia & Hipnoterapia',
-      center,
-      this.y,
-      { align: 'center', maxWidth: this.contentWidth }
-    );
-    this.y += 5;
+    this.doc.setTextColor(...this.primaryRgb);
+    const therapistLines: string[] = this.doc.splitTextToSize(therapistLine, this.contentWidth);
+    therapistLines.forEach((line) => {
+      this.doc.text(line, center, this.y, { align: 'center' });
+      this.y += 4.5;
+    });
 
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.setFontSize(9);
-    this.doc.setTextColor(100, 116, 139);
-    this.doc.text(
-      'Consultoria Holística Integrativa • Contatos: (68) 99247-6436 | (11) 95056-5215',
-      center,
-      this.y,
-      { align: 'center' }
-    );
-    this.y += 4;
+    const contactLine = buildProfileContactLine(this.profile);
+    if (contactLine) {
+      this.doc.setFont('helvetica', 'normal');
+      this.doc.setFontSize(9);
+      this.doc.setTextColor(100, 116, 139);
+      this.doc.text(contactLine, center, this.y, { align: 'center', maxWidth: this.contentWidth });
+      this.y += 4;
+    } else {
+      this.y += 1.5;
+    }
 
-    this.doc.setDrawColor(180, 83, 9);
+    this.doc.setDrawColor(...this.accentRgb);
     this.doc.setLineWidth(0.7);
     this.doc.line(this.margin, this.y, this.pageWidth - this.margin, this.y);
     this.y += 8;
@@ -1506,7 +1710,7 @@ class MaestroPdfBuilder {
     this.y += 2;
     this.doc.setFont('times', 'bold');
     this.doc.setFontSize(12);
-    this.doc.setTextColor(15, 23, 42);
+    this.doc.setTextColor(...this.primaryRgb);
     this.doc.text(title, this.margin, this.y);
     this.y += 2;
     this.doc.setDrawColor(226, 232, 240);
@@ -1527,7 +1731,7 @@ class MaestroPdfBuilder {
       this.ensureSpace(5.5);
       if (boldLabel && idx === 0 && line.startsWith(boldLabel)) {
         this.doc.setFont('helvetica', 'bold');
-        this.doc.setTextColor(15, 23, 42);
+        this.doc.setTextColor(...this.primaryRgb);
         this.doc.text(boldLabel, this.margin, this.y);
         const labelWidth = this.doc.getTextWidth(boldLabel);
         this.doc.setFont('helvetica', italic ? 'italic' : 'normal');
@@ -1560,7 +1764,7 @@ class MaestroPdfBuilder {
 
       this.doc.setFont('helvetica', 'bold');
       this.doc.setFontSize(9);
-      this.doc.setTextColor(15, 23, 42);
+      this.doc.setTextColor(...this.primaryRgb);
       this.doc.text(key, this.margin + 2.5, this.y + 4.8, { maxWidth: col1W - 5 });
 
       this.doc.setFont('helvetica', 'normal');
@@ -1593,10 +1797,9 @@ class MaestroPdfBuilder {
 
     this.ensureSpace(cardHeight + 6);
 
-    // Fundo suave #F1F5F9 e borda esquerda Âmbar/Dourado #B45309
     this.doc.setFillColor(241, 245, 249);
     this.doc.rect(this.margin, this.y, this.contentWidth, cardHeight, 'F');
-    this.doc.setFillColor(180, 83, 9);
+    this.doc.setFillColor(...this.accentRgb);
     this.doc.rect(this.margin, this.y, 1.6, cardHeight, 'F');
 
     let textY = this.y + 6;
@@ -1644,13 +1847,13 @@ class MaestroPdfBuilder {
     this.doc.setDrawColor(203, 213, 225);
     this.doc.setLineWidth(0.3);
     this.doc.rect(this.margin, this.y, this.contentWidth, cardHeight, 'FD');
-    this.doc.setFillColor(180, 83, 9);
+    this.doc.setFillColor(...this.accentRgb);
     this.doc.rect(this.margin, this.y, 1.8, cardHeight, 'F');
 
     let currentY = this.y + 6;
     this.doc.setFont('times', 'bold');
     this.doc.setFontSize(10.5);
-    this.doc.setTextColor(15, 23, 42);
+    this.doc.setTextColor(...this.primaryRgb);
     titleLines.forEach((l) => {
       this.doc.text(l, this.margin + 5, currentY);
       currentY += 4.5;
@@ -1662,7 +1865,7 @@ class MaestroPdfBuilder {
       let metaStr = '';
       if (isTherapist) metaStr += 'Pendulado pelo Terapeuta';
       if (crystal) metaStr += (metaStr ? ' | ' : '') + `Cristal Ancorado: ${crystal}`;
-      this.doc.setTextColor(180, 83, 9);
+      this.doc.setTextColor(...this.accentRgb);
       this.doc.text(metaStr, this.margin + 5, currentY);
       currentY += 5;
     }
@@ -1675,7 +1878,7 @@ class MaestroPdfBuilder {
 
     this.doc.setFont('courier', 'normal');
     this.doc.setFontSize(8);
-    this.doc.setTextColor(15, 23, 42);
+    this.doc.setTextColor(...this.primaryRgb);
     testLines.forEach((l) => {
       this.doc.text(l, this.margin + 7, currentY);
       currentY += 4.2;
@@ -1684,7 +1887,7 @@ class MaestroPdfBuilder {
 
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(8.5);
-    this.doc.setTextColor(180, 83, 9);
+    this.doc.setTextColor(...this.accentRgb);
     this.doc.text(`COMANDO DE ATIVAÇÃO: ${commandTitle}`, this.margin + 5, currentY);
     currentY += 4.5;
 
@@ -1716,7 +1919,7 @@ class MaestroPdfBuilder {
         this.doc.rect(x, this.y, w, headerHeight, 'FD');
         this.doc.setFont('helvetica', 'bold');
         this.doc.setFontSize(8);
-        this.doc.setTextColor(15, 23, 42);
+        this.doc.setTextColor(...this.primaryRgb);
         this.doc.text(h, x + 2, this.y + 5.2, { maxWidth: w - 3.5 });
         x += w;
       });
@@ -1750,7 +1953,11 @@ class MaestroPdfBuilder {
 
         this.doc.setFont('helvetica', i === 0 ? 'bold' : 'normal');
         this.doc.setFontSize(8);
-        this.doc.setTextColor(i === 0 ? 180 : 51, i === 0 ? 83 : 65, i === 0 ? 9 : 85);
+        if (i === 0) {
+          this.doc.setTextColor(...this.accentRgb);
+        } else {
+          this.doc.setTextColor(51, 65, 85);
+        }
         cellLines[i].forEach((line, lineIdx) => {
           this.doc.text(line, x + 1.8, this.y + 4.3 + lineIdx * 3.9);
         });
@@ -1807,7 +2014,8 @@ export async function downloadTherapistPdf(
 ): Promise<void> {
   const { anamnesis, sensitivity, protocol, aiResult } = session;
   const { sheet, prev, sessionType } = resolveDocContext(session, ctx);
-  const logo = await loadMaestroLogo();
+  const profile = getProfessionalProfile();
+  const logo = await loadActiveProfileLogo(profile);
   const hawkinsHz =
     sheet.spiritualPsycho.hawkinsHz ??
     sheet.spiritualPsycho.hawkinsAgathaHz ??
@@ -1826,10 +2034,10 @@ export async function downloadTherapistPdf(
       typeof o.healthEnergyAngstroms === 'number'
   );
 
-  const pdf = new MaestroPdfBuilder();
+  const pdf = new MaestroPdfBuilder(profile);
   pdf.addOfficialHeader(
     'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional',
-    logo?.dataUrl ?? null
+    logo
   );
 
   pdf.addSectionTitle('1. Quadro de Identificação e Anamnese');
@@ -2152,7 +2360,8 @@ export async function downloadPatientGuidePdf(
 ): Promise<void> {
   const { anamnesis, aiResult, protocol } = session;
   const { sheet, prev } = resolveDocContext(session, ctx);
-  const logo = await loadMaestroLogo();
+  const profile = getProfessionalProfile();
+  const logo = await loadActiveProfileLogo(profile);
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const chakrasAuraGuide =
     aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
@@ -2161,10 +2370,10 @@ export async function downloadPatientGuidePdf(
     aiResult?.welcomeMessage?.trim() ||
     getDefaultWelcomeMessage(session);
 
-  const pdf = new MaestroPdfBuilder();
+  const pdf = new MaestroPdfBuilder(profile);
   pdf.addOfficialHeader(
     'Guia de Orientação e Conscientização Vibracional',
-    logo?.dataUrl ?? null
+    logo
   );
 
   pdf.addParagraph(
@@ -2283,6 +2492,7 @@ export function buildWhatsAppShareUrl(
 ): string {
   const { anamnesis, aiResult, protocol } = session;
   const { sheet } = resolveDocContext(session, ctx);
+  const profile = getProfessionalProfile();
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const freqs =
     aiResult?.prescricoes.frequenciasSolfeggio.map((f) => `${f.hz} Hz`).join(', ') || '432 Hz';
@@ -2314,8 +2524,19 @@ export function buildWhatsAppShareUrl(
   const welcomeSynthesis =
     welcomeBody.length > 260 ? `${welcomeBody.slice(0, 257).trimEnd()}...` : welcomeBody;
 
+  const therapistSummary = profile.credentials.trim()
+    ? `${profile.therapistName} • ${profile.credentials.trim()}`
+    : profile.therapistName;
+  const contactSummary = [
+    profile.contacts.trim(),
+    profile.emailOrSocial.trim(),
+    (profile.website || '').trim(),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
   const text = [
-    `*MAESTRO TERAPIAS VIBRACIONAIS*`,
+    `*${profile.clinicName.toUpperCase()}*`,
     `_Guia de Orientação e Conscientização Vibracional_`,
     ``,
     `Olá, *${anamnesis.fullName}*!`,
@@ -2341,8 +2562,8 @@ export function buildWhatsAppShareUrl(
     ``,
     `*Frequência Solfeggio indicada:* ${freqs}`,
     ``,
-    `_Giovani Caetano • Terapeuta Vibracional_`,
-    `_(68) 99247-6436 | (11) 95056-5215_`,
+    `_${therapistSummary}_`,
+    contactSummary ? `_${contactSummary}_` : '',
     `_Ressalva Ética: Apoio vibracional integrativo complementar; não substitui diagnóstico ou tratamento médico/psicológico (LGPD)._`,
   ]
     .filter((line) => line !== undefined)

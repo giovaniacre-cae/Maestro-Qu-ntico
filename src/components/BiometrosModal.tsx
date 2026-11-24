@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Compass, Plus, Search, Sparkles, Trash2, X, ZoomIn, ZoomOut, Image as ImageIcon, Sliders, Upload, RotateCcw, Pencil, Loader2 } from 'lucide-react';
+import { Check, Compass, PawPrint, Plus, Search, Sparkles, Trash2, X, ZoomIn, ZoomOut, Image as ImageIcon, Sliders, Upload, RotateCcw, Pencil, Loader2 } from 'lucide-react';
 import {
   BiometerDefinition,
   HAWKINS_SCALE_TABLE,
@@ -24,6 +24,7 @@ interface BiometrosModalProps {
   currentHawkinsHz?: number;
   onSelectHawkinsHz?: (hz: number) => void;
   totalBiometersCount: number;
+  initialCategoryFilter?: 'Todos' | BiometerDefinition['category'];
 }
 
 const CATEGORY_FILTERS: Array<'Todos' | BiometerDefinition['category']> = [
@@ -34,8 +35,20 @@ const CATEGORY_FILTERS: Array<'Todos' | BiometerDefinition['category']> = [
   'Emocional, Mental & Consciência',
   'Prosperidade & Hábitos',
   'Protocolos & Terapêuticas',
+  'Saúde Animal / PETS',
   'Personalizado',
 ];
+
+const PETS_SEARCH_KEYWORDS =
+  'pet pets animal animais cao cachorro cadela gato gata felino canino veterinaria veterinario domestico domesticos';
+
+function normalizeBiometerSearch(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
 
 export function resolveBiometerImageUrl(url?: string): string | undefined {
   if (!url) return undefined;
@@ -274,6 +287,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   currentHawkinsHz,
   onSelectHawkinsHz,
   totalBiometersCount,
+  initialCategoryFilter,
 }) => {
   // Filter out hidden official biometers
   const visibleOfficialBiometers = useMemo(
@@ -304,8 +318,22 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   const [selectedId, setSelectedId] = useState<string>(() => effectiveBiometers[0]?.id || 'bio-01');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<'Todos' | BiometerDefinition['category']>(
-    'Todos'
+    initialCategoryFilter || 'Todos'
   );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const nextCat = initialCategoryFilter || 'Todos';
+    setCategoryFilter(nextCat);
+    if (nextCat !== 'Todos') {
+      const firstInCategory = effectiveBiometers.find((b) => b.category === nextCat);
+      if (firstInCategory) {
+        setSelectedId(firstInCategory.id);
+      }
+    }
+    // Only apply when modal opens or requested initialCategoryFilter changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialCategoryFilter]);
 
   // Multi-selection state starting strictly EMPTY ([])
   const [selectedSectorIndices, setSelectedSectorIndices] = useState<number[]>([]);
@@ -618,16 +646,22 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
     }
   };
 
-  const filteredBiometers = effectiveBiometers.filter((b) => {
-    const matchesCat = categoryFilter === 'Todos' || b.category === categoryFilter;
-    const q = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !q ||
-      b.name.toLowerCase().includes(q) ||
-      b.description.toLowerCase().includes(q) ||
-      String(b.number).includes(q);
-    return matchesCat && matchesSearch;
-  });
+  const filteredBiometers = useMemo(() => {
+    const q = normalizeBiometerSearch(searchQuery);
+    return effectiveBiometers.filter((b) => {
+      const matchesCat = categoryFilter === 'Todos' || b.category === categoryFilter;
+      if (!q) return matchesCat;
+
+      const isPetBio =
+        b.category === 'Saúde Animal / PETS' ||
+        /\b(pet|pets|animais?|veterin)/i.test(`${b.name} ${b.description}`);
+      const searchable = normalizeBiometerSearch(
+        `${b.number} ${b.name} ${b.description} ${b.category} ${isPetBio ? PETS_SEARCH_KEYWORDS : ''} ${b.items.join(' ')}`
+      );
+      const matchesSearch = searchable.includes(q);
+      return matchesCat && matchesSearch;
+    });
+  }, [effectiveBiometers, categoryFilter, searchQuery]);
 
   const witnessShort = patientName.trim() ? patientName : 'Testemunho Padrão';
   const birthShort = birthDate ? `Nasc.: ${formatBirthDateBR(birthDate)}` : '';
@@ -698,27 +732,59 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar biômetro (ex.: Florais, Cristais, Chakras...)"
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSearchQuery(next);
+                  if (next.trim().length > 0 && categoryFilter !== 'Todos') {
+                    const qNorm = normalizeBiometerSearch(next);
+                    const hasInCurrentCat = effectiveBiometers.some((b) => {
+                      if (b.category !== categoryFilter) return false;
+                      const isPetBio =
+                        b.category === 'Saúde Animal / PETS' ||
+                        /\b(pet|pets|animais?|veterin)/i.test(`${b.name} ${b.description}`);
+                      const searchable = normalizeBiometerSearch(
+                        `${b.number} ${b.name} ${b.description} ${b.category} ${isPetBio ? PETS_SEARCH_KEYWORDS : ''} ${b.items.join(' ')}`
+                      );
+                      return searchable.includes(qNorm);
+                    });
+                    if (!hasInCurrentCat) {
+                      setCategoryFilter('Todos');
+                    }
+                  }
+                }}
+                placeholder="Buscar biômetro (ex.: Pets, Cachorro, Florais, Chakras...)"
                 className="w-full pl-9 pr-3 py-2 text-xs bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706]"
               />
             </div>
 
             <div className="flex flex-wrap gap-1.5">
-              {CATEGORY_FILTERS.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setCategoryFilter(cat)}
-                  className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-                    categoryFilter === cat
-                      ? 'bg-[#0F172A] text-white'
-                      : 'bg-[#FAF8F5] text-[#64748B] hover:text-[#0F172A]'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
+              {CATEGORY_FILTERS.map((cat) => {
+                const isActive = categoryFilter === cat;
+                const isPets = cat === 'Saúde Animal / PETS';
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-[#0F172A] text-white'
+                        : isPets
+                        ? 'bg-[#FEFCE8] text-[#92400E] border border-[#D97706]/35 hover:border-[#D97706]'
+                        : 'bg-[#FAF8F5] text-[#64748B] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    {isPets && (
+                      <PawPrint
+                        className={`w-3 h-3 shrink-0 ${
+                          isActive ? 'text-[#F59E0B]' : 'text-[#B45309]'
+                        }`}
+                      />
+                    )}
+                    <span>{cat}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="space-y-1.5 overflow-y-auto pr-1 flex-1">
@@ -847,6 +913,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                       <option value="Emocional, Mental & Consciência">Emocional, Mental & Consciência</option>
                       <option value="Prosperidade & Hábitos">Prosperidade & Hábitos</option>
                       <option value="Protocolos & Terapêuticas">Protocolos & Terapêuticas</option>
+                      <option value="Saúde Animal / PETS">Saúde Animal / PETS</option>
                       <option value="Personalizado">Personalizado</option>
                     </select>
                   </div>

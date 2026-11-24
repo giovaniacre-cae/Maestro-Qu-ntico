@@ -690,6 +690,153 @@ export function saveCustomTherapeuticKits(kits: TherapeuticKit[]): void {
 
 export const BACKUP_RESTORED_EVENT = 'maestro-backup-restored';
 
+export const DEFAULT_CLINIC_LOGO_URL =
+  './assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png';
+
+export const PROFESSIONAL_PROFILE_STORAGE_KEY = 'maestro_professional_profile_v1';
+export const PROFESSIONAL_PROFILE_UPDATED_EVENT = 'maestro-professional-profile-updated';
+
+export interface ProfessionalProfile {
+  clinicName: string;
+  therapistName: string;
+  credentials: string;
+  subtitleLine: string;
+  contacts: string;
+  emailOrSocial: string;
+  website?: string;
+  logoDataUrl: string | null;
+  primaryColor: string;
+  accentColor: string;
+}
+
+export const DEFAULT_PROFESSIONAL_PROFILE: ProfessionalProfile = {
+  clinicName: 'MAESTRO TERAPIAS VIBRACIONAIS',
+  therapistName: 'Giovani Caetano',
+  credentials:
+    'Terapeuta Vibracional • Radiestesista Terapêutico • Neuroterapia & Hipnoterapia',
+  subtitleLine: 'Consultoria Holística Integrativa',
+  contacts: '(68) 99247-6436 | (11) 95056-5215',
+  emailOrSocial: '',
+  website: '',
+  logoDataUrl: null,
+  primaryColor: '#0F172A',
+  accentColor: '#B45309',
+};
+
+function sanitizeHexColor(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const r = trimmed[1];
+    const g = trimmed[2];
+    const b = trimmed[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+  }
+  return fallback;
+}
+
+export function normalizeProfessionalProfile(
+  input?: Partial<ProfessionalProfile> | null
+): ProfessionalProfile {
+  if (!input || typeof input !== 'object') {
+    return { ...DEFAULT_PROFESSIONAL_PROFILE };
+  }
+
+  const strOrDefault = (val: unknown, fallback: string): string => {
+    if (typeof val !== 'string') return fallback;
+    const trimmed = val.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  };
+
+  const optionalStr = (val: unknown): string =>
+    typeof val === 'string' ? val.trim() : '';
+
+  const logoDataUrl =
+    typeof input.logoDataUrl === 'string' && input.logoDataUrl.startsWith('data:image/')
+      ? input.logoDataUrl
+      : null;
+
+  return {
+    clinicName: strOrDefault(input.clinicName, DEFAULT_PROFESSIONAL_PROFILE.clinicName),
+    therapistName: strOrDefault(
+      input.therapistName,
+      DEFAULT_PROFESSIONAL_PROFILE.therapistName
+    ),
+    credentials:
+      typeof input.credentials === 'string'
+        ? input.credentials.trim()
+        : DEFAULT_PROFESSIONAL_PROFILE.credentials,
+    subtitleLine:
+      typeof input.subtitleLine === 'string'
+        ? input.subtitleLine.trim()
+        : DEFAULT_PROFESSIONAL_PROFILE.subtitleLine,
+    contacts:
+      typeof input.contacts === 'string'
+        ? input.contacts.trim()
+        : DEFAULT_PROFESSIONAL_PROFILE.contacts,
+    emailOrSocial: optionalStr(input.emailOrSocial),
+    website: optionalStr(input.website),
+    logoDataUrl,
+    primaryColor: sanitizeHexColor(
+      input.primaryColor,
+      DEFAULT_PROFESSIONAL_PROFILE.primaryColor
+    ),
+    accentColor: sanitizeHexColor(
+      input.accentColor,
+      DEFAULT_PROFESSIONAL_PROFILE.accentColor
+    ),
+  };
+}
+
+export function getProfessionalProfile(): ProfessionalProfile {
+  try {
+    const raw = localStorage.getItem(PROFESSIONAL_PROFILE_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_PROFESSIONAL_PROFILE };
+    const parsed = JSON.parse(raw) as Partial<ProfessionalProfile>;
+    return normalizeProfessionalProfile(parsed);
+  } catch {
+    return { ...DEFAULT_PROFESSIONAL_PROFILE };
+  }
+}
+
+export function saveProfessionalProfile(
+  profile: ProfessionalProfile
+): ProfessionalProfile {
+  const normalized = normalizeProfessionalProfile(profile);
+  try {
+    localStorage.setItem(PROFESSIONAL_PROFILE_STORAGE_KEY, JSON.stringify(normalized));
+  } catch (err) {
+    console.error('Erro ao salvar perfil profissional:', err);
+    throw new Error(
+      'Não foi possível salvar a identidade visual (verifique se a logomarca não excedeu o espaço do navegador).'
+    );
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(PROFESSIONAL_PROFILE_UPDATED_EVENT, { detail: normalized })
+    );
+  }
+  return normalized;
+}
+
+export function resetProfessionalProfile(): ProfessionalProfile {
+  try {
+    localStorage.removeItem(PROFESSIONAL_PROFILE_STORAGE_KEY);
+  } catch (err) {
+    console.error('Erro ao restaurar perfil profissional padrão:', err);
+  }
+  const reset = { ...DEFAULT_PROFESSIONAL_PROFILE };
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(PROFESSIONAL_PROFILE_UPDATED_EVENT, { detail: reset })
+    );
+  }
+  return reset;
+}
+
 const ANSAE_DRAFT_PREFIX = 'maestro_quantico_ansae_draft_';
 
 export type BackupRestoreMode = 'merge' | 'replace';
@@ -708,6 +855,7 @@ export interface FullBackupPayload {
   hiddenOfficialGraphics: string[];
   printableGraphicOverrides: Record<string, PrintableGraphicOverride>;
   customTherapeuticKits?: TherapeuticKit[];
+  professionalProfile?: ProfessionalProfile;
 }
 
 export interface FullBackupImportSummary {
@@ -803,6 +951,7 @@ export function exportFullBackup(): {
   const hiddenOfficialGraphics = loadHiddenOfficialGraphics();
   const printableGraphicOverrides = loadPrintableGraphicOverrides();
   const customTherapeuticKits = loadCustomTherapeuticKits();
+  const professionalProfile = getProfessionalProfile();
   const ansaeDrafts = collectAllAnsaeDrafts();
 
   const payload: FullBackupPayload = {
@@ -822,6 +971,7 @@ export function exportFullBackup(): {
     hiddenOfficialGraphics,
     printableGraphicOverrides,
     customTherapeuticKits,
+    professionalProfile,
   };
 
   const now = new Date();
@@ -1031,6 +1181,21 @@ export async function importFullBackup(
     // Ignore quota errors
   }
 
+  if (
+    parsed.professionalProfile &&
+    typeof parsed.professionalProfile === 'object'
+  ) {
+    try {
+      saveProfessionalProfile(
+        normalizeProfessionalProfile(
+          parsed.professionalProfile as Partial<ProfessionalProfile>
+        )
+      );
+    } catch {
+      // Ignore quota errors on embedded logo
+    }
+  }
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(BACKUP_RESTORED_EVENT));
   }
@@ -1115,6 +1280,20 @@ export function importClinicalBackupJson(rawJson: string): {
   }
   if (Array.isArray(rooms)) {
     saveSessions(rooms);
+  }
+  if (
+    parsed.professionalProfile &&
+    typeof parsed.professionalProfile === 'object'
+  ) {
+    try {
+      saveProfessionalProfile(
+        normalizeProfessionalProfile(
+          parsed.professionalProfile as Partial<ProfessionalProfile>
+        )
+      );
+    } catch {
+      // Ignore quota errors
+    }
   }
 
   if (typeof window !== 'undefined') {

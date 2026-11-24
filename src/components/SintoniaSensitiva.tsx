@@ -11,6 +11,7 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  PawPrint,
   Plus,
   ShieldAlert,
   Sparkles,
@@ -185,7 +186,8 @@ export type SintoniaContextKey =
   | 'hawkins_stress'
   | 'causes_triage'
   | 'ansae_organs'
-  | 'therapeutics';
+  | 'therapeutics'
+  | 'pets_animal';
 
 export interface ContextualBiometerConfig {
   key: SintoniaContextKey;
@@ -343,6 +345,35 @@ export const CONTEXTUAL_BIOMETER_MAP: Record<SintoniaContextKey, ContextualBiome
       },
     ],
   },
+  pets_animal: {
+    key: 'pets_animal',
+    shortLabel: 'Saúde Animal / PETS',
+    sectionTitle: 'Atendimento Veterinário & Saúde Animal (PETS)',
+    primaryHints: ['Causas de Doenças em Animais Domésticos'],
+    fallbackIds: ['bio-39'],
+    shortcutHints: [
+      {
+        label: 'Órgãos dos Pets',
+        hints: ['Órgãos dos Pets'],
+        fallbackIds: ['bio-89'],
+      },
+      {
+        label: 'Sistemas & Glândulas Pets',
+        hints: ['Sistemas, Órgãos & Glândulas - Pets'],
+        fallbackIds: ['bio-117'],
+      },
+      {
+        label: 'Pele e Pelo (Pet)',
+        hints: ['Saúde Pet - Patologias de Pele e Pelo'],
+        fallbackIds: ['bio-105'],
+      },
+      {
+        label: 'Interferências nos Pets',
+        hints: ['Interferências do Ambiente nos Pets - Parte 3'],
+        fallbackIds: ['bio-80'],
+      },
+    ],
+  },
 };
 
 const CONTEXT_ORDER: SintoniaContextKey[] = [
@@ -353,7 +384,18 @@ const CONTEXT_ORDER: SintoniaContextKey[] = [
   'chakras',
   'ansae_organs',
   'therapeutics',
+  'pets_animal',
 ];
+
+function isVeterinaryAnamnesis(anamnesis: PatientAnamnesis): boolean {
+  const combined = `${anamnesis.fullName} ${anamnesis.therapeuticFocus} ${anamnesis.physicalSymptoms} ${anamnesis.clinicalNotes}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return /\b(pet|pets|animal|animais|cachorro|cao|cadela|gato|gata|felino|canino|veterinari[ao]?)\b/.test(
+    combined
+  );
+}
 
 function normalizeBiometerTitle(text: string): string {
   return text
@@ -683,6 +725,9 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   );
   const [showAllBlocks, setShowAllBlocks] = useState<boolean>(false);
   const [isBiometersOpen, setIsBiometersOpen] = useState<boolean>(false);
+  const [biometersInitialCategory, setBiometersInitialCategory] = useState<
+    'Todos' | BiometerDefinition['category']
+  >('Todos');
   const [customBiometers, setCustomBiometers] = useState<BiometerDefinition[]>(() =>
     loadCustomBiometers()
   );
@@ -705,8 +750,9 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
   }, [anamnesis, sensitivity]);
 
   // Contextual Fixed Biometer Dock state
-  const [activeDockContext, setActiveDockContext] =
-    useState<SintoniaContextKey>('causes_triage');
+  const [activeDockContext, setActiveDockContext] = useState<SintoniaContextKey>(() =>
+    isVeterinaryAnamnesis(anamnesis) ? 'pets_animal' : 'causes_triage'
+  );
   const [selectedDockBiometerId, setSelectedDockBiometerId] = useState<string | null>(null);
   const [isDockMinimized, setIsDockMinimized] = useState<boolean>(false);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
@@ -765,6 +811,16 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     return defaultContextBiometer;
   }, [activeBiometerCatalog, defaultContextBiometer, selectedDockBiometerId]);
 
+  const petsBiometers = useMemo(
+    () => activeBiometerCatalog.filter((b) => b.category === 'Saúde Animal / PETS'),
+    [activeBiometerCatalog]
+  );
+
+  const nonPetsBiometers = useMemo(
+    () => activeBiometerCatalog.filter((b) => b.category !== 'Saúde Animal / PETS'),
+    [activeBiometerCatalog]
+  );
+
   const shortcutBiometers = useMemo(() => {
     const list: Array<{ label: string; bio: BiometerDefinition }> = [];
     if (defaultContextBiometer) {
@@ -776,8 +832,15 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
         list.push({ label: sc.label, bio: found });
       }
     }
+    if (activeDockContext === 'pets_animal') {
+      for (const petBio of petsBiometers) {
+        if (!list.some((item) => item.bio.id === petBio.id)) {
+          list.push({ label: petBio.name, bio: petBio });
+        }
+      }
+    }
     return list;
-  }, [activeBiometerCatalog, activeContextConfig, defaultContextBiometer]);
+  }, [activeBiometerCatalog, activeContextConfig, activeDockContext, defaultContextBiometer, petsBiometers]);
 
   const activateDockContext = useCallback(
     (ctx: SintoniaContextKey) => {
@@ -910,6 +973,10 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     setShowExtraExcessColors(
       nextLoaded.auricField.excessColors.some((c) => SECONDARY_COLOR_NAMES.has(c))
     );
+    if (isVeterinaryAnamnesis(anamnesis)) {
+      setActiveDockContext('pets_animal');
+      setSelectedDockBiometerId(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anamnesis.id]);
 
@@ -1347,6 +1414,9 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             type="button"
             onClick={() => {
               setIsExpanded(false);
+              setBiometersInitialCategory(
+                activeDockContext === 'pets_animal' ? 'Saúde Animal / PETS' : 'Todos'
+              );
               setIsBiometersOpen(true);
             }}
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] transition-colors cursor-pointer whitespace-nowrap"
@@ -3569,12 +3639,40 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                     onChange={(e) => setSelectedDockBiometerId(e.target.value)}
                     className="max-w-[170px] sm:max-w-[210px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded-md focus:outline-none focus:border-[#F59E0B]"
                   >
-                    {activeBiometerCatalog.map((b) => (
-                      <option key={`fs-opt-${b.id}`} value={b.id}>
-                        {String(b.number).padStart(2, '0')}. {b.name}
-                      </option>
-                    ))}
+                    {petsBiometers.length > 0 && (
+                      <optgroup label="Saúde Animal / PETS">
+                        {petsBiometers.map((b) => (
+                          <option key={`fs-pet-${b.id}`} value={b.id}>
+                            {String(b.number).padStart(2, '0')}. {b.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label={petsBiometers.length > 0 ? 'Demais Biômetros' : 'Catálogo Geral'}>
+                      {nonPetsBiometers.map((b) => (
+                        <option key={`fs-opt-${b.id}`} value={b.id}>
+                          {String(b.number).padStart(2, '0')}. {b.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      activateDockContext(
+                        activeDockContext === 'pets_animal' ? 'causes_triage' : 'pets_animal'
+                      )
+                    }
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
+                      activeDockContext === 'pets_animal'
+                        ? 'bg-[#D97706] text-white border-[#F59E0B]'
+                        : 'bg-white/10 text-[#F59E0B] border-[#D97706]/40 hover:bg-white/20'
+                    }`}
+                  >
+                    <PawPrint className="w-3 h-3" />
+                    PETS
+                  </button>
 
                   <button
                     type="button"
@@ -3725,18 +3823,48 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   })}
                 </div>
 
-                {/* Quick selector across all catalog biometers (including custom) */}
+                {/* Quick PETS filter toggle in Contextual Dock */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    activateDockContext(
+                      activeDockContext === 'pets_animal' ? 'causes_triage' : 'pets_animal'
+                    )
+                  }
+                  title="Atalho rápido para biômetros de Saúde Animal / PETS"
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer whitespace-nowrap ${
+                    activeDockContext === 'pets_animal'
+                      ? 'bg-[#D97706] text-white border-[#F59E0B]'
+                      : 'bg-white/10 text-[#F59E0B] border-[#D97706]/45 hover:bg-white/20'
+                  }`}
+                >
+                  <PawPrint className="w-3 h-3" />
+                  <span>PETS ({petsBiometers.length})</span>
+                </button>
+
+                {/* Quick selector across all catalog biometers (with PETS grouped) */}
                 <select
                   aria-label="Trocar biômetro no dock contextual"
                   value={activeDockBiometer.id}
                   onChange={(e) => setSelectedDockBiometerId(e.target.value)}
-                  className="max-w-[130px] sm:max-w-[190px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded focus:outline-none focus:border-[#F59E0B] cursor-pointer"
+                  className="max-w-[140px] sm:max-w-[205px] px-2 py-1 text-[11px] bg-[#1E293B] text-white border border-white/20 rounded focus:outline-none focus:border-[#F59E0B] cursor-pointer"
                 >
-                  {activeBiometerCatalog.map((b) => (
-                    <option key={`dock-opt-${b.id}`} value={b.id}>
-                      {String(b.number).padStart(2, '0')}. {b.name}
-                    </option>
-                  ))}
+                  {petsBiometers.length > 0 && (
+                    <optgroup label="Saúde Animal / PETS">
+                      {petsBiometers.map((b) => (
+                        <option key={`dock-pet-${b.id}`} value={b.id}>
+                          {String(b.number).padStart(2, '0')}. {b.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label={petsBiometers.length > 0 ? 'Demais Biômetros' : 'Catálogo Geral'}>
+                    {nonPetsBiometers.map((b) => (
+                      <option key={`dock-opt-${b.id}`} value={b.id}>
+                        {String(b.number).padStart(2, '0')}. {b.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
 
                 <button
@@ -3833,12 +3961,27 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0 text-[10px] text-[#CBD5E1]">
+              <div className="flex items-center gap-3 shrink-0 text-[10px] text-[#CBD5E1]">
                 <span className="hidden sm:inline">2× toque para ampliar</span>
                 <button
                   type="button"
                   onClick={() => {
                     setIsExpanded(false);
+                    setBiometersInitialCategory('Saúde Animal / PETS');
+                    setIsBiometersOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 font-semibold text-white hover:text-[#F59E0B] cursor-pointer"
+                >
+                  <PawPrint className="w-3 h-3 text-[#F59E0B]" />
+                  Biômetros PETS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExpanded(false);
+                    setBiometersInitialCategory(
+                      activeDockContext === 'pets_animal' ? 'Saúde Animal / PETS' : 'Todos'
+                    );
                     setIsBiometersOpen(true);
                   }}
                   className="font-semibold text-[#F59E0B] hover:underline cursor-pointer"
@@ -3870,6 +4013,7 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
           currentHawkinsHz={sheet.spiritualPsycho.hawkinsAgathaHz}
           onSelectHawkinsHz={updateHawkinsFrequency}
           totalBiometersCount={totalBiometers}
+          initialCategoryFilter={biometersInitialCategory}
         />
       )}
     </div>

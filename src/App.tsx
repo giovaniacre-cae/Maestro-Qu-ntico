@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { AnamneseForm } from './components/AnamneseForm';
 import { CentralDocumental } from './components/CentralDocumental';
 import { Dashboard } from './components/Dashboard';
-import { GraficosRadionicosTab } from './components/GraficosRadionicosTab';
+import {
+  GraficosRadionicosTab,
+  RecommendedProtocolSequenceItem,
+} from './components/GraficosRadionicosTab';
 import { MesaQuantica, SelectedTherapeutics } from './components/MesaQuantica';
 import { AddPendulatedChartPayload } from './components/AddPendulatedChartPanel';
 import { SintoniaSensitiva } from './components/SintoniaSensitiva';
@@ -44,9 +47,13 @@ import {
   removeGeometryFromProtocol,
 } from './utils/antiCatharsis';
 import {
+  BACKUP_RESTORED_EVENT,
+  PROFESSIONAL_PROFILE_UPDATED_EVENT,
+  ProfessionalProfile,
   createDefaultAnsaeRhenSheet,
   getAnsaeDraftForSession,
   getPreviousSessionForPatient,
+  getProfessionalProfile,
   loadClinicalDatabase,
   normalizeAnsaeSheet,
   saveAnsaeDraftForSession,
@@ -138,6 +145,21 @@ export default function App() {
 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [professionalProfile, setProfessionalProfile] = useState<ProfessionalProfile>(() =>
+    getProfessionalProfile()
+  );
+
+  useEffect(() => {
+    const syncProfile = () => {
+      setProfessionalProfile(getProfessionalProfile());
+    };
+    window.addEventListener(PROFESSIONAL_PROFILE_UPDATED_EVENT, syncProfile);
+    window.addEventListener(BACKUP_RESTORED_EVENT, syncProfile);
+    return () => {
+      window.removeEventListener(PROFESSIONAL_PROFILE_UPDATED_EVENT, syncProfile);
+      window.removeEventListener(BACKUP_RESTORED_EVENT, syncProfile);
+    };
+  }, []);
 
   useEffect(() => {
     saveSessions(sessions);
@@ -755,6 +777,152 @@ export default function App() {
       }
 
       return { stage1Added, stage2Added, singleAdded };
+    },
+    [
+      draftAiResult,
+      draftAnamnesis,
+      draftChartCrystals,
+      draftProtocol,
+      draftSensitivity,
+      draftSessionId,
+    ]
+  );
+
+  const handleApplyRadionicProtocolToTable = useCallback(
+    (
+      protocolTitle: string,
+      items: RecommendedProtocolSequenceItem[],
+      witnessTemplate?: string
+    ) => {
+      const norm = (v: string) =>
+        v
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+
+      let accProtocol = draftProtocol;
+
+      items.forEach((item, index) => {
+        const combined = norm(`${item.step} ${item.graphicTitle} ${item.role}`);
+        const stepNorm = norm(item.step);
+
+        let category: QuantumGeometry['category'] = 'regeneracao';
+        if (
+          combined.includes('prote') ||
+          combined.includes('defesa') ||
+          combined.includes('anti magia') ||
+          combined.includes('anti-magia') ||
+          combined.includes('scap') ||
+          combined.includes('iave') ||
+          combined.includes('yoshua') ||
+          combined.includes('ioshua') ||
+          combined.includes('nove circulos') ||
+          combined.includes('quadrado magico')
+        ) {
+          category = 'protecao';
+        } else if (
+          combined.includes('limpeza') ||
+          combined.includes('desimpregn') ||
+          combined.includes('desobstru') ||
+          combined.includes('decagono') ||
+          combined.includes('triturador') ||
+          combined.includes('desembarac')
+        ) {
+          category = 'assepsia';
+        } else if (
+          combined.includes('prosper') ||
+          combined.includes('fortuna') ||
+          combined.includes('abund') ||
+          combined.includes('shrim') ||
+          combined.includes('jupiter') ||
+          combined.includes('material')
+        ) {
+          category = 'prosperidade';
+        } else if (
+          combined.includes('harmon') ||
+          combined.includes('relacion') ||
+          combined.includes('amor') ||
+          combined.includes('chakra') ||
+          combined.includes('sono')
+        ) {
+          category = 'harmonia';
+        }
+
+        const isExplicitStage2 =
+          stepNorm.includes('etapa 2') ||
+          stepNorm.includes('fase 2') ||
+          stepNorm.includes('aceleracao') ||
+          stepNorm.includes('potencializacao');
+        const isStage1Concept =
+          stepNorm.includes('etapa 0') ||
+          stepNorm.includes('etapa 1') ||
+          stepNorm.includes('preparo') ||
+          stepNorm.includes('valorizacao') ||
+          category === 'assepsia' ||
+          category === 'protecao';
+
+        const requestedStage: 'stage1' | 'stage2' | 'single' =
+          accProtocol.mode === 'escalonado'
+            ? isExplicitStage2
+              ? 'stage2'
+              : isStage1Concept
+                ? 'stage1'
+                : 'stage2'
+            : 'single';
+
+        const geometry: QuantumGeometry = {
+          id: `rad-ai-${Date.now()}-${index}`,
+          name: item.graphicTitle,
+          category,
+          role: `${item.role} (${item.alignment})`,
+          durationHint: item.durationHint || 'Conforme pêndulo',
+          source: 'therapist',
+          customFocus: witnessTemplate
+            ? `${protocolTitle} — ${witnessTemplate}`
+            : protocolTitle,
+        };
+
+        accProtocol = addGeometryToProtocol(accProtocol, requestedStage, geometry).protocol;
+      });
+
+      const nextAiResult = applyChartCrystalsToResult(
+        draftAiResult,
+        accProtocol,
+        draftAnamnesis,
+        draftSensitivity,
+        draftChartCrystals
+      );
+      const nowIso = new Date().toISOString();
+
+      setDraftProtocol(accProtocol);
+      setDraftAiResult(nextAiResult);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === draftSessionId
+            ? {
+                ...s,
+                protocol: accProtocol,
+                aiResult: nextAiResult,
+                updatedAt: nowIso,
+              }
+            : s
+        )
+      );
+
+      const db = loadClinicalDatabase();
+      const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
+      if (idx >= 0) {
+        db.sessions[idx] = {
+          ...db.sessions[idx],
+          protocol: accProtocol,
+          aiResult: nextAiResult,
+          updatedAt: nowIso,
+        };
+        saveClinicalDatabase(db);
+      }
+
+      setActiveScreen('quantum-table');
     },
     [
       draftAiResult,
@@ -1611,7 +1779,9 @@ export default function App() {
           />
         )}
 
-        {activeScreen === 'radionic-charts' && <GraficosRadionicosTab />}
+        {activeScreen === 'radionic-charts' && (
+          <GraficosRadionicosTab onApplyProtocolToTable={handleApplyRadionicProtocolToTable} />
+        )}
 
         {activeScreen === 'documents' && (
           <CentralDocumental
@@ -1632,9 +1802,23 @@ export default function App() {
       <footer className="border-t border-[#E2E8F0] bg-[#FAF8F5] py-5">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#64748B]">
           <span>
-            Maestro Terapias Vibracionais · Giovani Caetano · Atendimentos Integrativos
+            {[
+              professionalProfile.clinicName,
+              professionalProfile.therapistName,
+              professionalProfile.subtitleLine,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
-          <span>Contatos: (68) 99247-6436 · (11) 95056-5215</span>
+          <span>
+            {[
+              professionalProfile.contacts ? `Contatos: ${professionalProfile.contacts}` : '',
+              professionalProfile.emailOrSocial,
+              professionalProfile.website,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
         </div>
       </footer>
     </div>

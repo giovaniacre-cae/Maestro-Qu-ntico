@@ -1,19 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AlertTriangle,
+  ArrowRight,
   Check,
   CheckSquare,
   Compass,
+  Copy,
   Edit3,
   Eye,
   ImagePlus,
   Layers,
+  Lightbulb,
   Loader2,
   Plus,
   Printer,
   RotateCcw,
   ScanText,
   Search,
+  Sparkles,
   Square,
   Trash2,
   Upload,
@@ -24,6 +29,8 @@ import {
   PRINTABLE_GRAPHIC_CATEGORIES,
   PrintableGraphic,
   PrintableGraphicCategory,
+  THERAPEUTIC_PROTOCOLS_INDEX,
+  TherapeuticProtocolIndexItem,
   resolveGraphicImageUrl,
 } from '../data/printableGraphicsData';
 import {
@@ -52,10 +59,303 @@ interface OcrExtractResponse {
 
 function normalizeSearch(str: string): string {
   return str
-    .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
+
+const SEARCH_STOP_WORDS = new Set([
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'para',
+  'com',
+  'sem',
+  'em',
+  'na',
+  'no',
+  'e',
+  'a',
+  'o',
+]);
+
+export interface RecommendedProtocolSequenceItem {
+  step: string;
+  graphicTitle: string;
+  role: string;
+  alignment: string;
+  durationHint: string;
+}
+
+export interface GraficosRadionicosTabProps {
+  onApplyProtocolToTable?: (
+    protocolTitle: string,
+    items: RecommendedProtocolSequenceItem[],
+    witnessTemplate?: string
+  ) => void;
+}
+
+interface AiProtocolConsultResponse {
+  protocolTitle: string;
+  clinicalRationale: string;
+  recommendedSequence: RecommendedProtocolSequenceItem[];
+  witnessTemplate: string;
+  kineticCommand: string;
+  isLocalFallback?: boolean;
+}
+
+const SEARCH_SYNONYMS: Record<string, string[]> = {
+  charas: ['chakras', 'chakra'],
+  chacra: ['chakras', 'chakra'],
+  chacras: ['chakras', 'chakra'],
+  xacra: ['chakras', 'chakra'],
+  xacras: ['chakras', 'chakra'],
+  prosperidade: ['prosperador', 'fortuna', 'material', 'abundancia', 'shrim', 'jupiter'],
+  prosperar: ['prosperador', 'fortuna', 'prosperidade', 'abundancia'],
+  dinheiro: ['prosperador', 'fortuna', 'material', 'abundancia', 'shrim', 'jupiter'],
+  financeiro: ['prosperador', 'fortuna', 'material', 'prosperidade', 'jupiter'],
+  divorcio: ['divorcio energetico', 'corte de votos', 'ioshua', 'labirinto', 'desembaracador'],
+  votos: ['corte de votos', 'votos antigos', 'divorcio energetico', '72 nomes'],
+  pet: ['pets', 'chakras pet', 'animais', 'cachorro', 'gato'],
+  pets: ['pet', 'chakras pet', 'animais'],
+  cachorro: ['pets', 'chakras pet', 'animais'],
+  gato: ['pets', 'chakras pet', 'animais'],
+  justica: ['justica divina', 'processos', 'causas travadas', 'jupiter'],
+  processo: ['justica divina', 'processos', 'causas travadas'],
+  processos: ['justica divina', 'processos', 'causas travadas'],
+  imovel: ['imoveis', 'casa', 'desembaracador material', 'espiral cosmica', 'cruz atlante', 'bagua'],
+  imoveis: ['imovel', 'casa', 'desembaracador material', 'espiral cosmica', 'cruz atlante'],
+  dor: ['anti dor', 'dores', 'inflamacao', 'diafragma 1', 'triturador', 'trigono'],
+  dores: ['anti dor', 'dor', 'inflamacao', 'diafragma 1', 'triturador'],
+  sono: ['insonia', 'harmonia', 'diafragma 1', 'ioshua', 'labirinto'],
+  insonia: ['sono', 'harmonia', 'diafragma 1', 'ioshua', 'labirinto'],
+  magia: ['anti magia', 'iave', 'desimpregnador', 'onze circulos', 'nove circulos'],
+  aura: ['campo aurico', 'diafragma 2', 'harmonia', 'flor da vida', 'irradiador'],
+  telurica: ['geobiologia', 'scap', 'luxor', 'cruz cosmica', 'mesa d amiens'],
+  geobiologia: ['telurica', 'scap', 'luxor', 'cruz cosmica', 'escudo protetor'],
+};
+
+function hasEditDistanceAtMostOne(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+    } else {
+      edits += 1;
+      if (edits > 1) return false;
+      if (a.length > b.length) {
+        i += 1;
+      } else if (b.length > a.length) {
+        j += 1;
+      } else {
+        i += 1;
+        j += 1;
+      }
+    }
+  }
+  if (i < a.length || j < b.length) edits += 1;
+  return edits <= 1;
+}
+
+function tokenMatchesText(token: string, haystack: string, haystackWords: string[]): boolean {
+  if (haystack.includes(token)) return true;
+  const synonyms = SEARCH_SYNONYMS[token];
+  if (synonyms && synonyms.some((syn) => haystack.includes(syn))) {
+    return true;
+  }
+  if (token.length >= 4) {
+    for (const word of haystackWords) {
+      if (word.length >= 4 && hasEditDistanceAtMostOne(token, word)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+interface FrequentPurposeShortcut {
+  id: string;
+  label: string;
+  keywords: string[];
+  synergyTitle: string;
+  synergyAdvice: string;
+  recommendedSequence: string;
+}
+
+const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
+  {
+    id: 'divorcio-energetico',
+    label: 'Divórcio Energético',
+    keywords: [
+      'divorcio energetico',
+      'corte de votos',
+      'votos antigos',
+      'cortes energeticos',
+      'decagono duplo',
+      'ioshua',
+      'labirinto d\'amiens',
+      'desembaracador de relacionamentos',
+      'scap',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Divórcio Energético & Corte de Votos',
+    synergyAdvice:
+      'Valorize os testemunhos a grafite no Decágono Duplo (15–20 min) e utilize Ioshua (alinhado ao Norte 357°) junto ao Labirinto D’Amiens (Norte 357°) e Desembaraçador de Relacionamentos para dissolver vínculos e votos antigos com serenidade, encerrando com proteção no SCAP.',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Ioshua / Labirinto D’Amiens → Desembaraçador de Relacionamentos + SCAP.',
+  },
+  {
+    id: 'prosperidade',
+    label: 'Prosperidade Financeira',
+    keywords: [
+      'prosperidade financeira',
+      'dinheiro inesperado',
+      'abundancia',
+      'riqueza',
+      'fartura',
+      'fortuna',
+      'fluxo de caixa',
+      'vendas',
+      'shrim',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Prosperidade Financeira',
+    synergyAdvice:
+      'Valorize o testemunho e a meta financeira a lápis grafite no Decágono Duplo por 15 a 20 minutos antes da emissão. Alinhe as placas direcionais (Turbilhão com Prosperador, Júpiter, Sol, Shrim e Cruz Atlante) ao Norte Magnético (357°). Evite associar Turbilhão com o gráfico Harmonia na mesma etapa.',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo (15–20 min) → Desimpregnador (se houver bloqueio) → Turbilhão com Prosperador / Shrim / Júpiter.',
+  },
+  {
+    id: 'destravamento',
+    label: 'Destravamento & Negócios',
+    keywords: [
+      'destravamento financeiro',
+      'negocios',
+      'contratos',
+      'emprego',
+      'vendas',
+      'imoveis',
+      'desembaracador material',
+      'espiral cosmica',
+      'trigono',
+      'acelerador',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Destravamento & Negócios',
+    synergyAdvice:
+      'Para situações estagnadas, contratos emperrados ou recolocação profissional, prepare o testemunho no Decágono Duplo (15–20 min) e inicie com o Desembaraçador Material antes de acelerar com Turbilhão ou Acelerador. Cheque no pêndulo se há necessidade prévia de limpeza de inveja.',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Desembaraçador Material → Espiral Cósmica / Turbilhão com Sol.',
+  },
+  {
+    id: 'limpeza',
+    label: 'Limpeza & Desimpregnação',
+    keywords: [
+      'limpeza',
+      'desimpregnacao',
+      'inveja',
+      'olho gordo',
+      'miasmas',
+      'divorcio energetico',
+      'cortes energeticos',
+      'votos antigos',
+      'purificacao',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Limpeza & Desimpregnação (Anti-Catarse)',
+    synergyAdvice:
+      'Sempre valorize o testemunho a grafite no Decágono Duplo por 15 a 20 minutos e priorize o Desimpregnador ou Triturador nas primeiras 24h a 72h antes de qualquer placa estimulante. Para Mesa D’Amiens, Labirinto D’Amiens e Ioshua, alinhe o eixo superior ao Norte Magnético (357°).',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Desimpregnador / Triturador → Diafragma 2 para recomposição áurica.',
+  },
+  {
+    id: 'protecao',
+    label: 'Proteção & Anti-Magia',
+    keywords: [
+      'protecao',
+      'magia',
+      'anti magia',
+      'ataque psiquico',
+      'obsessores',
+      'ondas eletromagneticas',
+      'telurica',
+      'blindagem',
+      'justica',
+      'processos',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Proteção & Defesa Espiritual',
+    synergyAdvice:
+      'Em quadros de ataque psíquico, processos ou sobrecarga eletromagnética/telúrica, valorize o testemunho no Decágono Duplo (15–20 min) e confira o alinhamento ao Norte Magnético (357°) nas placas direcionais (SCAP, Anti Magia, Iavê, Ioshua, Luxor, Cruz Cósmica, Quadrado Mágico e Justiça Divina).',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Onze Círculos / Anti Magia / Iavê → SCAP Cabalístico para blindagem contínua.',
+  },
+  {
+    id: 'saude',
+    label: 'Saúde & Alívio de Dores',
+    keywords: [
+      'saude',
+      'dor',
+      'anti dor',
+      'inflamacao',
+      'vitalidade',
+      'cansaco',
+      'depressao',
+      'apatia',
+      'regeneracao celular',
+      'pets',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Saúde, Alívio de Dores & Vitalidade',
+    synergyAdvice:
+      'Em pacientes com Bovis muito baixo (< 5.000 Å), faça assepsia prévia no Desimpregnador antes de aplicar Alta Vitalidade, Geradores ou Programador Físico (prevenção de catarse). Alinhe Anti Dor, Programador Físico, Cruz Ansata e Gerador Pirâmide/Quadrado ao Norte (357°) e utilize água dinamizada por 15–20 min.',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Anti Dor / Programador Físico → Alta Vitalidade / Flor da Vida.',
+  },
+  {
+    id: 'clareza',
+    label: 'Clareza Mental & Ansiedade',
+    keywords: [
+      'ansiedade',
+      'clareza mental',
+      'foco',
+      'estresse',
+      'sono',
+      'insonia',
+      'vesica piscis',
+      'diafragma',
+      'labirinto',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Clareza Mental & Controle da Ansiedade',
+    synergyAdvice:
+      'Para crises de ansiedade, insônia ou excesso de ruminação mental, utilize o Diafragma 1 para descongestionar (30 min a 24h) seguido pelo Diafragma 2 ou Labirinto D’Amiens (alinhado ao Norte 357°). Evite emissões estimulantes de Turbilhão ou Energizador à noite em interagentes agitados.',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Diafragma 1 → Diafragma 2 / Vesica Piscis / Labirinto D’Amiens.',
+  },
+  {
+    id: 'relacionamentos',
+    label: 'Harmonia & Relacionamentos',
+    keywords: [
+      'harmonia',
+      'relacionamento',
+      'casais',
+      'amor',
+      'sociedade',
+      'familia',
+      'bagua',
+      'desembaracador de relacionamentos',
+      'hrim',
+      'klim',
+      'venus',
+    ],
+    synergyTitle: 'Dica Clínica de Sinergia — Harmonia & Relacionamentos',
+    synergyAdvice:
+      'Valorize os testemunhos a grafite no Decágono Duplo (15–20 min) com intenção ética para o bem maior de todos. Alinhe HRIM, Klim e Turbilhão com Vênus ao Norte Magnético (357°). Atenção clínica: não combine Harmonia e placas de Turbilhão simultaneamente na mesma etapa.',
+    recommendedSequence:
+      'Sequência sugerida: Decágono Duplo → Desembaraçador de Relacionamentos → Harmonia ou HRIM / Vênus.',
+  },
+];
 
 function isValidCategory(cat: string): cat is PrintableGraphicCategory {
   return (PRINTABLE_GRAPHIC_CATEGORIES as string[]).includes(cat);
@@ -106,7 +406,9 @@ async function readAndOptimizeImageFile(file: File): Promise<{ dataUrl: string; 
   });
 }
 
-export const GraficosRadionicosTab: React.FC = () => {
+export const GraficosRadionicosTab: React.FC<GraficosRadionicosTabProps> = ({
+  onApplyProtocolToTable,
+}) => {
   const [customGraphics, setCustomGraphics] = useState<PrintableGraphic[]>(() =>
     loadCustomPrintableGraphics()
   );
@@ -173,9 +475,25 @@ export const GraficosRadionicosTab: React.FC = () => {
   } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // AI Search Assistant state (when query has no exact plate name or 0 items)
+  const [manualPlateOverride, setManualPlateOverride] = useState<boolean>(false);
+  const [isConsultingAI, setIsConsultingAI] = useState<boolean>(false);
+  const [aiConsultError, setAiConsultError] = useState<string | null>(null);
+  const [aiConsultResult, setAiConsultResult] = useState<AiProtocolConsultResponse | null>(null);
+
+  const aiAbortControllerRef = useRef<AbortController | null>(null);
   const modalFileInputRef = useRef<HTMLInputElement | null>(null);
   const quickAttachFileInputRef = useRef<HTMLInputElement | null>(null);
   const quickAttachTargetIdRef = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const resultsSectionRef = useRef<HTMLDivElement | null>(null);
+  const studioDetailRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      aiAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Merge official + overrides + custom, excluding hidden official graphics
   const allGraphics = useMemo<PrintableGraphic[]>(() => {
@@ -193,28 +511,385 @@ export const GraficosRadionicosTab: React.FC = () => {
     return [...activeOfficials, ...customGraphics];
   }, [customGraphics, hiddenOfficialIds, overrides]);
 
+  const activePurpose = useMemo(() => {
+    const q = normalizeSearch(searchQuery.trim());
+    if (!q) return null;
+    return FREQUENT_PURPOSES.find((p) => normalizeSearch(p.label) === q) || null;
+  }, [searchQuery]);
+
+  const matchedProtocol = useMemo<TherapeuticProtocolIndexItem | null>(() => {
+    const q = normalizeSearch(searchQuery.trim());
+    if (q.length < 2) return null;
+    const rawTokens = q
+      .split(/[\s,&/+;]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2 && !SEARCH_STOP_WORDS.has(t));
+    const tokens = rawTokens.length > 0 ? rawTokens : [q];
+
+    let best: { item: TherapeuticProtocolIndexItem; score: number } | null = null;
+    for (const proto of THERAPEUTIC_PROTOCOLS_INDEX) {
+      const protoText = normalizeSearch(
+        `${proto.title} ${proto.categorySummary} ${proto.keywords.join(' ')}`
+      );
+      const protoWords = protoText.split(/[\s,&/+;.'"-]+/).filter(Boolean);
+      let score = 0;
+      if (proto.keywords.some((kw) => q.includes(normalizeSearch(kw)) || normalizeSearch(kw).includes(q))) {
+        score += 10;
+      }
+      if (normalizeSearch(proto.title).includes(q)) {
+        score += 12;
+      }
+      for (const tok of tokens) {
+        if (tokenMatchesText(tok, protoText, protoWords)) {
+          score += 4;
+        }
+      }
+      if (score > 0 && (!best || score > best.score)) {
+        best = { item: proto, score };
+      }
+    }
+    return best?.item || null;
+  }, [searchQuery]);
+
   const filteredGraphics = useMemo(() => {
     const q = normalizeSearch(searchQuery.trim());
-    return allGraphics.filter((g) => {
-      if (selectedCategory !== 'Todos' && g.category !== selectedCategory) {
-        return false;
-      }
-      if (!q) return true;
-      const haystack = normalizeSearch(
-        `${g.number} ${g.title} ${g.category} ${g.presentation} ${g.usageAspects}`
-      );
-      return haystack.includes(q);
-    });
-  }, [allGraphics, searchQuery, selectedCategory]);
+    const categoryPool =
+      selectedCategory === 'Todos'
+        ? allGraphics
+        : allGraphics.filter((g) => g.category === selectedCategory);
+
+    if (!q) return categoryPool;
+
+    if (activePurpose) {
+      const normalizedKeywords = activePurpose.keywords.map((kw) => normalizeSearch(kw));
+      const scored = categoryPool
+        .map((g, index) => {
+          const tagsStr = normalizeSearch((g.purposeTags || []).join(' '));
+          const titleStr = normalizeSearch(g.title);
+          const haystack = normalizeSearch(
+            `${g.number} ${g.title} ${g.category} ${g.presentation} ${g.usageAspects} ${(g.purposeTags || []).join(' ')}`
+          );
+          let score = 0;
+          for (const kw of normalizedKeywords) {
+            if (haystack.includes(kw)) {
+              score += 1;
+              if (tagsStr.includes(kw)) score += 2;
+              if (titleStr.includes(kw)) score += 3;
+            }
+          }
+          return { g, score, index };
+        })
+        .filter((entry) => entry.score > 0);
+
+      scored.sort((a, b) => b.score - a.score || a.index - b.index);
+      return scored.map((entry) => entry.g);
+    }
+
+    const rawTokens = q
+      .split(/[\s,&/+;]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2 && !SEARCH_STOP_WORDS.has(t));
+    const tokens = rawTokens.length > 0 ? rawTokens : [q];
+
+    const scored = categoryPool
+      .map((g, index) => {
+        const tagsStr = normalizeSearch((g.purposeTags || []).join(' '));
+        const titleStr = normalizeSearch(g.title);
+        const haystack = normalizeSearch(
+          `${g.number} ${g.title} ${g.category} ${g.presentation} ${g.usageAspects} ${(g.purposeTags || []).join(' ')}`
+        );
+        const haystackWords = haystack.split(/[\s,&/+;.'"-]+/).filter(Boolean);
+
+        const exactMatch = haystack.includes(q);
+        const tokenMatch = tokens.every((tok) => tokenMatchesText(tok, haystack, haystackWords));
+        const protocolBoost = matchedProtocol?.graphicIds.includes(g.id) ? 5 : 0;
+
+        if (!exactMatch && !tokenMatch && protocolBoost === 0) {
+          return { g, score: 0, index };
+        }
+
+        let score = 1 + protocolBoost;
+        if (exactMatch) score += 10;
+        if (titleStr.includes(q)) score += 12;
+        if (tagsStr.includes(q)) score += 8;
+        for (const tok of tokens) {
+          if (titleStr.includes(tok)) score += 4;
+          if (tagsStr.includes(tok)) score += 3;
+        }
+        return { g, score, index };
+      })
+      .filter((entry) => entry.score > 0);
+
+    scored.sort((a, b) => b.score - a.score || a.index - b.index);
+    return scored.map((entry) => entry.g);
+  }, [activePurpose, allGraphics, matchedProtocol, searchQuery, selectedCategory]);
+
+  const hasExactTitleMatch = useMemo(() => {
+    const q = normalizeSearch(searchQuery.trim());
+    if (!q) return true;
+    return allGraphics.some((g) => normalizeSearch(g.title).includes(q));
+  }, [allGraphics, searchQuery]);
+
+  const showSmartRecommendationCard = useMemo(() => {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) return false;
+    return !hasExactTitleMatch || filteredGraphics.length === 0;
+  }, [filteredGraphics.length, hasExactTitleMatch, searchQuery]);
+
+  const recommendedCombinationPlates = useMemo<PrintableGraphic[]>(() => {
+    if (matchedProtocol) {
+      const fromProtocol = matchedProtocol.graphicIds
+        .map((id) => allGraphics.find((g) => g.id === id))
+        .filter((g): g is PrintableGraphic => Boolean(g));
+      if (fromProtocol.length > 0) return fromProtocol;
+    }
+    if (filteredGraphics.length > 0) {
+      return filteredGraphics.slice(0, 6);
+    }
+    const starterIds = ['graf-02-decagono-duplo', 'graf-01-desimpregnador', 'graf-11-harmonia'];
+    return starterIds
+      .map((id) => allGraphics.find((g) => g.id === id))
+      .filter((g): g is PrintableGraphic => Boolean(g));
+  }, [allGraphics, filteredGraphics, matchedProtocol]);
 
   const selectedGraphic = useMemo(() => {
-    return (
-      allGraphics.find((g) => g.id === selectedId) ||
-      filteredGraphics[0] ||
-      allGraphics[0] ||
-      null
-    );
-  }, [allGraphics, filteredGraphics, selectedId]);
+    if (manualPlateOverride) {
+      return (
+        allGraphics.find((g) => g.id === selectedId) ||
+        filteredGraphics[0] ||
+        allGraphics[0] ||
+        null
+      );
+    }
+    if (filteredGraphics.length > 0) {
+      return (
+        filteredGraphics.find((g) => g.id === selectedId) ||
+        filteredGraphics[0]
+      );
+    }
+    return allGraphics.find((g) => g.id === selectedId) || allGraphics[0] || null;
+  }, [allGraphics, filteredGraphics, manualPlateOverride, selectedId]);
+
+  const handleSearchChange = (nextValue: string) => {
+    setSearchQuery(nextValue);
+    setManualPlateOverride(false);
+    setAiConsultResult(null);
+    setAiConsultError(null);
+    if (nextValue.trim().length > 0) {
+      setSelectedCategory('Todos');
+    }
+  };
+
+  const handleMagnifierSearch = () => {
+    searchInputRef.current?.focus();
+    setManualPlateOverride(false);
+    if (searchQuery.trim().length > 0) {
+      setSelectedCategory('Todos');
+    }
+    resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleSelectPurposeChip = (purpose: FrequentPurposeShortcut) => {
+    setManualPlateOverride(false);
+    setAiConsultResult(null);
+    setAiConsultError(null);
+    if (activePurpose?.id === purpose.id) {
+      setSearchQuery('');
+      return;
+    }
+    setSelectedCategory('Todos');
+    setSearchQuery(purpose.label);
+  };
+
+  const handleSelectCategoryTab = (cat: CategoryFilter) => {
+    setSelectedCategory(cat);
+    setSearchQuery('');
+    setManualPlateOverride(false);
+    setAiConsultResult(null);
+    setAiConsultError(null);
+  };
+
+  const handleOpenPlateFromListOrCard = (plateId: string, scrollToDetail = false) => {
+    setSelectedId(plateId);
+    setManualPlateOverride(true);
+    setConfirmDeleteId(null);
+    if (scrollToDetail) {
+      requestAnimationFrame(() => {
+        studioDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }
+  };
+
+  const findCatalogPlateByTitle = useCallback(
+    (graphicTitle: string): PrintableGraphic | undefined => {
+      const targetNorm = normalizeSearch(graphicTitle.trim());
+      if (!targetNorm) return undefined;
+      return (
+        allGraphics.find((g) => normalizeSearch(g.title) === targetNorm) ||
+        allGraphics.find(
+          (g) =>
+            normalizeSearch(g.title).includes(targetNorm) ||
+            targetNorm.includes(normalizeSearch(g.title))
+        )
+      );
+    },
+    [allGraphics]
+  );
+
+  const buildLocalFallbackProtocol = useCallback(
+    (cleanQuery: string): AiProtocolConsultResponse => {
+      const decagono = allGraphics.find((g) => g.id === 'graf-02-decagono-duplo');
+      const pool = recommendedCombinationPlates.slice(0, 5);
+      const sequence: RecommendedProtocolSequenceItem[] = [];
+
+      const hasDecagono = pool.some((p) => p.id === 'graf-02-decagono-duplo');
+      if (decagono && !hasDecagono) {
+        sequence.push({
+          step: 'Etapa 0 — Preparo & Valorização',
+          graphicTitle: decagono.title,
+          role: 'Potencialização e materialização vibracional do testemunho escrito a lápis grafite antes das emissões principais.',
+          alignment: decagono.requiresNorthAlignment
+            ? 'Norte Magnético 357°'
+            : 'Simetria omnidirecional',
+          durationHint: '15–20 min iniciais',
+        });
+      }
+
+      const stage1Plates = pool.filter(
+        (p) =>
+          p.category === 'Limpeza & Purificação' ||
+          p.category === 'Proteção & Defesa Espiritual'
+      );
+      const stage2Plates = pool.filter(
+        (p) =>
+          p.category !== 'Limpeza & Purificação' &&
+          p.category !== 'Proteção & Defesa Espiritual'
+      );
+
+      let hasTurbilhao = false;
+      const ordered = [...stage1Plates, ...stage2Plates];
+      ordered.forEach((plate) => {
+        const normTitle = normalizeSearch(plate.title);
+        if (normTitle.includes('turbilhao')) hasTurbilhao = true;
+        if (hasTurbilhao && normTitle.includes('harmonia')) {
+          return;
+        }
+        const isPrep = plate.id === 'graf-02-decagono-duplo';
+        const isCleanup =
+          plate.category === 'Limpeza & Purificação' ||
+          plate.category === 'Proteção & Defesa Espiritual';
+        sequence.push({
+          step: isPrep
+            ? 'Etapa 0 — Valorização do Testemunho'
+            : isCleanup
+              ? 'Etapa 1 — Limpeza & Proteção'
+              : 'Etapa 2 — Harmonização & Potencialização',
+          graphicTitle: plate.title,
+          role: plate.presentation.split('.')[0]?.trim() || plate.presentation.slice(0, 140),
+          alignment: plate.requiresNorthAlignment
+            ? 'Norte Magnético 357°'
+            : 'Simetria omnidirecional',
+          durationHint: isPrep ? '15–20 min' : isCleanup ? '24h–48h no pêndulo' : '48h–72h no pêndulo',
+        });
+      });
+
+      return {
+        protocolTitle: matchedProtocol
+          ? matchedProtocol.title
+          : `Protocolo Combinado do Acervo: ${cleanQuery}`,
+        clinicalRationale: matchedProtocol
+          ? matchedProtocol.antiCatarseNote
+          : `Sequência montada diretamente a partir do catálogo Maestro para "${cleanQuery}", respeitando o Protocolo Anti-Catarse (limpeza e proteção antes de acelerar ou harmonizar).`,
+        recommendedSequence: sequence,
+        witnessTemplate:
+          matchedProtocol?.testimonyGuidance ||
+          `[Nome Completo + Data de Nascimento] — Limpeza, equilíbrio e manifestação harmônica para ${cleanQuery}.`,
+        kineticCommand: `Eu ativo e colapso neste campo radiônico a sequência terapêutica para ${cleanQuery}, promovendo assepsia áurica, proteção sutil e reequilíbrio integral na mais alta vibração. Está ativado, colapsado e manifestado na ordem cósmica.`,
+        isLocalFallback: true,
+      };
+    },
+    [allGraphics, matchedProtocol, recommendedCombinationPlates]
+  );
+
+  const handleConsultAiProtocol = async () => {
+    const cleanQuery = searchQuery.trim();
+    if (!cleanQuery) return;
+
+    aiAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortControllerRef.current = controller;
+
+    setIsConsultingAI(true);
+    setAiConsultError(null);
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      controller.abort();
+    }, 18000);
+
+    try {
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+      const res = await fetch(`${apiBase}/api/graficos/recommend-protocol`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          query: cleanQuery,
+          availableGraphics: allGraphics.map((g) => ({
+            number: String(g.number),
+            title: g.title,
+            category: g.category,
+          })),
+        }),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      const payload = contentType.includes('application/json')
+        ? await res.json()
+        : { error: `Servidor retornou HTTP ${res.status}` };
+
+      if (!res.ok) {
+        throw new Error(payload?.error || `Erro HTTP ${res.status}`);
+      }
+
+      const normalizedResult: AiProtocolConsultResponse = {
+        protocolTitle: String(payload?.protocolTitle || `Protocolo para ${cleanQuery}`),
+        clinicalRationale: String(payload?.clinicalRationale || ''),
+        recommendedSequence: Array.isArray(payload?.recommendedSequence)
+          ? payload.recommendedSequence
+          : [],
+        witnessTemplate: String(payload?.witnessTemplate || ''),
+        kineticCommand: String(payload?.kineticCommand || ''),
+        isLocalFallback: false,
+      };
+
+      setAiConsultResult(normalizedResult);
+    } catch (err) {
+      const isTimeoutOrAbort =
+        err instanceof DOMException
+          ? err.name === 'AbortError'
+          : err instanceof Error && err.name === 'AbortError';
+
+      const baseMsg = isTimeoutOrAbort
+        ? 'A consulta ao Gemini excedeu o tempo limite de 18 segundos.'
+        : err instanceof Error
+          ? err.message
+          : 'Não foi possível consultar o protocolo na IA no momento.';
+
+      setAiConsultError(
+        `${baseMsg} Exibindo abaixo uma sugestão automática baseada no catálogo local para não interromper seu atendimento.`
+      );
+      setAiConsultResult(buildLocalFallbackProtocol(cleanQuery));
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (aiAbortControllerRef.current === controller) {
+        aiAbortControllerRef.current = null;
+      }
+      setIsConsultingAI(false);
+    }
+  };
 
   // Sync default North alignment print checkbox when changing selected graphic
   useEffect(() => {
@@ -684,18 +1359,33 @@ export const GraficosRadionicosTab: React.FC = () => {
       <section className="bg-white border border-[#E2E8F0] rounded-xl p-4 space-y-3.5">
         <div className="flex flex-col md:flex-row md:items-center gap-3">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-[#94A3B8] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <button
+              type="button"
+              onClick={handleMagnifierSearch}
+              aria-label="Buscar gráficos radiônicos"
+              title="Executar busca"
+              className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-[#64748B] hover:text-[#B45309] hover:bg-[#E2E8F0]/60 transition-colors cursor-pointer"
+            >
+              <Search className="w-4 h-4" />
+            </button>
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar gráfico por nome, sintoma, finalidade ou orientação de uso..."
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleMagnifierSearch();
+                }
+              }}
+              placeholder="Buscar gráfico por nome, propósito (ex: dinheiro inesperado, ansiedade, dor)..."
               className="w-full pl-10 pr-9 py-2.5 text-sm bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#B45309]"
             />
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
+                onClick={() => handleSearchChange('')}
                 aria-label="Limpar busca"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
               >
@@ -708,6 +1398,60 @@ export const GraficosRadionicosTab: React.FC = () => {
             Exibindo {filteredGraphics.length} de {allGraphics.length} placas
           </span>
         </div>
+
+        {/* Quick Therapeutic Purpose Shortcuts */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B] mr-1 whitespace-nowrap">
+            Propósitos Frequentes:
+          </span>
+          {FREQUENT_PURPOSES.map((purpose) => {
+            const isActive = activePurpose?.id === purpose.id;
+            return (
+              <button
+                key={purpose.id}
+                type="button"
+                onClick={() => handleSelectPurposeChip(purpose)}
+                aria-pressed={isActive}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  isActive
+                    ? 'bg-[#FEFCE8] text-[#92400E] border-[#D97706] font-semibold'
+                    : 'bg-white text-[#45464D] border-[#E2E8F0] hover:border-[#B45309] hover:text-[#0F172A]'
+                }`}
+              >
+                {purpose.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Clinical Synergy Tip Card when a Purpose Shortcut is active */}
+        {activePurpose && (
+          <div className="rounded-xl border border-[#D97706]/40 bg-[#FEFCE8]/75 px-4 py-3 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <Lightbulb className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+              <div className="space-y-1 text-xs">
+                <p className="font-semibold text-[#92400E]">
+                  {activePurpose.synergyTitle}
+                </p>
+                <p className="text-[#45464D] leading-relaxed">
+                  {activePurpose.synergyAdvice}
+                </p>
+                <p className="font-medium text-[#0F172A]">
+                  {activePurpose.recommendedSequence}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleSearchChange('')}
+              aria-label="Limpar filtro de propósito"
+              title="Limpar filtro de propósito"
+              className="p-1 text-[#92400E]/70 hover:text-[#0F172A] cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Category Filter Tabs */}
         <div
@@ -728,7 +1472,7 @@ export const GraficosRadionicosTab: React.FC = () => {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => handleSelectCategoryTab(cat)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                   active
                     ? 'bg-[#0F172A] text-white border-[#0F172A]'
@@ -743,6 +1487,285 @@ export const GraficosRadionicosTab: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Smart Search Assistant: Clinical Recommendation Card */}
+        {showSmartRecommendationCard && (
+          <div className="rounded-xl border border-[#D97706]/45 bg-[#FAF8F5] p-4 space-y-3.5">
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
+                  Assistente de Busca Inteligente — Recomendação Clínica
+                </p>
+                <h3 className="font-serif text-base font-bold text-[#0F172A]">
+                  {filteredGraphics.length === 0
+                    ? `Nenhuma placa possui exatamente o título "${searchQuery.trim()}"`
+                    : matchedProtocol
+                      ? `Protocolo recomendado: ${matchedProtocol.title}`
+                      : `Combinação sugerida no acervo para "${searchQuery.trim()}"`}
+                </h3>
+                <p className="text-xs text-[#45464D] leading-relaxed">
+                  {matchedProtocol
+                    ? matchedProtocol.antiCatarseNote
+                    : 'Estas placas do seu catálogo se combinam para atuar sobre a demanda buscada. Clique em qualquer placa abaixo para abri-la imediatamente ou consulte a IA para montar o protocolo completo.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={isConsultingAI}
+                onClick={handleConsultAiProtocol}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] border border-[#B45309]/50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                {isConsultingAI ? (
+                  <Loader2 className="w-4 h-4 text-[#F59E0B] animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 text-[#F59E0B]" />
+                )}
+                {isConsultingAI
+                  ? 'Consultando Protocolo (Gemini)...'
+                  : 'Consultar Protocolo com IA (Gemini)'}
+              </button>
+            </div>
+
+            {/* Clickable Plate Buttons from Catalog */}
+            <div className="space-y-1.5">
+              <span className="block text-[11px] font-semibold text-[#64748B]">
+                Placas compatíveis no acervo atual (clique para abrir e imprimir):
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {recommendedCombinationPlates.map((plate) => {
+                  const isCurrent = selectedGraphic?.id === plate.id;
+                  return (
+                    <button
+                      key={`rec-${plate.id}`}
+                      type="button"
+                      onClick={() => {
+                        handleOpenPlateFromListOrCard(plate.id, true);
+                        showToast(`Placa "${plate.title}" selecionada no estúdio.`);
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer whitespace-nowrap ${
+                        isCurrent
+                          ? 'bg-[#FEFCE8] text-[#92400E] border-[#D97706]'
+                          : 'bg-white text-[#0F172A] border-[#CBD5E1] hover:border-[#B45309]'
+                      }`}
+                    >
+                      <span className="font-mono tabular-nums text-[#B45309]">
+                        Nº {String(plate.number).padStart(2, '0')}
+                      </span>
+                      <span>{plate.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {matchedProtocol && !aiConsultResult && (
+              <div className="p-3 rounded-lg bg-white border border-[#E2E8F0] text-xs space-y-1">
+                <span className="font-semibold text-[#0F172A]">
+                  Modelo rápido de testemunho (grafite no Decágono Duplo):
+                </span>
+                <p className="font-mono text-[11px] text-[#334155]">
+                  {matchedProtocol.testimonyGuidance}
+                </p>
+              </div>
+            )}
+
+            {aiConsultError && (
+              <div
+                role="alert"
+                className="p-3 rounded-lg bg-[#BA1A1A]/5 border border-[#BA1A1A]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+              >
+                <div className="flex items-start gap-2 text-xs font-medium text-[#93000A]">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{aiConsultError}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isConsultingAI}
+                  onClick={handleConsultAiProtocol}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#93000A] bg-white border border-[#BA1A1A]/35 rounded-lg hover:bg-[#FEF2F2] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Tentar Novamente
+                </button>
+              </div>
+            )}
+
+            {aiConsultResult && (
+              <div className="p-4 rounded-xl bg-white border border-[#D97706]/45 space-y-4">
+                <div className="flex items-start justify-between gap-3 border-b border-[#E2E8F0] pb-3">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
+                      {aiConsultResult.isLocalFallback
+                        ? 'Protocolo Clínico Sugerido (Fallback Local do Catálogo)'
+                        : 'Protocolo Clínico Sugerido pela IA'}
+                    </p>
+                    <h4 className="font-serif text-base font-bold text-[#0F172A]">
+                      {aiConsultResult.protocolTitle}
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiConsultResult(null);
+                      setAiConsultError(null);
+                    }}
+                    aria-label="Fechar protocolo sugerido"
+                    className="p-1 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <p className="text-xs text-[#334155] leading-relaxed">
+                  {aiConsultResult.clinicalRationale}
+                </p>
+
+                {/* Recommended Staged Sequence */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#0F172A]">
+                    Sequência Escalonada Anti-Catarse (clique na placa para abrir e imprimir em A4):
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {aiConsultResult.recommendedSequence.map((item, idx) => {
+                      const catalogPlate = findCatalogPlateByTitle(item.graphicTitle);
+                      return (
+                        <div
+                          key={`${item.graphicTitle}-${idx}`}
+                          className="p-3 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] flex flex-col justify-between gap-2"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309]">
+                                {item.step}
+                              </span>
+                              <span className="text-[11px] font-mono text-[#64748B] whitespace-nowrap">
+                                {item.alignment}
+                              </span>
+                            </div>
+
+                            {catalogPlate ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleOpenPlateFromListOrCard(catalogPlate.id, true);
+                                  showToast(`Placa "${catalogPlate.title}" aberta no estúdio.`);
+                                }}
+                                className="text-left text-xs font-bold text-[#0F172A] hover:text-[#B45309] hover:underline cursor-pointer flex items-center gap-1.5"
+                              >
+                                <span className="font-mono tabular-nums text-[#B45309]">
+                                  Nº {String(catalogPlate.number).padStart(2, '0')}
+                                </span>
+                                <span>· {catalogPlate.title}</span>
+                              </button>
+                            ) : (
+                              <span className="block text-xs font-bold text-[#0F172A]">
+                                {item.graphicTitle}
+                              </span>
+                            )}
+
+                            <p className="text-[11px] text-[#45464D] leading-snug">{item.role}</p>
+                          </div>
+
+                          <div className="pt-1.5 border-t border-[#E2E8F0]/80 flex items-center justify-between text-[11px] text-[#0F172A]">
+                            <span className="font-medium">Tempo: {item.durationHint}</span>
+                            {catalogPlate && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleOpenPlateFromListOrCard(catalogPlate.id, true);
+                                  showToast(`Placa "${catalogPlate.title}" aberta no estúdio.`);
+                                }}
+                                className="font-semibold text-[#B45309] hover:underline cursor-pointer whitespace-nowrap"
+                              >
+                                Abrir Placa
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Witness & Kinetic Command */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="p-3 rounded-lg bg-[#FEFCE8]/75 border border-[#D97706]/35 space-y-1.5">
+                    <span className="block text-xs font-semibold text-[#92400E]">
+                      Testemunho (lápis grafite em papel branco):
+                    </span>
+                    <p className="font-mono text-xs text-[#0F172A] select-all leading-relaxed">
+                      {aiConsultResult.witnessTemplate}
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0] space-y-1.5">
+                    <span className="block text-xs font-semibold text-[#0F172A]">
+                      Comando Cinético (Rotação Horária do Pêndulo):
+                    </span>
+                    <p className="text-xs italic text-[#334155] select-all leading-relaxed">
+                      “{aiConsultResult.kineticCommand}”
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action Footer: Copy Protocol & Apply Plates to Mesa Radiônica */}
+                <div className="pt-2 border-t border-[#E2E8F0] flex flex-wrap items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sequenceText = aiConsultResult.recommendedSequence
+                        .map(
+                          (s, i) =>
+                            `${i + 1}. [${s.step}] ${s.graphicTitle} (${s.alignment} · ${s.durationHint})\n   Atuação: ${s.role}`
+                        )
+                        .join('\n');
+                      const fullText = [
+                        `PROTOCOLO RADIÔNICO — ${aiConsultResult.protocolTitle}`,
+                        '',
+                        aiConsultResult.clinicalRationale,
+                        '',
+                        'SEQUÊNCIA DE PLACAS:',
+                        sequenceText,
+                        '',
+                        `TESTEMUNHO (GRAFITE): ${aiConsultResult.witnessTemplate}`,
+                        '',
+                        `COMANDO CINÉTICO: "${aiConsultResult.kineticCommand}"`,
+                      ].join('\n');
+                      if (navigator.clipboard?.writeText) {
+                        navigator.clipboard.writeText(fullText);
+                        showToast('Protocolo completo copiado para a área de transferência.');
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg hover:border-[#B45309] transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-[#B45309]" />
+                    Copiar Protocolo
+                  </button>
+
+                  {onApplyProtocolToTable && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onApplyProtocolToTable(
+                          aiConsultResult.protocolTitle,
+                          aiConsultResult.recommendedSequence,
+                          aiConsultResult.witnessTemplate
+                        );
+                        showToast('Placas do protocolo aplicadas na Mesa Radiônica.');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0F172A] border border-[#B45309]/50 rounded-lg hover:bg-[#1E293B] transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-[#F59E0B]" />
+                      Aplicar Placas na Mesa Radiônica
+                      <ArrowRight className="w-3.5 h-3.5 text-[#F59E0B]" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Batch Selection Action Strip */}
         {batchMode && (
@@ -811,7 +1834,10 @@ export const GraficosRadionicosTab: React.FC = () => {
       </section>
 
       {/* Main Split Workspace: Left List + Right Detail & A4 Studio */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div
+        ref={resultsSectionRef}
+        className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start scroll-mt-4"
+      >
         {/* Left List */}
         <aside className="lg:col-span-5 bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-[#E2E8F0] bg-[#FAF8F5] flex items-center justify-between">
@@ -824,13 +1850,21 @@ export const GraficosRadionicosTab: React.FC = () => {
           </div>
 
           {filteredGraphics.length === 0 ? (
-            <div className="p-8 text-center space-y-2">
+            <div className="p-8 text-center space-y-3">
               <p className="font-serif text-sm font-semibold text-[#0F172A]">
-                Nenhum gráfico encontrado
+                Nenhum gráfico literal encontrado para &ldquo;{searchQuery}&rdquo;
               </p>
               <p className="text-xs text-[#64748B]">
-                Tente buscar por outro termo ou selecione a categoria &ldquo;Todos&rdquo;.
+                Utilize o Card de Recomendação Clínica acima ou consulte o protocolo com a IA (Gemini).
               </p>
+              <button
+                type="button"
+                onClick={() => handleSearchChange('')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg hover:border-[#B45309] cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-[#B45309]" />
+                Exibir todos os {allGraphics.length} gráficos
+              </button>
             </div>
           ) : (
             <div className="max-h-[540px] lg:max-h-[720px] overflow-y-auto divide-y divide-[#F1F5F9]">
@@ -864,10 +1898,7 @@ export const GraficosRadionicosTab: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedId(graphic.id);
-                        setConfirmDeleteId(null);
-                      }}
+                      onClick={() => handleOpenPlateFromListOrCard(graphic.id)}
                       className="flex-1 min-w-0 flex items-start gap-3 text-left cursor-pointer"
                     >
                       <div className="w-14 h-16 rounded-lg border border-[#E2E8F0] bg-white flex items-center justify-center overflow-hidden shrink-0">
@@ -924,7 +1955,10 @@ export const GraficosRadionicosTab: React.FC = () => {
         </aside>
 
         {/* Right Detail Studio */}
-        <section className="lg:col-span-7 bg-white border border-[#E2E8F0] rounded-xl p-5 sm:p-6 space-y-6">
+        <section
+          ref={studioDetailRef}
+          className="lg:col-span-7 bg-white border border-[#E2E8F0] rounded-xl p-5 sm:p-6 space-y-6 scroll-mt-4"
+        >
           {selectedGraphic ? (
             <>
               {/* Title + Metadata + Edit/Delete */}

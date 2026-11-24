@@ -24,9 +24,14 @@ import {
   getDefaultWelcomeMessage,
 } from '../utils/documentGenerator';
 import {
+  BACKUP_RESTORED_EVENT,
+  DEFAULT_CLINIC_LOGO_URL,
+  PROFESSIONAL_PROFILE_UPDATED_EVENT,
+  ProfessionalProfile,
   getAnsaeDraftForSession,
   getOrganPsychosomaticMeaning,
   getPreviousSessionForPatient,
+  getProfessionalProfile,
   getSystemPsychosomaticMeaning,
   normalizeAnsaeSheet,
 } from '../utils/storage';
@@ -50,9 +55,22 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   onSelectSession,
   onGoToTable,
 }) => {
+  const [profile, setProfile] = useState<ProfessionalProfile>(() => getProfessionalProfile());
   const [docTab, setDocTab] = useState<'therapist' | 'patient'>('therapist');
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncProfile = () => {
+      setProfile(getProfessionalProfile());
+    };
+    window.addEventListener(PROFESSIONAL_PROFILE_UPDATED_EVENT, syncProfile);
+    window.addEventListener(BACKUP_RESTORED_EVENT, syncProfile);
+    return () => {
+      window.removeEventListener(PROFESSIONAL_PROFILE_UPDATED_EVENT, syncProfile);
+      window.removeEventListener(BACKUP_RESTORED_EVENT, syncProfile);
+    };
+  }, []);
 
   const { anamnesis, sensitivity, protocol, aiResult } = activeSession;
   const firstName = anamnesis.fullName.trim().split(/\s+/)[0] || anamnesis.fullName;
@@ -126,7 +144,19 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
     }
   };
 
-  const whatsappUrl = buildWhatsAppShareUrl(activeSession, exportCtx);
+  const whatsappUrl = useMemo(
+    () => buildWhatsAppShareUrl(activeSession, exportCtx),
+    [activeSession, exportCtx, profile]
+  );
+  const activeLogoSrc = profile.logoDataUrl || DEFAULT_CLINIC_LOGO_URL;
+  const profileContactLine = [
+    profile.subtitleLine.trim(),
+    profile.contacts.trim() ? `Contatos: ${profile.contacts.trim()}` : '',
+    profile.emailOrSocial.trim(),
+    (profile.website || '').trim(),
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
   return (
     <div className="space-y-8">
@@ -281,28 +311,39 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
       {/* Live Document Paper Preview (Padrão Maestro) */}
       <article className="max-w-[920px] mx-auto bg-white border border-[#E2E8F0] rounded-xl p-8 sm:p-12 shadow-[0_4px_24px_-2px_rgba(15,23,42,0.06)] space-y-8">
         {/* Cabeçalho Oficial Obrigatório */}
-        <header className="text-center space-y-1.5 pb-6 border-b-2 border-[#B45309]">
+        <header
+          className="text-center space-y-1.5 pb-6"
+          style={{ borderBottom: `2px solid ${profile.accentColor}` }}
+        >
           <img
-            src="./assets/aistudio/Logo_Maestro_terapias_Vibracionais_Sem_fundo__2__f6ac1f97.png"
-            alt="Logo Maestro Terapias Vibracionais"
+            src={activeLogoSrc}
+            alt={`Logo ${profile.clinicName}`}
             referrerPolicy="no-referrer"
-            className="w-24 h-24 mx-auto object-contain mb-2"
+            className="w-[68px] h-[68px] mx-auto object-contain mb-2"
           />
-          <h2 className="font-serif text-xl sm:text-2xl font-bold tracking-wide text-[#0F172A] uppercase">
-            MAESTRO TERAPIAS VIBRACIONAIS
+          <h2
+            className="font-serif text-xl sm:text-2xl font-bold tracking-wide uppercase"
+            style={{ color: profile.primaryColor }}
+          >
+            {profile.clinicName}
           </h2>
-          <p className="font-serif italic text-base font-semibold text-[#B45309]">
+          <p
+            className="font-serif italic text-base font-semibold"
+            style={{ color: profile.accentColor }}
+          >
             {docTab === 'therapist'
               ? 'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional'
               : 'Guia de Orientação e Conscientização Vibracional'}
           </p>
-          <p className="text-xs sm:text-sm text-[#0F172A] pt-1">
-            <strong>Giovani Caetano</strong> | Terapeuta Vibracional • Radiestesista Terapêutico •
-            Neuroterapia &amp; Hipnoterapia
+          <p className="text-xs sm:text-sm pt-1" style={{ color: profile.primaryColor }}>
+            <strong>{profile.therapistName}</strong>
+            {profile.credentials.trim() ? (
+              <span className="text-[#334155] font-normal"> | {profile.credentials.trim()}</span>
+            ) : null}
           </p>
-          <p className="text-xs text-[#64748B]">
-            Atendimentos Integrativos • Contatos: (68) 99247-6436 | (11) 95056-5215
-          </p>
+          {profileContactLine && (
+            <p className="text-xs text-[#64748B]">{profileContactLine}</p>
+          )}
         </header>
 
         {docTab === 'therapist' ? (
@@ -759,7 +800,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                       <div
                         key={i}
                         className="p-4 rounded-xl bg-white border border-[#E2E8F0] shadow-sm space-y-3 relative overflow-hidden break-inside-avoid"
-                        style={{ borderLeftWidth: '5px', borderLeftColor: '#B45309' }}
+                        style={{ borderLeftWidth: '5px', borderLeftColor: profile.accentColor }}
                       >
                         {/* Header: Graphic Name + Stage + Origin + Crystal */}
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] pb-2.5">
@@ -922,10 +963,14 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
             {/* Card de Acolhimento Humanizado (editável antes da exportação) */}
             <section
               aria-label="Mensagem Inicial de Acolhimento Humanizado"
-              className="bg-[#F8FAFC] border-l-4 border-[#B45309] rounded-r-xl p-5 sm:p-6 space-y-3.5 shadow-[0_2px_12px_-2px_rgba(15,23,42,0.05)]"
+              className="bg-[#F8FAFC] border-l-4 rounded-r-xl p-5 sm:p-6 space-y-3.5 shadow-[0_2px_12px_-2px_rgba(15,23,42,0.05)]"
+              style={{ borderLeftColor: profile.accentColor }}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#B45309]">
+                <div
+                  className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider"
+                  style={{ color: profile.accentColor }}
+                >
                   <HeartHandshake className="w-4 h-4" />
                   Mensagem Inicial de Acolhimento Humanizado
                 </div>

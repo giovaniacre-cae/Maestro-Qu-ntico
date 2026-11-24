@@ -1492,7 +1492,7 @@ export const BUILTIN_32_BIOMETERS: BiometerDefinition[] = [
     id: 'bio-39',
     number: 39,
     name: 'Causas de Doenças em Animais Domésticos',
-    category: 'Saúde Física & ANSAE',
+    category: 'Saúde Animal / PETS',
     description: 'Triagem radiestésica veterinária e energética de 37 causas de adoecimento em pets.',
     imageUrl: '/biometros/Causas_de_doen_as_em_animais_dom_sticos_86baeb0e.png',
     items: [
@@ -3330,7 +3330,7 @@ export const BUILTIN_32_BIOMETERS: BiometerDefinition[] = [
     id: 'bio-80',
     number: 80,
     name: 'Interferências do Ambiente nos Pets - Parte 3',
-    category: 'Triagem & Geral',
+    category: 'Saúde Animal / PETS',
     description: 'Mapeamento de influências externas, interferências sutis e relação energética entre o animal doméstico e o ambiente.',
     imageUrl: '/biometros/Interfer_ncia_de_ambientes_nos_pets_parte_3_ac39e696.png',
     items: [
@@ -3557,7 +3557,7 @@ export const BUILTIN_32_BIOMETERS: BiometerDefinition[] = [
     id: 'bio-89',
     number: 89,
     name: 'Órgãos dos Pets',
-    category: 'Saúde Física & ANSAE',
+    category: 'Saúde Animal / PETS',
     description: 'Rastreamento anatômico e vibracional de órgãos e sistemas em animais domésticos.',
     imageUrl: '/biometros/_rg_os_do_pets_247ed3dc.png',
     items: [
@@ -4168,7 +4168,7 @@ export const BUILTIN_32_BIOMETERS: BiometerDefinition[] = [
     id: 'bio-105',
     number: 105,
     name: 'Saúde Pet - Patologias de Pele e Pelo',
-    category: 'Saúde Física & ANSAE',
+    category: 'Saúde Animal / PETS',
     description: 'Investigação de causas nutricionais, alérgicas, fúngicas, hormonais e emocionais em dermatites de pets.',
     imageUrl: '/biometros/Saude_pet_-_Patologias_de_pele_e_pelo_59dc9005.png',
     items: [
@@ -4525,7 +4525,7 @@ export const BUILTIN_32_BIOMETERS: BiometerDefinition[] = [
     id: 'bio-117',
     number: 117,
     name: 'Sistemas, Órgãos & Glândulas - Pets',
-    category: 'Saúde Física & ANSAE',
+    category: 'Saúde Animal / PETS',
     description: 'Prancha completa em 4 anéis para avaliação veterinária energética (5%–100%, Órgãos, Sistemas e Glândulas).',
     imageUrl: '/biometros/Sistemas__rg_os_gl_ndulas_pets_70410a37.png',
     items: [

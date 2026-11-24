@@ -780,6 +780,7 @@ export interface BiometerDefinition {
     | 'Emocional, Mental & Consciência'
     | 'Prosperidade & Hábitos'
     | 'Protocolos & Terapêuticas'
+    | 'Saúde Animal / PETS'
     | 'Personalizado';
   description: string;
   items: string[];

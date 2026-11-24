@@ -870,6 +870,103 @@ Sua tarefa é executar OCR completo (leitura óptica de caracteres) e identifica
     }
   });
 
+  // Rota dedicada e rápida para recomendação de protocolo radiônico via gemini-3.8-flash
+  app.post('/api/graficos/recommend-protocol', async (req: Request, res: Response) => {
+    try {
+      const { query, availableGraphics } = req.body as {
+        query?: string;
+        availableGraphics?: Array<{ number?: string; title?: string; category?: string }>;
+      };
+
+      const cleanQuery = typeof query === 'string' ? query.trim() : '';
+      if (!cleanQuery) {
+        res.status(400).json({ error: 'Informe o propósito terapêutico para consultar o protocolo.' });
+        return;
+      }
+
+      const ai = getGeminiClient();
+      const catalogText = Array.isArray(availableGraphics) && availableGraphics.length > 0
+        ? availableGraphics
+            .slice(0, 70)
+            .map((g) => `Nº ${g.number || '?'} | ${g.title || ''} (${g.category || ''})`)
+            .join('\n')
+        : 'Decágono Duplo, Desimpregnador, Anti Magia, Harmonia, Turbilhão com Prosperador, Desembaraçador Material, SCAP Cabalístico.';
+
+      const prompt = `Você é um radiestesista clínico sênior do sistema Maestro Quântico.
+Propósito / demanda buscada pelo terapeuta: "${cleanQuery}"
+
+Gráficos radiônicos disponíveis no catálogo atual (use EXATAMENTE os títulos desta lista):
+${catalogText}
+
+Monte uma recomendação clínica objetiva e imediata em JSON estrito respeitando o Protocolo Anti-Catarse:
+- Etapa 1 (Limpeza / Desobstrução / Proteção) SEMPRE antes da Etapa 2 (Potencialização / Aceleração / Turbilhão), iniciando pela valorização do testemunho no Decágono Duplo quando pertinente.
+- Nunca combine Turbilhão e Harmonia simultaneamente na mesma etapa.
+- Retorne:
+  - "protocolTitle": título claro do protocolo clínico;
+  - "clinicalRationale": explicação objetiva (2 a 4 linhas) da atuação radiônica para "${cleanQuery}";
+  - "recommendedSequence": 3 a 5 etapas ordenadas com { "step" (ex: "Etapa 0 — Preparo", "Etapa 1 — Limpeza", "Etapa 2 — Aceleração"), "graphicTitle" (título exato da lista), "role" (função específica), "alignment" (ex: "Norte Magnético 357°" ou "Simetria omnidirecional"), "durationHint" (ex: "15–20 min" ou "48h–72h no pêndulo") };
+  - "witnessTemplate": modelo pronto para escrita a lápis grafite em papel branco liso;
+  - "kineticCommand": comando cinético completo para rotação horária do pêndulo (em 1ª pessoa do presente do indicativo, encerrando com "Está ativado, colapsado e manifestado na ordem cósmica.").`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            'Você é um especialista clínico em radiestesia terapêutica e radiônica. Responda de forma concisa, precisa e rápida exclusivamente em JSON válido.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              protocolTitle: { type: Type.STRING },
+              clinicalRationale: { type: Type.STRING },
+              recommendedSequence: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    step: { type: Type.STRING },
+                    graphicTitle: { type: Type.STRING },
+                    role: { type: Type.STRING },
+                    alignment: { type: Type.STRING },
+                    durationHint: { type: Type.STRING },
+                  },
+                  required: ['step', 'graphicTitle', 'role', 'alignment', 'durationHint'],
+                },
+              },
+              witnessTemplate: { type: Type.STRING },
+              kineticCommand: { type: Type.STRING },
+            },
+            required: [
+              'protocolTitle',
+              'clinicalRationale',
+              'recommendedSequence',
+              'witnessTemplate',
+              'kineticCommand',
+            ],
+          },
+        },
+      });
+
+      const rawText = (response?.text ?? '').trim();
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida do modelo Gemini.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText);
+      res.json(parsed);
+    } catch (error) {
+      console.error('Erro na rota /api/graficos/recommend-protocol:', error);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : 'Erro interno ao consultar protocolo radiônico.';
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // Serve official biometer & radionic graphic assets directly in both development and production
   const publicDir = path.resolve(__dirname, 'public');
   const publicBiometrosDir = path.join(publicDir, 'biometros');
