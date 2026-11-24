@@ -58,6 +58,48 @@ function pickSupportedRecorderMimeType(): string {
   return '';
 }
 
+const AUDIO_CONNECTION_FALLBACK_MSG =
+  'Falha na conexão com o servidor de áudio. Seu áudio continua salvo no player acima — toque em Reprocessar Áudio com IA para tentar novamente.';
+
+function createVoiceOptimizedRecorder(stream: MediaStream, chosenMime: string): MediaRecorder {
+  const preferredOptions: MediaRecorderOptions = chosenMime
+    ? { mimeType: chosenMime, audioBitsPerSecond: 32000 }
+    : { audioBitsPerSecond: 32000 };
+
+  try {
+    return new MediaRecorder(stream, preferredOptions);
+  } catch {
+    return chosenMime ? new MediaRecorder(stream, { mimeType: chosenMime }) : new MediaRecorder(stream);
+  }
+}
+
+async function safeParseApiJson<T = Record<string, unknown>>(
+  res: Response,
+  nonJsonFallbackMessage: string
+): Promise<T> {
+  const rawText = await res.text();
+  if (!rawText || !rawText.trim()) {
+    throw new Error(nonJsonFallbackMessage);
+  }
+
+  let parsed: T & { error?: unknown };
+  try {
+    parsed = JSON.parse(rawText) as T & { error?: unknown };
+  } catch {
+    throw new Error(nonJsonFallbackMessage);
+  }
+
+  if (!res.ok) {
+    const serverError =
+      parsed && typeof parsed.error === 'string' && parsed.error.trim()
+        ? parsed.error.trim()
+        : nonJsonFallbackMessage;
+    throw new Error(serverError);
+  }
+
+  return parsed;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -415,9 +457,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         throw new Error('MediaRecorder não suportado neste navegador.');
       }
       const chosenMime = pickSupportedRecorderMimeType();
-      const recorder = chosenMime
-        ? new MediaRecorder(stream, { mimeType: chosenMime })
-        : new MediaRecorder(stream);
+      const recorder = createVoiceOptimizedRecorder(stream, chosenMime);
 
       audioChunksRef.current = [];
       recorder.ondataavailable = (ev: BlobEvent) => {
@@ -533,7 +573,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     setMicStatusNote(null);
 
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 35000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 45000);
 
     try {
       if (blobToProcess && blobToProcess.size > 0 && blobToProcess.size <= MAX_RECORDING_BYTES) {
@@ -559,18 +599,29 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
           }),
         });
 
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || 'Erro ao transcrever o áudio da consulta.');
-        }
+        const data = await safeParseApiJson<{
+          transcription?: string;
+          transcript?: string;
+          extractedFields?: Partial<CopilotAnalysisResult>;
+          clinicalComplaints?: string;
+          psychosomaticMapping?: string;
+          centralIntention?: string;
+          suggestedFocus?: string;
+          highlightedOrgansAndChakras?: string[];
+        }>(res, AUDIO_CONNECTION_FALLBACK_MSG);
 
-        const resolvedTranscript = (data.transcript || textFallback || '').trim();
+        const extracted = data.extractedFields && typeof data.extractedFields === 'object'
+          ? data.extractedFields
+          : data;
+        const resolvedTranscript = (data.transcription || data.transcript || textFallback || '').trim();
         const analysisData: CopilotAnalysisResult = {
-          clinicalComplaints: data.clinicalComplaints || '',
-          psychosomaticMapping: data.psychosomaticMapping || '',
-          centralIntention: data.centralIntention || '',
-          suggestedFocus: data.suggestedFocus || '',
-          highlightedOrgansAndChakras: Array.isArray(data.highlightedOrgansAndChakras)
+          clinicalComplaints: extracted.clinicalComplaints || data.clinicalComplaints || '',
+          psychosomaticMapping: extracted.psychosomaticMapping || data.psychosomaticMapping || '',
+          centralIntention: extracted.centralIntention || data.centralIntention || '',
+          suggestedFocus: extracted.suggestedFocus || data.suggestedFocus || '',
+          highlightedOrgansAndChakras: Array.isArray(extracted.highlightedOrgansAndChakras)
+            ? extracted.highlightedOrgansAndChakras
+            : Array.isArray(data.highlightedOrgansAndChakras)
             ? data.highlightedOrgansAndChakras
             : [],
         };
@@ -619,10 +670,12 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
           patientName: anamnesisRef.current.fullName,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao processar análise da Copiloto IA.');
-      }
+      const data = await safeParseApiJson<CopilotAnalysisResult>(
+        res,
+        blobToProcess
+          ? AUDIO_CONNECTION_FALLBACK_MSG
+          : 'Falha na conexão ao processar a análise da anamnese. Tente novamente em instantes.'
+      );
       setCopilotAnalysis(data);
 
       const latestAnamnesis = anamnesisRef.current;
@@ -638,12 +691,10 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       setTimeout(() => setSuccessNotice(null), 4000);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        setCopilotError(
-          'Tempo limite excedido ao processar a gravação. Você pode reproduzir o áudio abaixo e clicar em "Reprocessar Áudio com IA".'
-        );
+        setCopilotError(AUDIO_CONNECTION_FALLBACK_MSG);
       } else {
         setCopilotError(
-          err instanceof Error ? err.message : 'Erro ao comunicar com o servidor.'
+          err instanceof Error ? err.message : AUDIO_CONNECTION_FALLBACK_MSG
         );
       }
     } finally {

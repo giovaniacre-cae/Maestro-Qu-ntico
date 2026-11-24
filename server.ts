@@ -155,6 +155,7 @@ function getGeminiClient(): GoogleGenAI {
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '25mb' }));
+  app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
   // Allow cross-origin API requests when frontend is wrapped in Median.co or GitHub Pages
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
@@ -893,10 +894,10 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
           return ai.models.generateContent({
             model: 'gemini-3.8-flash',
             contents,
-            config: {
+              config: {
               thinkingConfig: { thinkingBudget: 0 },
               responseMimeType: 'application/json',
-              abortSignal: AbortSignal.timeout(30000),
+              abortSignal: AbortSignal.timeout(22000),
             },
           });
         }
@@ -906,7 +907,7 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
           config: {
             thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
             responseMimeType: 'application/json',
-            abortSignal: AbortSignal.timeout(30000),
+            abortSignal: AbortSignal.timeout(22000),
           },
         });
       };
@@ -939,30 +940,66 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
         return;
       }
 
-      const parsed = JSON.parse(rawText) as {
+      let parsed: {
+        transcription?: unknown;
         transcript?: unknown;
+        extractedFields?: Record<string, unknown>;
         clinicalComplaints?: unknown;
         psychosomaticMapping?: unknown;
         centralIntention?: unknown;
         suggestedFocus?: unknown;
         highlightedOrgansAndChakras?: unknown;
       };
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        res.status(502).json({
+          error: 'O modelo retornou um formato inesperado durante a transcrição. Tente reprocessar o áudio.',
+        });
+        return;
+      }
 
       const cleanStr = (v: unknown) =>
         typeof v === 'string' ? v.replace(/\*/g, '').trim() : '';
 
+      const sourceFields =
+        parsed.extractedFields && typeof parsed.extractedFields === 'object'
+          ? parsed.extractedFields
+          : parsed;
+
+      const transcriptionText = cleanStr(parsed.transcription ?? parsed.transcript);
+      const clinicalComplaints = cleanStr(sourceFields.clinicalComplaints ?? parsed.clinicalComplaints);
+      const psychosomaticMapping = cleanStr(
+        sourceFields.psychosomaticMapping ?? parsed.psychosomaticMapping
+      );
+      const centralIntention = cleanStr(sourceFields.centralIntention ?? parsed.centralIntention);
+      const suggestedFocus =
+        cleanStr(sourceFields.suggestedFocus ?? parsed.suggestedFocus) || 'Harmonização Integral';
+      const rawOrgans =
+        sourceFields.highlightedOrgansAndChakras ?? parsed.highlightedOrgansAndChakras;
+      const highlightedOrgansAndChakras = Array.isArray(rawOrgans)
+        ? rawOrgans.map((item) => cleanStr(item)).filter(Boolean)
+        : [];
+
       res.json({
-        transcript: cleanStr(parsed.transcript),
-        clinicalComplaints: cleanStr(parsed.clinicalComplaints),
-        psychosomaticMapping: cleanStr(parsed.psychosomaticMapping),
-        centralIntention: cleanStr(parsed.centralIntention),
-        suggestedFocus: cleanStr(parsed.suggestedFocus) || 'Harmonização Integral',
-        highlightedOrgansAndChakras: Array.isArray(parsed.highlightedOrgansAndChakras)
-          ? parsed.highlightedOrgansAndChakras.map((item) => cleanStr(item)).filter(Boolean)
-          : [],
+        transcription: transcriptionText,
+        extractedFields: {
+          clinicalComplaints,
+          psychosomaticMapping,
+          centralIntention,
+          suggestedFocus,
+          highlightedOrgansAndChakras,
+        },
+        transcript: transcriptionText,
+        clinicalComplaints,
+        psychosomaticMapping,
+        centralIntention,
+        suggestedFocus,
+        highlightedOrgansAndChakras,
       });
     } catch (error) {
       console.error('Erro na rota /api/anamnese/transcribe:', error);
+      if (res.headersSent) return;
       let msg =
         error instanceof Error && error.message
           ? error.message
