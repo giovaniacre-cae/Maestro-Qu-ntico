@@ -796,10 +796,69 @@ Retorne um JSON contendo estritamente as seguintes chaves:
     }
   });
 
+  const pendingAudioChunks = new Map<
+    string,
+    { totalChunks: number; chunks: string[]; createdAt: number }
+  >();
+
+  // Recebe fatias pequenas (< 400KB) para evitar limites de payload em proxies reversos
+  app.post('/api/anamnese/transcribe-chunk', (req: Request, res: Response) => {
+    try {
+      const now = Date.now();
+      for (const [id, entry] of pendingAudioChunks.entries()) {
+        if (now - entry.createdAt > 10 * 60 * 1000) {
+          pendingAudioChunks.delete(id);
+        }
+      }
+
+      const { uploadId, chunkIndex, totalChunks, chunkData } = req.body as {
+        uploadId?: string;
+        chunkIndex?: number;
+        totalChunks?: number;
+        chunkData?: string;
+      };
+
+      if (
+        typeof uploadId !== 'string' ||
+        !uploadId.trim() ||
+        typeof chunkIndex !== 'number' ||
+        typeof totalChunks !== 'number' ||
+        totalChunks < 1 ||
+        totalChunks > 80 ||
+        chunkIndex < 0 ||
+        chunkIndex >= totalChunks ||
+        typeof chunkData !== 'string'
+      ) {
+        res.status(400).json({ error: 'Parâmetros inválidos para envio fatiado do áudio.' });
+        return;
+      }
+
+      const safeId = uploadId.trim();
+      let record = pendingAudioChunks.get(safeId);
+      if (!record) {
+        record = {
+          totalChunks,
+          chunks: new Array<string>(totalChunks).fill(''),
+          createdAt: now,
+        };
+        pendingAudioChunks.set(safeId, record);
+      }
+
+      record.chunks[chunkIndex] = chunkData;
+      record.createdAt = now;
+      res.json({ ok: true, chunkIndex, totalChunks });
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : 'Erro ao armazenar fragmento de áudio.';
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // Transcrição Multimodal de Áudio Presencial + Extração Estruturada da Anamnese via gemini-3.8-flash
   app.post('/api/anamnese/transcribe', async (req: Request, res: Response) => {
     try {
       const {
+        uploadId,
         audioBase64,
         mimeType,
         fileName,
@@ -807,6 +866,7 @@ Retorne um JSON contendo estritamente as seguintes chaves:
         partialTranscript,
         interagentType,
       } = req.body as {
+        uploadId?: string;
         audioBase64?: string;
         mimeType?: string;
         fileName?: string;
@@ -815,7 +875,20 @@ Retorne um JSON contendo estritamente as seguintes chaves:
         interagentType?: 'humano' | 'pet';
       };
 
-      const rawAudio = typeof audioBase64 === 'string' ? audioBase64.trim() : '';
+      let rawAudio = typeof audioBase64 === 'string' ? audioBase64.trim() : '';
+      if (!rawAudio && typeof uploadId === 'string' && uploadId.trim()) {
+        const safeId = uploadId.trim();
+        const chunkEntry = pendingAudioChunks.get(safeId);
+        pendingAudioChunks.delete(safeId);
+        if (!chunkEntry || chunkEntry.chunks.some((part) => !part)) {
+          res.status(400).json({
+            error: 'Partes do áudio gravado não chegaram completas ao servidor. Tente reprocessar.',
+          });
+          return;
+        }
+        rawAudio = chunkEntry.chunks.join('');
+      }
+
       if (!rawAudio) {
         res.status(400).json({ error: 'Nenhum áudio gravado foi enviado para transcrição.' });
         return;
@@ -866,17 +939,23 @@ Retorne um JSON contendo estritamente as seguintes chaves:
 Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${partialHint}
 
 Execute duas ações em uma única resposta JSON:
-1. Transcreva fielmente em português brasileiro tudo o que foi relatado no áudio (sintomas, queixas, emoções, diagnósticos, histórico e intenção).
-2. Extraia os campos estruturados da ficha de anamnese.
+1. Transcreva literalmente e com fidelidade em português brasileiro tudo o que foi falado na gravação.
+2. Extraia os campos da Ficha de Anamnese que foram mencionados no áudio (deixe "" quando não tiver sido dito na gravação).
 
-Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
+Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
 {
-  "transcript": "Transcrição limpa, pontuada e fiel do áudio da consulta em português.",
-  "clinicalComplaints": "Resumo detalhado dos sintomas físicos, dores localizadas, diagnósticos citados e tempo de evolução.",
-  "psychosomaticMapping": "Correlação psicossomática profunda entre os sintomas físicos relatados e os conflitos emocionais, traumas, estresse ou padrões mentais identificados na fala.",
-  "centralIntention": "Intenção Central de Tratamento sintetizada no Padrão Maestro.",
-  "suggestedFocus": "Escolha o foco principal mais compatível entre: Saúde Física, Equilíbrio Emocional, Limpeza Espiritual, Prosperidade/Material, Relacionamentos ou Saúde Animal / PETS.",
-  "highlightedOrgansAndChakras": ["Lista de órgãos, sistemas ANSAE e chakras associados às queixas"]
+  "transcription": "Transcrição literal, limpa e pontuada da gravação em português.",
+  "extractedFields": {
+    "patientName": "Nome completo do paciente ou animal se mencionado no áudio, ou ''",
+    "birthDate": "Data de nascimento no formato YYYY-MM-DD se mencionada, ou ''",
+    "mainComplaint": "Queixa principal / intenção central do atendimento sintetizada para o campo Foco do Atendimento",
+    "clinicalHistory": "Sintomas físicos, dores localizadas, diagnósticos clínicos e histórico físico relatado",
+    "emotionalSymptoms": "Sintomas emocionais, mentais, traumas, ansiedade, luto ou correlação psicossomática relatada",
+    "medications": "Medicações em uso, suplementos ou acompanhamento médico/veterinário mencionado, ou ''",
+    "lifestyleNotes": "Observações de estilo de vida, sono, rotina, ambiente doméstico ou notas clínicas do terapeuta",
+    "suggestedFocus": "Escolha o foco principal mais compatível entre: Saúde Física, Equilíbrio Emocional, Limpeza Espiritual, Prosperidade/Material, Relacionamentos ou Saúde Animal / PETS.",
+    "highlightedOrgansAndChakras": ["Lista de órgãos, sistemas ANSAE e chakras associados às queixas"]
+  }
 }`;
 
       const contents = [
@@ -894,7 +973,7 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
           return ai.models.generateContent({
             model: 'gemini-3.8-flash',
             contents,
-              config: {
+            config: {
               thinkingConfig: { thinkingBudget: 0 },
               responseMimeType: 'application/json',
               abortSignal: AbortSignal.timeout(22000),
@@ -962,17 +1041,27 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
       const cleanStr = (v: unknown) =>
         typeof v === 'string' ? v.replace(/\*/g, '').trim() : '';
 
-      const sourceFields =
+      const sourceFields: Record<string, unknown> =
         parsed.extractedFields && typeof parsed.extractedFields === 'object'
           ? parsed.extractedFields
-          : parsed;
+          : (parsed as Record<string, unknown>);
 
       const transcriptionText = cleanStr(parsed.transcription ?? parsed.transcript);
-      const clinicalComplaints = cleanStr(sourceFields.clinicalComplaints ?? parsed.clinicalComplaints);
-      const psychosomaticMapping = cleanStr(
-        sourceFields.psychosomaticMapping ?? parsed.psychosomaticMapping
+      const extractedPatientName = cleanStr(sourceFields.patientName);
+      const extractedBirthDate = cleanStr(sourceFields.birthDate);
+      const mainComplaint = cleanStr(
+        sourceFields.mainComplaint ?? sourceFields.centralIntention ?? parsed.centralIntention
       );
-      const centralIntention = cleanStr(sourceFields.centralIntention ?? parsed.centralIntention);
+      const clinicalHistory = cleanStr(
+        sourceFields.clinicalHistory ?? sourceFields.clinicalComplaints ?? parsed.clinicalComplaints
+      );
+      const emotionalSymptoms = cleanStr(
+        sourceFields.emotionalSymptoms ??
+          sourceFields.psychosomaticMapping ??
+          parsed.psychosomaticMapping
+      );
+      const medications = cleanStr(sourceFields.medications);
+      const lifestyleNotes = cleanStr(sourceFields.lifestyleNotes);
       const suggestedFocus =
         cleanStr(sourceFields.suggestedFocus ?? parsed.suggestedFocus) || 'Harmonização Integral';
       const rawOrgans =
@@ -984,16 +1073,23 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves exatas:
       res.json({
         transcription: transcriptionText,
         extractedFields: {
-          clinicalComplaints,
-          psychosomaticMapping,
-          centralIntention,
+          patientName: extractedPatientName,
+          birthDate: extractedBirthDate,
+          mainComplaint,
+          clinicalHistory,
+          emotionalSymptoms,
+          medications,
+          lifestyleNotes,
+          clinicalComplaints: clinicalHistory,
+          psychosomaticMapping: emotionalSymptoms,
+          centralIntention: mainComplaint,
           suggestedFocus,
           highlightedOrgansAndChakras,
         },
         transcript: transcriptionText,
-        clinicalComplaints,
-        psychosomaticMapping,
-        centralIntention,
+        clinicalComplaints: clinicalHistory,
+        psychosomaticMapping: emotionalSymptoms,
+        centralIntention: mainComplaint,
         suggestedFocus,
         highlightedOrgansAndChakras,
       });

@@ -25,6 +25,7 @@ import {
   QuantumRoomSession,
 } from '../types/quantum';
 import { formatInteragentDisplayLabel, isPetInteragent } from '../utils/antiCatharsis';
+import { extractAnamnesisFromAudioBlob } from '../utils/geminiAudio';
 
 interface AnamneseFormProps {
   anamnesis: PatientAnamnesis;
@@ -98,23 +99,6 @@ async function safeParseApiJson<T = Record<string, unknown>>(
   }
 
   return parsed;
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      const base64 = result.includes('base64,') ? result.split('base64,')[1] : result;
-      if (!base64) {
-        reject(new Error('Não foi possível codificar o áudio gravado.'));
-        return;
-      }
-      resolve(base64);
-    };
-    reader.onerror = () => reject(new Error('Falha ao ler os dados da gravação de áudio.'));
-    reader.readAsDataURL(blob);
-  });
 }
 
 function describeMicrophoneError(err: unknown): string {
@@ -571,80 +555,65 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     setIsAnalyzing(true);
     setCopilotError(null);
     setMicStatusNote(null);
+    setSuccessNotice(null);
 
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 50000);
 
     try {
       if (blobToProcess && blobToProcess.size > 0 && blobToProcess.size <= MAX_RECORDING_BYTES) {
-        const audioBase64 = await blobToBase64(blobToProcess);
-        const mimeType = blobToProcess.type || 'audio/webm';
-        const ext = mimeType.includes('mp4')
-          ? 'mp4'
-          : mimeType.includes('ogg')
-          ? 'ogg'
-          : 'webm';
-
-        const res = await fetch('/api/anamnese/transcribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const result = await extractAnamnesisFromAudioBlob({
+          recordedBlob: blobToProcess,
+          patientName: anamnesisRef.current.fullName,
+          partialTranscript: textFallback,
+          interagentType: anamnesisRef.current.interagentType,
           signal: controller.signal,
-          body: JSON.stringify({
-            audioBase64,
-            mimeType,
-            fileName: `consulta.${ext}`,
-            patientName: anamnesisRef.current.fullName,
-            partialTranscript: textFallback,
-            interagentType: anamnesisRef.current.interagentType,
-          }),
         });
 
-        const data = await safeParseApiJson<{
-          transcription?: string;
-          transcript?: string;
-          extractedFields?: Partial<CopilotAnalysisResult>;
-          clinicalComplaints?: string;
-          psychosomaticMapping?: string;
-          centralIntention?: string;
-          suggestedFocus?: string;
-          highlightedOrgansAndChakras?: string[];
-        }>(res, AUDIO_CONNECTION_FALLBACK_MSG);
-
-        const extracted = data.extractedFields && typeof data.extractedFields === 'object'
-          ? data.extractedFields
-          : data;
-        const resolvedTranscript = (data.transcription || data.transcript || textFallback || '').trim();
-        const analysisData: CopilotAnalysisResult = {
-          clinicalComplaints: extracted.clinicalComplaints || data.clinicalComplaints || '',
-          psychosomaticMapping: extracted.psychosomaticMapping || data.psychosomaticMapping || '',
-          centralIntention: extracted.centralIntention || data.centralIntention || '',
-          suggestedFocus: extracted.suggestedFocus || data.suggestedFocus || '',
-          highlightedOrgansAndChakras: Array.isArray(extracted.highlightedOrgansAndChakras)
-            ? extracted.highlightedOrgansAndChakras
-            : Array.isArray(data.highlightedOrgansAndChakras)
-            ? data.highlightedOrgansAndChakras
-            : [],
-        };
-
+        const resolvedTranscript = (result.transcription || textFallback || '').trim();
         if (resolvedTranscript) {
           setTranscript(resolvedTranscript);
           transcriptRef.current = resolvedTranscript;
         }
-        setCopilotAnalysis(analysisData);
+        setCopilotAnalysis(result.copilotAnalysis);
 
         const latestAnamnesis = anamnesisRef.current;
+        const fields = result.extractedFields;
+        const nextFullName = fields.patientName?.trim()
+          ? fields.patientName.trim()
+          : latestAnamnesis.fullName;
+        const nextBirthDate = fields.birthDate?.trim()
+          ? fields.birthDate.trim()
+          : latestAnamnesis.birthDate;
+        const nextTherapeuticFocus = fields.mainComplaint?.trim()
+          ? fields.mainComplaint.trim()
+          : result.copilotAnalysis.centralIntention || latestAnamnesis.therapeuticFocus;
+        const nextPhysicalSymptoms = fields.clinicalHistory?.trim()
+          ? fields.clinicalHistory.trim()
+          : result.copilotAnalysis.clinicalComplaints || latestAnamnesis.physicalSymptoms;
+        const nextEmotionalHistory = fields.emotionalSymptoms?.trim()
+          ? fields.emotionalSymptoms.trim()
+          : result.copilotAnalysis.psychosomaticMapping || latestAnamnesis.emotionalHistory;
+        const nextMedicalTreatments = fields.medications?.trim()
+          ? fields.medications.trim()
+          : latestAnamnesis.medicalTreatments;
+        const nextClinicalNotes = fields.lifestyleNotes?.trim()
+          ? fields.lifestyleNotes.trim()
+          : latestAnamnesis.clinicalNotes;
+
         onChange({
           ...latestAnamnesis,
+          fullName: nextFullName,
+          birthDate: nextBirthDate,
+          therapeuticFocus: nextTherapeuticFocus,
+          physicalSymptoms: nextPhysicalSymptoms,
+          emotionalHistory: nextEmotionalHistory,
+          medicalTreatments: nextMedicalTreatments,
+          clinicalNotes: nextClinicalNotes,
           sessionTranscript: resolvedTranscript,
-          copilotAnalysis: analysisData,
-          physicalSymptoms: analysisData.clinicalComplaints || latestAnamnesis.physicalSymptoms,
-          emotionalHistory: analysisData.psychosomaticMapping || latestAnamnesis.emotionalHistory,
-          therapeuticFocus: analysisData.centralIntention || latestAnamnesis.therapeuticFocus,
+          copilotAnalysis: result.copilotAnalysis,
         });
-        setSuccessNotice(
-          'Áudio transcrito e ficha preenchida automaticamente pela Copiloto IA!'
-        );
-        setTimeout(() => setSuccessNotice(null), 4500);
+        setSuccessNotice('Dados extraídos da gravação e preenchidos na Anamnese');
         return;
       }
 
@@ -661,7 +630,8 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         );
       }
 
-      const res = await fetch('/api/anamnese/copilot', {
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+      const res = await fetch(`${apiBase}/api/anamnese/copilot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -687,14 +657,13 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         emotionalHistory: data.psychosomaticMapping || latestAnamnesis.emotionalHistory,
         therapeuticFocus: data.centralIntention || latestAnamnesis.therapeuticFocus,
       });
-      setSuccessNotice('Análise concluída e ficha preenchida automaticamente pela Copiloto IA!');
-      setTimeout(() => setSuccessNotice(null), 4000);
+      setSuccessNotice('Dados extraídos da gravação e preenchidos na Anamnese');
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         setCopilotError(AUDIO_CONNECTION_FALLBACK_MSG);
       } else {
         setCopilotError(
-          err instanceof Error ? err.message : AUDIO_CONNECTION_FALLBACK_MSG
+          err instanceof Error && err.message ? err.message : AUDIO_CONNECTION_FALLBACK_MSG
         );
       }
     } finally {
@@ -1098,6 +1067,13 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
           </div>
         )}
 
+        {successNotice && !copilotError && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-[#DCFCE7] border border-[#16A34A]/40 text-xs font-semibold text-[#166534]">
+            <Check className="w-4 h-4 shrink-0 text-[#16A34A]" />
+            <span>{successNotice}</span>
+          </div>
+        )}
+
         {/* Transcription Textarea */}
         <div className="space-y-1.5">
           <label htmlFor="sessionTranscript" className="block text-xs font-semibold text-[#0F172A]">
@@ -1135,12 +1111,6 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 Aplicar Sugestões nos Campos da Anamnese
               </button>
             </div>
-
-            {successNotice && (
-              <div className="p-3 rounded-lg bg-[#DCFCE7] border border-[#16A34A]/40 text-xs font-semibold text-[#166534]">
-                {successNotice}
-              </div>
-            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
