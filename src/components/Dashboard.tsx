@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  BookOpen,
   CalendarPlus,
   CheckCircle2,
   Clock,
@@ -42,13 +43,22 @@ import {
   getHawkinsLevelInfo,
 } from '../utils/antiCatharsis';
 import {
+  BACKUP_RESTORED_EVENT,
+  FollowUpLogEntry,
   exportClinicalBackupJson,
+  getAnsaeDraftForSession,
   importClinicalBackupJson,
   loadClinicalDatabase,
+  loadFollowUpLogs,
+  matchesPatientFollowUpLog,
   roomToClinicalRecord,
   saveClinicalDatabase,
 } from '../utils/storage';
 import { PatientEvolutionChart } from './PatientEvolutionChart';
+import {
+  AcompanhamentoModal,
+  FollowUpClinicalContext,
+} from './AcompanhamentoModal';
 
 interface DashboardProps {
   sessions: QuantumRoomSession[];
@@ -146,6 +156,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [extendingPlateKey, setExtendingPlateKey] = useState<string | null>(null);
   const [extendValue, setExtendValue] = useState<number>(24);
   const [extendUnit, setExtendUnit] = useState<ChartDurationUnit>('horas');
+  const [followUpLogs, setFollowUpLogs] = useState<FollowUpLogEntry[]>(() =>
+    loadFollowUpLogs()
+  );
+  const [followUpTarget, setFollowUpTarget] = useState<{
+    patientId: string;
+    patientName: string;
+    patientPhone?: string;
+    activeGraphics: string[];
+    clinicalContext: FollowUpClinicalContext;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -153,6 +173,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setNowMs(Date.now());
     }, 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleBackupRestored = () => {
+      setClinicalDb(loadClinicalDatabase());
+      setFollowUpLogs(loadFollowUpLogs());
+    };
+    window.addEventListener(BACKUP_RESTORED_EVENT, handleBackupRestored);
+    return () => {
+      window.removeEventListener(BACKUP_RESTORED_EVENT, handleBackupRestored);
+    };
   }, []);
 
   // Sync active rooms into MasterClinicalDatabase whenever sessions change
@@ -168,12 +199,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (existingPatientIdx === -1 && room.anamnesis.fullName.trim()) {
         nextPatients.push({
           id: patientId,
+          interagentType: room.anamnesis.interagentType,
           fullName: room.anamnesis.fullName,
           birthDate: room.anamnesis.birthDate,
           phone: room.anamnesis.phone,
+          petSpecies: room.anamnesis.petSpecies,
+          petBreed: room.anamnesis.petBreed,
+          petAge: room.anamnesis.petAge,
+          petEnvironment: room.anamnesis.petEnvironment,
+          tutorName: room.anamnesis.tutorName,
           createdAt: room.activatedAt,
           notes: room.anamnesis.clinicalNotes,
         });
+        changed = true;
+      } else if (
+        existingPatientIdx >= 0 &&
+        room.anamnesis.interagentType &&
+        nextPatients[existingPatientIdx].interagentType !== room.anamnesis.interagentType
+      ) {
+        nextPatients[existingPatientIdx] = {
+          ...nextPatients[existingPatientIdx],
+          interagentType: room.anamnesis.interagentType,
+          petSpecies: room.anamnesis.petSpecies,
+          petBreed: room.anamnesis.petBreed,
+          petAge: room.anamnesis.petAge,
+          petEnvironment: room.anamnesis.petEnvironment,
+          tutorName: room.anamnesis.tutorName,
+        };
         changed = true;
       }
 
@@ -566,6 +618,145 @@ export const Dashboard: React.FC<DashboardProps> = ({
       return;
     }
     onNewConsultation();
+  };
+
+  const countLogsForPatient = (patientId: string, patientName: string): number => {
+    return followUpLogs.filter((entry) =>
+      matchesPatientFollowUpLog(entry, patientId, patientName)
+    ).length;
+  };
+
+  const collectActiveGraphicsFromRoom = (room: QuantumRoomSession): string[] => {
+    const geos =
+      room.phase === 'stage1'
+        ? room.protocol.stage1?.geometries || []
+        : room.phase === 'stage2'
+        ? room.protocol.stage2?.geometries || []
+        : room.phase === 'rest'
+        ? [
+            ...(room.protocol.stage1?.geometries || []),
+            ...(room.protocol.stage2?.geometries || []),
+          ]
+        : room.protocol.singleStage?.geometries || [];
+
+    const geoNames = geos.map((g) => g.name).filter(Boolean);
+    const remedyNames = (room.energeticRemedies || [])
+      .filter((r) => r.isActive)
+      .map((r) => `${r.emitterGraph} (${r.items.join(' + ')})`);
+
+    return Array.from(new Set([...geoNames, ...remedyNames]));
+  };
+
+  const openFollowUpFromRoom = (room: QuantumRoomSession) => {
+    const patientId = room.anamnesis.id || `patient-${room.id}`;
+    const patientName = room.anamnesis.fullName || 'Consulente';
+    const ansaeSheet = getAnsaeDraftForSession(room);
+    const activeGraphics = collectActiveGraphicsFromRoom(room);
+    const metrics = getRoomMetrics(room);
+
+    const imbalancedChakras = ansaeSheet.chakras
+      .filter((c) => c.status !== 'Normal' || c.imbalancePercent >= 25)
+      .map((c) => `${c.name} (${c.status}, ${c.imbalancePercent}%)`);
+
+    const criticalOrgans = ansaeSheet.organs
+      .filter((o) => o.isImbalanced)
+      .slice(0, 8)
+      .map((o) => `${o.organName} (${o.imbalancePercent}%)`);
+
+    setFollowUpTarget({
+      patientId,
+      patientName,
+      patientPhone: room.anamnesis.phone,
+      activeGraphics,
+      clinicalContext: {
+        bovis: room.sensitivity.bovis,
+        hawkinsLabel: getHawkinsLevelInfo(room.sensitivity.hawkins).fullLabel,
+        auricProtection: room.sensitivity.auricProtection,
+        stressLevel: room.sensitivity.stressLevel,
+        therapeuticFocus: room.anamnesis.therapeuticFocus,
+        emotionalHistory: room.anamnesis.emotionalHistory,
+        imbalancedChakras,
+        criticalOrgans,
+        phaseLabel: metrics.stageLabel,
+        interagentType: room.anamnesis.interagentType,
+        petSpecies: room.anamnesis.petSpecies,
+        tutorName: room.anamnesis.tutorName,
+      },
+    });
+  };
+
+  const openFollowUpFromPatient = (
+    patient: MasterPatient,
+    latestSession: ClinicalSessionRecord | null
+  ) => {
+    const matchingRoom =
+      sessions.find(
+        (s) =>
+          s.anamnesis.id === patient.id ||
+          (latestSession && s.id === latestSession.id)
+      ) || null;
+
+    if (matchingRoom) {
+      openFollowUpFromRoom(matchingRoom);
+      return;
+    }
+
+    const activeGraphics: string[] = [];
+    if (latestSession) {
+      const geos =
+        latestSession.phase === 'stage1'
+          ? latestSession.protocol.stage1?.geometries || []
+          : latestSession.phase === 'stage2'
+          ? latestSession.protocol.stage2?.geometries || []
+          : latestSession.protocol.singleStage?.geometries || [];
+      geos.forEach((g) => {
+        if (g.name) activeGraphics.push(g.name);
+      });
+      (latestSession.energeticRemedies || [])
+        .filter((r) => r.isActive)
+        .forEach((r) =>
+          activeGraphics.push(`${r.emitterGraph} (${r.items.join(' + ')})`)
+        );
+    }
+
+    const ansae = latestSession?.ansaeRhen;
+    const imbalancedChakras = ansae
+      ? ansae.chakras
+          .filter((c) => c.status !== 'Normal' || c.imbalancePercent >= 25)
+          .map((c) => `${c.name} (${c.status}, ${c.imbalancePercent}%)`)
+      : [];
+    const criticalOrgans = ansae
+      ? ansae.organs
+          .filter((o) => o.isImbalanced)
+          .slice(0, 8)
+          .map((o) => `${o.organName} (${o.imbalancePercent}%)`)
+      : [];
+
+    setFollowUpTarget({
+      patientId: patient.id,
+      patientName: patient.fullName,
+      patientPhone: patient.phone,
+      activeGraphics: Array.from(new Set(activeGraphics)),
+      clinicalContext: {
+        bovis: ansae?.spiritualPsycho.bovis,
+        hawkinsLabel: ansae
+          ? getHawkinsLevelInfo(ansae.spiritualPsycho.hawkinsAgathaHz).fullLabel
+          : undefined,
+        auricProtection: ansae?.auricField.protectionPercent,
+        stressLevel: ansae?.spiritualPsycho.stressLevel,
+        therapeuticFocus: latestSession?.therapeuticFocus,
+        emotionalHistory: latestSession?.emotionalHistory,
+        imbalancedChakras,
+        criticalOrgans,
+        phaseLabel:
+          latestSession?.phase === 'completed'
+            ? 'Ciclo Concluído (Pós-Atendimento)'
+            : latestSession?.sessionType || 'Prontuário Mestre',
+        interagentType: patient.interagentType,
+        petSpecies: patient.petSpecies,
+        tutorName: patient.tutorName,
+      },
+    });
   };
 
   return (
@@ -1152,7 +1343,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                     {/* Action Footer */}
                     <div className="px-6 py-4 bg-[#FAF8F5] border-t border-[#E2E8F0] flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => onOpenTable(session.id)}
@@ -1168,6 +1359,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         >
                           <FileText className="w-3.5 h-3.5" />
                           Documentos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openFollowUpFromRoom(session)}
+                          title="Diário de Acompanhamento & Sonhos (IA)"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0F172A] bg-white border border-[#D97706]/50 rounded-lg hover:bg-[#D97706]/10 hover:border-[#D97706] transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-[#B45309]" />
+                          Diário &amp; Sonhos (IA)
+                          <span className="font-mono tabular-nums text-[11px] text-[#B45309]">
+                            ({countLogsForPatient(
+                              session.anamnesis.id || `patient-${session.id}`,
+                              session.anamnesis.fullName
+                            )})
+                          </span>
                         </button>
                       </div>
 
@@ -1300,6 +1506,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openFollowUpFromPatient(patient, latestSession)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#D97706]/50 rounded-lg hover:bg-[#D97706]/10 cursor-pointer whitespace-nowrap"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-[#B45309]" />
+                          Diário de Acompanhamento &amp; Sonhos (IA)
+                          <span className="font-mono tabular-nums text-[11px] text-[#B45309]">
+                            ({countLogsForPatient(patient.id, patient.fullName)})
+                          </span>
+                        </button>
                         {latestSession && (
                           <button
                             type="button"
@@ -1550,6 +1767,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
         </section>
+      )}
+
+      {followUpTarget && (
+        <AcompanhamentoModal
+          patientId={followUpTarget.patientId}
+          patientName={followUpTarget.patientName}
+          patientPhone={followUpTarget.patientPhone}
+          activeGraphics={followUpTarget.activeGraphics}
+          clinicalContext={followUpTarget.clinicalContext}
+          onLogsUpdated={() => setFollowUpLogs(loadFollowUpLogs())}
+          onClose={() => setFollowUpTarget(null)}
+        />
       )}
     </div>
   );

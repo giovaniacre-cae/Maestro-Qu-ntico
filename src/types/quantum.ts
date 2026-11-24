@@ -16,11 +16,21 @@ export interface CopilotAnalysisResult {
   highlightedOrgansAndChakras: string[];
 }
 
+export type InteragentType = 'humano' | 'pet';
+
+export type PetSpecies = 'Cão' | 'Gato' | 'Ave' | 'Equino' | 'Outro';
+
 export interface PatientAnamnesis {
   id: string;
+  interagentType?: InteragentType;
   fullName: string;
   birthDate: string; // YYYY-MM-DD or DD/MM/YYYY
   phone: string;
+  petSpecies?: PetSpecies;
+  petBreed?: string;
+  petAge?: string;
+  petEnvironment?: string;
+  tutorName?: string;
   therapeuticFocus: string; // Foco Específico
   emotionalHistory: string;
   physicalSymptoms: string;

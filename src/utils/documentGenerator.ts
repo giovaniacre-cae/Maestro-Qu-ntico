@@ -25,8 +25,10 @@ import { QuantumRoomSession } from '../types/quantum';
 import {
   applyChartCrystalsToResult,
   formatAngstromsBR,
-  formatBirthDateBR,
+  formatInteragentBirthOrAge,
+  formatInteragentDisplayLabel,
   getHawkinsLevelInfo,
+  isPetInteragent,
   resolveCrystalForChart,
 } from './antiCatharsis';
 import { formatRemedyDurationLabel } from './energeticRemedies';
@@ -240,15 +242,28 @@ function sanitizeFileName(name: string): string {
 export const INTEGRATIVE_ETHICAL_DISCLAIMER =
   'Ressalva Ética Integrativa: A Radiestesia Terapêutica (ANSAE/RHEN), a Ressonância Harmônica e as práticas vibracionais descritas neste documento atuam estritamente como suporte integrativo complementar, não substituindo consultas, diagnósticos, exames ou tratamentos médicos e psicológicos convencionais. Registro tratado sob sigilo terapêutico conforme a LGPD.';
 
+export const INTEGRATIVE_VETERINARY_ETHICAL_DISCLAIMER =
+  'Ressalva Ética Veterinária Integrativa: A Radiestesia Terapêutica Veterinária (ANSAE/RHEN), a Ressonância Harmônica e as práticas vibracionais descritas neste documento atuam estritamente como suporte integrativo complementar para o bem-estar animal, não substituindo consultas, diagnósticos clínicos, exames laboratoriais, vacinas ou tratamentos prescritos pelo médico-veterinário. Registro tratado sob sigilo conforme a LGPD.';
+
+export function getEthicalDisclaimerForAnamnesis(
+  anamnesis: QuantumRoomSession['anamnesis']
+): string {
+  return isPetInteragent(anamnesis)
+    ? INTEGRATIVE_VETERINARY_ETHICAL_DISCLAIMER
+    : INTEGRATIVE_ETHICAL_DISCLAIMER;
+}
+
 function formatLgpdConsentLabel(lgpdConsent?: boolean, lgpdConsentDate?: string): string {
   if (!lgpdConsent) return 'Pendente de registro na Anamnese';
   if (lgpdConsentDate) {
     return `Ciência e consentimento LGPD registrados em ${formatDateTimeBR(lgpdConsentDate)}`;
   }
-  return 'Ciência e consentimento LGPD registrados pelo consulente';
+  return 'Ciência e consentimento LGPD registrados';
 }
 
-function buildDocxEthicalFooter(): Footer {
+function buildDocxEthicalFooter(
+  disclaimer: string = INTEGRATIVE_ETHICAL_DISCLAIMER
+): Footer {
   return new Footer({
     children: [
       new Paragraph({
@@ -259,7 +274,7 @@ function buildDocxEthicalFooter(): Footer {
         spacing: { before: 80, after: 0 },
         children: [
           new TextRun({
-            text: INTEGRATIVE_ETHICAL_DISCLAIMER,
+            text: disclaimer,
             size: 15,
             italics: true,
             color: MUTED_HEX,
@@ -303,12 +318,19 @@ function buildFallbackChakraAuraHabitsText(
   session: QuantumRoomSession,
   sheet: ClinicalAnsaeRhenSheet
 ): string {
+  const isPet = isPetInteragent(session.anamnesis);
   const attentionChakras = sheet.chakras.filter((c) => c.status !== 'Normal');
   const chakrasSummary =
     attentionChakras.length > 0
       ? `Chakras em atenção (${attentionChakras
           .map((c) => `${c.name} — ligado à glândula ${c.gland}`)
-          .join(', ')}): busque momentos de respiração calma levando atenção gentil a essas regiões.`
+          .join(', ')}): ${
+          isPet
+            ? 'mantenha um ambiente sereno e acolhedor no espaço de descanso do animal para favorecer o reequilíbrio desses centros.'
+            : 'busque momentos de respiração calma levando atenção gentil a essas regiões.'
+        }`
+      : isPet
+      ? 'Os centros energéticos do animal apresentam boa harmonia geral nesta leitura.'
       : 'Seus sete centros de força (chakras) apresentam boa harmonia geral nesta leitura.';
 
   const colorCorrelation = analyzeAuricColorsChakraCorrelation(
@@ -318,9 +340,13 @@ function buildFallbackChakraAuraHabitsText(
 
   const missingColorsText =
     colorCorrelation.missingMappings.length > 0
-      ? `Cores que nutrem seu campo e chakras neste ciclo: ${colorCorrelation.missingMappings.join(
+      ? `Cores que nutrem ${isPet ? 'o campo do pet' : 'seu campo'} e chakras neste ciclo: ${colorCorrelation.missingMappings.join(
           ', '
-        )}. Utilize-as em detalhes de vestuário, objetos do ambiente ou visualizações suaves ao inspirar.`
+        )}. ${
+          isPet
+            ? 'Você pode utilizá-las em mantinhas, paninhos da caminha ou iluminação suave próxima ao local de descanso.'
+            : 'Utilize-as em detalhes de vestuário, objetos do ambiente ou visualizações suaves ao inspirar.'
+        }`
       : '';
 
   const excessColorsText =
@@ -333,6 +359,8 @@ function buildFallbackChakraAuraHabitsText(
   const habits =
     session.aiResult?.prescricoes.bonsHabitos && session.aiResult.prescricoes.bonsHabitos.length > 0
       ? `Hábitos diários recomendados: ${session.aiResult.prescricoes.bonsHabitos.join(' • ')}.`
+      : isPet
+      ? 'Mantenha água fresca e limpa sempre disponível, caminha higienizada e rotina previsível com voz tranquila.'
       : 'Cultive pausas breves durante o dia, hidratação regular e silêncio antes de dormir.';
 
   return [chakrasSummary, missingColorsText, excessColorsText, habits].filter(Boolean).join('\n\n');
@@ -343,6 +371,26 @@ export function getDefaultWelcomeMessage(
   customVocative?: string
 ): string {
   const { anamnesis } = session;
+  if (isPetInteragent(anamnesis)) {
+    const tutorFirst =
+      anamnesis.tutorName?.trim().split(/\s+/)[0] ||
+      anamnesis.tutorName?.trim() ||
+      'Tutor(a)';
+    const petLabel = formatInteragentDisplayLabel(anamnesis);
+    const vocative = customVocative || `Prezado(a) ${tutorFirst}:`;
+    const behaviorNote = anamnesis.emotionalHistory?.trim()
+      ? 'Acolhemos com atenção sensível os sinais comportamentais e emocionais observados na rotina do animal.'
+      : 'Cada sinal de sensibilidade do seu companheiro merece cuidado calmo, presença amorosa e respeito ao ritmo dele.';
+    const physicalNote = anamnesis.physicalSymptoms?.trim()
+      ? 'Também consideramos cuidadosamente os sinais físicos relatados para estruturar um suporte vibracional suave e seguro.'
+      : 'Nosso propósito é fortalecer a vitalidade, o conforto físico e a serenidade do pet em sintonia com o lar.';
+
+    return [
+      vocative,
+      `Receba este guia de acompanhamento para o cuidado vibracional de ${petLabel}. ${behaviorNote} ${physicalNote} Esta leitura radiestésica complementar caminha sempre junto às orientações do médico-veterinário, oferecendo acolhimento energético para o pet e tranquilidade para toda a família.`,
+    ].join('\n');
+  }
+
   const firstName = anamnesis.fullName.trim().split(/\s+/)[0] || anamnesis.fullName;
   const vocative = customVocative || `Prezado(a) ${firstName}:`;
 
@@ -641,7 +689,10 @@ export async function downloadTherapistDocx(
     sheet.spiritualPsycho.hawkinsAgathaHz ??
     sensitivity.hawkins;
   const hawkinsInfo = getHawkinsLevelInfo(hawkinsHz);
-  const birthBR = formatBirthDateBR(anamnesis.birthDate);
+  const isPet = isPetInteragent(anamnesis);
+  const displayInteragent = formatInteragentDisplayLabel(anamnesis);
+  const birthOrAge = formatInteragentBirthOrAge(anamnesis);
+  const ethicalDisclaimer = getEthicalDisclaimerForAnamnesis(anamnesis);
   const imbalancedOrgans = sheet.organs.filter(
     (o) =>
       o.isImbalanced ||
@@ -659,12 +710,24 @@ export async function downloadTherapistDocx(
     rows: [
       new TableRow({
         children: [
-          buildTableCell('Paciente', true, true),
-          buildTableCell(anamnesis.fullName, false, false),
-          buildTableCell('Nascimento', true, true),
-          buildTableCell(birthBR || 'Não informado', false, false),
+          buildTableCell(isPet ? 'Interagente (PET)' : 'Paciente', true, true),
+          buildTableCell(displayInteragent, false, false),
+          buildTableCell(isPet ? 'Nasc. / Idade' : 'Nascimento', true, true),
+          buildTableCell(birthOrAge, false, false),
         ],
       }),
+      ...(isPet
+        ? [
+            new TableRow({
+              children: [
+                buildTableCell('Tutor Responsável', true, true),
+                buildTableCell(anamnesis.tutorName || 'Não informado', false, false),
+                buildTableCell('Ambiente Doméstico', true, true),
+                buildTableCell(anamnesis.petEnvironment || 'Não informado', false, false),
+              ],
+            }),
+          ]
+        : []),
       new TableRow({
         children: [
           buildTableCell('Tipo de Sessão', true, true),
@@ -675,7 +738,7 @@ export async function downloadTherapistDocx(
       }),
       new TableRow({
         children: [
-          buildTableCell('Contato', true, true),
+          buildTableCell(isPet ? 'Contato do Tutor' : 'Contato', true, true),
           buildTableCell(anamnesis.phone || 'Não informado', false, false),
           buildTableCell('Mesa Indicada', true, true),
           buildTableCell(sheet.spiritualPsycho.recommendedRadionicBoard, false, false),
@@ -1403,17 +1466,17 @@ export async function downloadTherapistDocx(
               : '12. Ressalva Ética Integrativa e Responsabilidade Terapêutica',
             primaryHex
           ),
-          buildBodyParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER),
+          buildBodyParagraph(ethicalDisclaimer),
         ],
         footers: {
-          default: buildDocxEthicalFooter(),
+          default: buildDocxEthicalFooter(ethicalDisclaimer),
         },
       },
     ],
   });
 
   const blob = await Packer.toBlob(doc);
-  saveAs(blob, `relatorio_tecnico_${sanitizeFileName(anamnesis.fullName)}.docx`);
+  saveAs(blob, `relatorio_tecnico_${sanitizeFileName(anamnesis.fullName || 'atendimento')}.docx`);
 }
 
 // ---------- DOC 2: PATIENT ORIENTATION GUIDE (.DOCX) ----------
@@ -1428,6 +1491,10 @@ export async function downloadPatientGuideDocx(
   const primaryHex = normalizeHex6(profile.primaryColor, NAVY_HEX);
   const accentHex = normalizeHex6(profile.accentColor, AMBER_HEX);
   const logo = await loadActiveProfileLogo(profile);
+  const isPet = isPetInteragent(anamnesis);
+  const displayInteragent = formatInteragentDisplayLabel(anamnesis);
+  const tutorDisplay = anamnesis.tutorName?.trim() || 'Tutor(a) Responsável';
+  const ethicalDisclaimer = getEthicalDisclaimerForAnamnesis(anamnesis);
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const chakrasAuraGuide =
     aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
@@ -1445,11 +1512,13 @@ export async function downloadPatientGuideDocx(
           },
         },
         footers: {
-          default: buildDocxEthicalFooter(),
+          default: buildDocxEthicalFooter(ethicalDisclaimer),
         },
         children: [
           ...buildDocxOfficialHeader(
-            'Guia de Orientação e Conscientização Vibracional',
+            isPet
+              ? 'Guia de Orientação Veterinária Integrativa ao Tutor'
+              : 'Guia de Orientação e Conscientização Vibracional',
             logo,
             profile
           ),
@@ -1457,7 +1526,9 @@ export async function downloadPatientGuideDocx(
             spacing: { before: 120, after: 140 },
             children: [
               new TextRun({
-                text: `Preparado especialmente para ${anamnesis.fullName}`,
+                text: isPet
+                  ? `Preparado para o(a) tutor(a) ${tutorDisplay} • Cuidado de ${displayInteragent}`
+                  : `Preparado especialmente para ${anamnesis.fullName}`,
                 bold: true,
                 size: 24,
                 color: primaryHex,
@@ -1482,18 +1553,26 @@ export async function downloadPatientGuideDocx(
 
           buildDocxWelcomeCard(welcomeText, accentHex),
 
-          buildSectionHeading('Compreendendo seu Momento Energético', primaryHex),
+          buildSectionHeading(
+            isPet ? 'Compreendendo o Momento Energético do Pet' : 'Compreendendo seu Momento Energético',
+            primaryHex
+          ),
           buildBodyParagraph(
             aiResult?.orientacaoPacienteResumo ||
-              'Seu campo energético passou por uma avaliação cuidadosa para identificar onde há acúmulo de cansaço emocional e onde precisamos fortalecer sua vitalidade. Nosso objetivo é restaurar seu equilíbrio natural com suavidade, respeitando o tempo do seu corpo e das suas emoções.'
+              (isPet
+                ? `O campo energético de ${displayInteragent} passou por uma leitura cuidadosa para identificar pontos de sobrecarga emocional, ambiental ou física e fortalecer sua vitalidade natural com suavidade.`
+                : 'Seu campo energético passou por uma avaliação cuidadosa para identificar onde há acúmulo de cansaço emocional e onde precisamos fortalecer sua vitalidade. Nosso objetivo é restaurar seu equilíbrio natural com suavidade, respeitando o tempo do seu corpo e das suas emoções.')
           ),
 
           ...(prev || aiResult?.comparativoEvolutivo
             ? [
-                buildSectionHeading('Sua Evolução Neste Ciclo', primaryHex),
+                buildSectionHeading(
+                  isPet ? 'Evolução do Pet Neste Ciclo' : 'Sua Evolução Neste Ciclo',
+                  primaryHex
+                ),
                 buildBodyParagraph(
                   aiResult?.comparativoEvolutivo ||
-                    `Sua vitalidade avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e sua proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
+                    `A vitalidade aferida avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e a proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
                 ),
               ]
             : []),
@@ -1504,34 +1583,52 @@ export async function downloadPatientGuideDocx(
             .filter(Boolean)
             .map((p) => buildBodyParagraph(p)),
 
-          buildSectionHeading('A Relação entre Mente, Emoção e Corpo', primaryHex),
+          buildSectionHeading(
+            isPet
+              ? 'A Sintonia entre Tutor, Ambiente e Saúde Animal'
+              : 'A Relação entre Mente, Emoção e Corpo',
+            primaryHex
+          ),
           buildBodyParagraph(
-            'Pensamentos recorrentes, preocupações prolongadas e emoções guardadas funcionam como sinais que influenciam diretamente o ritmo do nosso sistema nervoso, do sono, da digestão e da imunidade. Quando organizamos o campo vibracional e cultivamos hábitos tranquilos no dia a dia, o organismo encontra espaço para se autorregular com mais leveza.'
+            isPet
+              ? 'Os animais são profundamente sensíveis ao campo emocional do lar e aos hábitos da família. Quando unimos harmonização vibracional, acolhimento calmo do tutor, higiene energética do espaço de descanso e acompanhamento veterinário regular, o organismo do pet encontra segurança para se recuperar com mais leveza.'
+              : 'Pensamentos recorrentes, preocupações prolongadas e emoções guardadas funcionam como sinais que influenciam diretamente o ritmo do nosso sistema nervoso, do sono, da digestão e da imunidade. Quando organizamos o campo vibracional e cultivamos hábitos tranquilos no dia a dia, o organismo encontra espaço para se autorregular com mais leveza.'
           ),
 
-          buildSectionHeading('Os 4 Pilares Diários de Autocuidado', primaryHex),
+          buildSectionHeading(
+            isPet ? 'Os 4 Pilares Diários de Cuidado com o Pet' : 'Os 4 Pilares Diários de Autocuidado',
+            primaryHex
+          ),
           buildBodyParagraph(
             pilares?.hidratacaoFitoterapia ||
-              'Beba água pura em pequenos goles ao longo do dia (ao menos 2 litros) e utilize os chás suaves recomendados para auxiliar a limpeza e a calma interna.',
-            '1. Hidratação e Fitoterapia: ',
+              (isPet
+                ? 'Disponibilizar água fresca e limpa no bebedouro ao longo de todo o dia; quando indicados, utilizar florais de Bach manipulados exclusivamente sem álcool (base água pura ou glicerina).'
+                : 'Beba água pura em pequenos goles ao longo do dia (ao menos 2 litros) e utilize os chás suaves recomendados para auxiliar a limpeza e a calma interna.'),
+            isPet ? '1. Água Fresca & Florais sem Álcool: ' : '1. Hidratação e Fitoterapia: ',
             primaryHex
           ),
           buildBodyParagraph(
             pilares?.higieneMentalOracao ||
-              'Reserve 10 minutos diários de silêncio, respiração profunda ou oração, escolhendo pensamentos de serenidade e evitando excesso de notícias ou telas antes de dormir.',
-            '2. Higiene Mental e Oração: ',
+              (isPet
+                ? 'Manter rotina tranquila, manejo gentil e voz serena junto ao animal, evitando tensões ou agitação excessiva no convívio diário.'
+                : 'Reserve 10 minutos diários de silêncio, respiração profunda ou oração, escolhendo pensamentos de serenidade e evitando excesso de notícias ou telas antes de dormir.'),
+            isPet ? '2. Rotina Calma & Acolhimento do Tutor: ' : '2. Higiene Mental e Oração: ',
             primaryHex
           ),
           buildBodyParagraph(
             pilares?.ambiente ||
-              'Mantenha seu quarto arejado, organizado e com luz suave ao entardecer. Um ambiente limpo e silencioso sustenta a harmonia conquistada na sessão.',
-            '3. Harmonia do Ambiente: ',
+              (isPet
+                ? 'Higienizar com frequência a caminha, os cobertores, os brinquedos e o local de descanso do pet, mantendo boa ventilação e tranquilidade.'
+                : 'Mantenha seu quarto arejado, organizado e com luz suave ao entardecer. Um ambiente limpo e silencioso sustenta a harmonia conquistada na sessão.'),
+            isPet ? '3. Higiene do Leito, Caminha & Lar: ' : '3. Harmonia do Ambiente: ',
             primaryHex
           ),
           buildBodyParagraph(
             pilares?.acompanhamentoMedico ||
-              'Continue seguindo todas as orientações, exames e medicamentos indicados pelo seu médico de confiança. A terapia vibracional caminha sempre de mãos dadas com o cuidado médico convencional.',
-            '4. Acompanhamento Médico Convencional: ',
+              (isPet
+                ? 'Mantenha rigorosamente todas as consultas, exames, vacinas e medicações prescritas pelo médico-veterinário responsável.'
+                : 'Continue seguindo todas as orientações, exames e medicamentos indicados pelo seu médico de confiança. A terapia vibracional caminha sempre de mãos dadas com o cuidado médico convencional.'),
+            isPet ? '4. Acompanhamento Médico-Veterinário: ' : '4. Acompanhamento Médico Convencional: ',
             primaryHex
           ),
 
@@ -1540,7 +1637,7 @@ export async function downloadPatientGuideDocx(
                 buildSectionHeading('Apoios Naturais, Cristais e Frequências', primaryHex),
                 buildBodyParagraph(
                   aiResult.prescricoes.floraisBach.join(' • '),
-                  'Florais de Bach sugeridos: ',
+                  isPet ? 'Florais de Bach sugeridos (sem álcool): ' : 'Florais de Bach sugeridos: ',
                   primaryHex
                 ),
                 ...(aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0
@@ -1554,7 +1651,7 @@ export async function downloadPatientGuideDocx(
                   : []),
                 buildBodyParagraph(
                   aiResult.prescricoes.fitoterapiaChas.join(' • '),
-                  'Chás e Infusões acolhedoras: ',
+                  isPet ? 'Apoios Naturais / Hidratação: ' : 'Chás e Infusões acolhedoras: ',
                   primaryHex
                 ),
                 ...(aiResult.prescricoes.bonsHabitos &&
@@ -1582,7 +1679,9 @@ export async function downloadPatientGuideDocx(
             ? [
                 buildSectionHeading('Remédios Sutis em Emissão Vibracional à Distância', primaryHex),
                 buildBodyParagraph(
-                  'Para apoiar sua recuperação e conforto energético ao longo deste ciclo, estamos enviando vibracionalmente à distância os seguintes remédios sutis:'
+                  isPet
+                    ? `Para apoiar a recuperação e o conforto energético de ${displayInteragent} ao longo deste ciclo, estamos enviando vibracionalmente à distância os seguintes remédios sutis:`
+                    : 'Para apoiar sua recuperação e conforto energético ao longo deste ciclo, estamos enviando vibracionalmente à distância os seguintes remédios sutis:'
                 ),
                 ...session.energeticRemedies
                   .filter((r) => r.isActive)
@@ -1596,7 +1695,9 @@ export async function downloadPatientGuideDocx(
                     )
                   ),
                 buildBodyParagraph(
-                  'Este apoio vibracional atua exclusivamente em nível sutil e integrativo. Nunca suspenda nem altere medicações prescritas pelo seu médico.',
+                  isPet
+                    ? 'Este apoio vibracional atua exclusivamente em nível sutil e integrativo. Nunca suspenda nem altere medicações prescritas pelo médico-veterinário.'
+                    : 'Este apoio vibracional atua exclusivamente em nível sutil e integrativo. Nunca suspenda nem altere medicações prescritas pelo seu médico.',
                   'Aviso Ético Importante: ',
                   primaryHex
                 ),
@@ -1605,17 +1706,27 @@ export async function downloadPatientGuideDocx(
 
           buildSectionHeading('Mensagem de Acompanhamento', primaryHex),
           buildBodyParagraph(
-            'Qualquer percepção, sonho significativo ou dúvida durante os próximos dias pode ser compartilhada diretamente pelo WhatsApp de atendimento. Caminhamos juntos com serenidade, ética e respeito ao seu ritmo.'
+            isPet
+              ? 'Qualquer mudança no comportamento, apetite, sono ou dúvida durante os próximos dias pode ser compartilhada pelo WhatsApp de atendimento. Caminhamos juntos pelo bem-estar do seu pet, sempre em respeito ao acompanhamento médico-veterinário.'
+              : 'Qualquer percepção, sonho significativo ou dúvida durante os próximos dias pode ser compartilhada diretamente pelo WhatsApp de atendimento. Caminhamos juntos com serenidade, ética e respeito ao seu ritmo.'
           ),
-          buildSectionHeading('Ressalva Ética Integrativa', primaryHex),
-          buildBodyParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER),
+          buildSectionHeading(
+            isPet ? 'Ressalva Ética Veterinária Integrativa' : 'Ressalva Ética Integrativa',
+            primaryHex
+          ),
+          buildBodyParagraph(ethicalDisclaimer),
         ],
       },
     ],
   });
 
   const blob = await Packer.toBlob(doc);
-  saveAs(blob, `guia_paciente_${sanitizeFileName(anamnesis.fullName)}.docx`);
+  saveAs(
+    blob,
+    `${isPet ? 'guia_tutor_pet' : 'guia_paciente'}_${sanitizeFileName(
+      anamnesis.fullName || 'atendimento'
+    )}.docx`
+  );
 }
 
 // ---------- PDF ENGINE (jsPDF) ----------
@@ -1970,7 +2081,9 @@ class MaestroPdfBuilder {
     this.y += 4;
   }
 
-  private applyEthicalFooterToAllPages(): void {
+  private applyEthicalFooterToAllPages(
+    disclaimer: string = INTEGRATIVE_ETHICAL_DISCLAIMER
+  ): void {
     const totalPages = this.doc.getNumberOfPages();
     const pageHeight = this.doc.internal.pageSize.getHeight();
 
@@ -1984,7 +2097,7 @@ class MaestroPdfBuilder {
       this.doc.setFontSize(6.8);
       this.doc.setTextColor(100, 116, 139);
       const footerLines: string[] = this.doc.splitTextToSize(
-        INTEGRATIVE_ETHICAL_DISCLAIMER,
+        disclaimer,
         this.contentWidth - 18
       );
       footerLines.slice(0, 3).forEach((line, idx) => {
@@ -2002,8 +2115,11 @@ class MaestroPdfBuilder {
     }
   }
 
-  public save(filename: string): void {
-    this.applyEthicalFooterToAllPages();
+  public save(
+    filename: string,
+    disclaimer: string = INTEGRATIVE_ETHICAL_DISCLAIMER
+  ): void {
+    this.applyEthicalFooterToAllPages(disclaimer);
     this.doc.save(filename);
   }
 }
@@ -2021,7 +2137,10 @@ export async function downloadTherapistPdf(
     sheet.spiritualPsycho.hawkinsAgathaHz ??
     sensitivity.hawkins;
   const hawkinsInfo = getHawkinsLevelInfo(hawkinsHz);
-  const birthBR = formatBirthDateBR(anamnesis.birthDate);
+  const isPet = isPetInteragent(anamnesis);
+  const displayInteragent = formatInteragentDisplayLabel(anamnesis);
+  const birthOrAge = formatInteragentBirthOrAge(anamnesis);
+  const ethicalDisclaimer = getEthicalDisclaimerForAnamnesis(anamnesis);
   const ansaeSystems = sheet.systems || [];
   const auraColorCorrelation = analyzeAuricColorsChakraCorrelation(
     sheet.auricField.missingColors,
@@ -2036,16 +2155,24 @@ export async function downloadTherapistPdf(
 
   const pdf = new MaestroPdfBuilder(profile);
   pdf.addOfficialHeader(
-    'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional',
+    isPet
+      ? 'Relatório Técnico Veterinário Integrativo — ANSAE + RHEN & Protocolo Vibracional'
+      : 'Relatório Técnico Completo — ANSAE + RHEN & Protocolo Vibracional',
     logo
   );
 
   pdf.addSectionTitle('1. Quadro de Identificação e Anamnese');
   pdf.addKeyValueTable([
-    ['Paciente', anamnesis.fullName],
+    [isPet ? 'Interagente (PET)' : 'Paciente', displayInteragent],
+    ...(isPet
+      ? ([
+          ['Tutor Responsável', anamnesis.tutorName || 'Não informado'],
+          ['Ambiente Doméstico', anamnesis.petEnvironment || 'Não informado'],
+        ] as Array<[string, string]>)
+      : []),
     ['Tipo de Sessão', sessionType],
-    ['Data de Nascimento', birthBR || 'Não informado'],
-    ['Contato', anamnesis.phone || 'Não informado'],
+    [isPet ? 'Nasc. / Idade' : 'Data de Nascimento', birthOrAge],
+    [isPet ? 'Contato do Tutor' : 'Contato', anamnesis.phone || 'Não informado'],
     ['Data do Registro', formatDateTimeBR(session.activatedAt)],
     ['Foco Terapêutico', anamnesis.therapeuticFocus],
     [
@@ -2053,9 +2180,15 @@ export async function downloadTherapistPdf(
       formatLgpdConsentLabel(anamnesis.lgpdConsent, anamnesis.lgpdConsentDate),
     ],
     ['Pergunta Raiz', sheet.rootProblems.join(', ') || 'Avaliação Geral'],
-    ['Histórico Emocional', anamnesis.emotionalHistory || 'Sem observações adicionais'],
+    [
+      isPet ? 'Comportamento / Rotina' : 'Histórico Emocional',
+      anamnesis.emotionalHistory || 'Sem observações adicionais',
+    ],
     ['Sintomas Físicos', anamnesis.physicalSymptoms || 'Sem sintomas registrados'],
-    ['Tratamento Médico', anamnesis.medicalTreatments || 'Não informado'],
+    [
+      isPet ? 'Acompanhamento Veterinário' : 'Tratamento Médico',
+      anamnesis.medicalTreatments || 'Não informado',
+    ],
   ]);
 
   pdf.addSectionTitle('2. Campos Eletromagnéticos & Sete Chakras + Glândulas');
@@ -2348,10 +2481,15 @@ export async function downloadTherapistPdf(
     );
   }
 
-  pdf.addSectionTitle('11. Ressalva Ética Integrativa');
-  pdf.addParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER);
+  pdf.addSectionTitle(
+    isPet ? '11. Ressalva Ética Veterinária Integrativa' : '11. Ressalva Ética Integrativa'
+  );
+  pdf.addParagraph(ethicalDisclaimer);
 
-  pdf.save(`relatorio_tecnico_${sanitizeFileName(anamnesis.fullName)}.pdf`);
+  pdf.save(
+    `relatorio_tecnico_${sanitizeFileName(anamnesis.fullName || 'atendimento')}.pdf`,
+    ethicalDisclaimer
+  );
 }
 
 export async function downloadPatientGuidePdf(
@@ -2362,6 +2500,10 @@ export async function downloadPatientGuidePdf(
   const { sheet, prev } = resolveDocContext(session, ctx);
   const profile = getProfessionalProfile();
   const logo = await loadActiveProfileLogo(profile);
+  const isPet = isPetInteragent(anamnesis);
+  const displayInteragent = formatInteragentDisplayLabel(anamnesis);
+  const tutorDisplay = anamnesis.tutorName?.trim() || 'Tutor(a) Responsável';
+  const ethicalDisclaimer = getEthicalDisclaimerForAnamnesis(anamnesis);
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const chakrasAuraGuide =
     aiResult?.orientacaoChakrasAuraHabitos || buildFallbackChakraAuraHabitsText(session, sheet);
@@ -2372,13 +2514,17 @@ export async function downloadPatientGuidePdf(
 
   const pdf = new MaestroPdfBuilder(profile);
   pdf.addOfficialHeader(
-    'Guia de Orientação e Conscientização Vibracional',
+    isPet
+      ? 'Guia de Orientação Veterinária Integrativa ao Tutor'
+      : 'Guia de Orientação e Conscientização Vibracional',
     logo
   );
 
   pdf.addParagraph(
-    `${anamnesis.fullName} • Foco: ${anamnesis.therapeuticFocus}`,
-    'Paciente: '
+    isPet
+      ? `${tutorDisplay} • Pet: ${displayInteragent} • Foco: ${anamnesis.therapeuticFocus}`
+      : `${anamnesis.fullName} • Foco: ${anamnesis.therapeuticFocus}`,
+    isPet ? 'Tutor & Pet: ' : 'Paciente: '
   );
   if (anamnesis.lgpdConsent) {
     pdf.addParagraph(
@@ -2395,17 +2541,21 @@ export async function downloadPatientGuidePdf(
 
   pdf.addWelcomeCard(welcomeText);
 
-  pdf.addSectionTitle('Seu Momento Energético Atual');
+  pdf.addSectionTitle(
+    isPet ? 'Momento Energético Atual do Pet' : 'Seu Momento Energético Atual'
+  );
   pdf.addParagraph(
     aiResult?.orientacaoPacienteResumo ||
-      'Realizamos uma leitura cuidadosa do seu campo energético para acolher sinais de cansaço e organizar sua vitalidade com suavidade.'
+      (isPet
+        ? `Realizamos uma leitura cuidadosa do campo energético de ${displayInteragent} para acolher sinais de sobrecarga e fortalecer sua vitalidade natural com suavidade.`
+        : 'Realizamos uma leitura cuidadosa do seu campo energético para acolher sinais de cansaço e organizar sua vitalidade com suavidade.')
   );
 
   if (prev || aiResult?.comparativoEvolutivo) {
-    pdf.addSectionTitle('Sua Evolução Neste Ciclo');
+    pdf.addSectionTitle(isPet ? 'Evolução do Pet Neste Ciclo' : 'Sua Evolução Neste Ciclo');
     pdf.addParagraph(
       aiResult?.comparativoEvolutivo ||
-        `Sua vitalidade avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e sua proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
+        `A vitalidade aferida avançou de ${prev?.ansaeRhen.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å para ${sheet.spiritualPsycho.bovis.toLocaleString('pt-BR')} Å e a proteção áurica alcançou ${sheet.auricField.protectionPercent}%.`
     );
   }
 
@@ -2415,40 +2565,62 @@ export async function downloadPatientGuidePdf(
     .filter(Boolean)
     .forEach((p) => pdf.addParagraph(p));
 
-  pdf.addSectionTitle('A Conexão entre Mente, Emoção e Corpo');
+  pdf.addSectionTitle(
+    isPet
+      ? 'A Sintonia entre Tutor, Ambiente e Saúde Animal'
+      : 'A Conexão entre Mente, Emoção e Corpo'
+  );
   pdf.addParagraph(
-    'Nossos pensamentos, sentimentos e rotina diária dialogam continuamente com o corpo físico. Ao cuidar da serenidade emocional e harmonizar seu campo sutil, você favorece o sono reparador, a disposição e o bem-estar integral.'
+    isPet
+      ? 'Os animais percebem com sensibilidade a energia do lar e o estado emocional do tutor. Ao associar harmonização vibracional, rotina serena, higiene do cantinho de descanso e acompanhamento veterinário, favorecemos a recuperação e o bem-estar do pet.'
+      : 'Nossos pensamentos, sentimentos e rotina diária dialogam continuamente com o corpo físico. Ao cuidar da serenidade emocional e harmonizar seu campo sutil, você favorece o sono reparador, a disposição e o bem-estar integral.'
   );
 
-  pdf.addSectionTitle('Os 4 Pilares Diários de Autocuidado');
+  pdf.addSectionTitle(
+    isPet ? 'Os 4 Pilares Diários de Cuidado com o Pet' : 'Os 4 Pilares Diários de Autocuidado'
+  );
   pdf.addParagraph(
     pilares?.hidratacaoFitoterapia ||
-      'Ingira água pura ao longo do dia e utilize os chás suaves recomendados.',
-    '1. Hidratação e Fitoterapia: '
+      (isPet
+        ? 'Mantenha água fresca e limpa no bebedouro; quando indicados, utilize florais de Bach manipulados sem álcool (base água pura ou glicerina).'
+        : 'Ingira água pura ao longo do dia e utilize os chás suaves recomendados.'),
+    isPet ? '1. Água Fresca & Florais sem Álcool: ' : '1. Hidratação e Fitoterapia: '
   );
   pdf.addParagraph(
     pilares?.higieneMentalOracao ||
-      'Reserve momentos de silêncio, respiração profunda ou oração antes de dormir.',
-    '2. Higiene Mental e Oração: '
+      (isPet
+        ? 'Mantenha rotina calma, voz serena e manejo gentil próximo ao animal.'
+        : 'Reserve momentos de silêncio, respiração profunda ou oração antes de dormir.'),
+    isPet ? '2. Rotina Calma & Acolhimento do Tutor: ' : '2. Higiene Mental e Oração: '
   );
   pdf.addParagraph(
     pilares?.ambiente ||
-      'Mantenha o quarto ventilado, limpo e com iluminação acolhedora ao anoitecer.',
-    '3. Ambiente: '
+      (isPet
+        ? 'Higienize regularmente a caminha, cobertores e espaço de descanso do animal.'
+        : 'Mantenha o quarto ventilado, limpo e com iluminação acolhedora ao anoitecer.'),
+    isPet ? '3. Higiene do Leito, Caminha & Lar: ' : '3. Ambiente: '
   );
   pdf.addParagraph(
     pilares?.acompanhamentoMedico ||
-      'Mantenha sempre suas consultas, exames e orientações médicas convencionais.',
-    '4. Acompanhamento Médico Convencional: '
+      (isPet
+        ? 'Mantenha sempre consultas, exames, vacinas e prescrições do médico-veterinário.'
+        : 'Mantenha sempre suas consultas, exames e orientações médicas convencionais.'),
+    isPet ? '4. Acompanhamento Médico-Veterinário: ' : '4. Acompanhamento Médico Convencional: '
   );
 
   if (aiResult?.prescricoes) {
     pdf.addSectionTitle('Apoios Naturais, Cristais e Frequências');
-    pdf.addParagraph(aiResult.prescricoes.floraisBach.join(' • '), 'Florais de Bach: ');
+    pdf.addParagraph(
+      aiResult.prescricoes.floraisBach.join(' • '),
+      isPet ? 'Florais de Bach (sem álcool): ' : 'Florais de Bach: '
+    );
     if (aiResult.prescricoes.cristais && aiResult.prescricoes.cristais.length > 0) {
       pdf.addParagraph(aiResult.prescricoes.cristais.join(' • '), 'Cristais Terapêuticos: ');
     }
-    pdf.addParagraph(aiResult.prescricoes.fitoterapiaChas.join(' • '), 'Chás e Infusões: ');
+    pdf.addParagraph(
+      aiResult.prescricoes.fitoterapiaChas.join(' • '),
+      isPet ? 'Apoios Naturais / Hidratação: ' : 'Chás e Infusões: '
+    );
     if (aiResult.prescricoes.bonsHabitos && aiResult.prescricoes.bonsHabitos.length > 0) {
       pdf.addParagraph(aiResult.prescricoes.bonsHabitos.join(' • '), 'Bons Hábitos Diários: ');
     }
@@ -2464,7 +2636,9 @@ export async function downloadPatientGuidePdf(
   if (activePatientRemediesPdf.length > 0) {
     pdf.addSectionTitle('Remédios Sutis em Emissão Vibracional à Distância');
     pdf.addParagraph(
-      'Para apoiar sua recuperação com suavidade, os seguintes remédios sutis estão sendo enviados vibracionalmente à distância para o seu campo:'
+      isPet
+        ? `Para apoiar a recuperação de ${displayInteragent} com suavidade, os seguintes remédios sutis estão sendo enviados vibracionalmente à distância para o campo do animal:`
+        : 'Para apoiar sua recuperação com suavidade, os seguintes remédios sutis estão sendo enviados vibracionalmente à distância para o seu campo:'
     );
     activePatientRemediesPdf.forEach((rem) => {
       pdf.addParagraph(
@@ -2475,15 +2649,24 @@ export async function downloadPatientGuidePdf(
       );
     });
     pdf.addParagraph(
-      'Este suporte energético é estritamente complementar e nunca substitui nem autoriza suspender medicações prescritas pelo seu médico.',
+      isPet
+        ? 'Este suporte energético é estritamente complementar e nunca substitui nem autoriza suspender medicações prescritas pelo médico-veterinário.'
+        : 'Este suporte energético é estritamente complementar e nunca substitui nem autoriza suspender medicações prescritas pelo seu médico.',
       'Aviso Ético Importante: '
     );
   }
 
-  pdf.addSectionTitle('Ressalva Ética Integrativa');
-  pdf.addParagraph(INTEGRATIVE_ETHICAL_DISCLAIMER);
+  pdf.addSectionTitle(
+    isPet ? 'Ressalva Ética Veterinária Integrativa' : 'Ressalva Ética Integrativa'
+  );
+  pdf.addParagraph(ethicalDisclaimer);
 
-  pdf.save(`guia_paciente_${sanitizeFileName(anamnesis.fullName)}.pdf`);
+  pdf.save(
+    `${isPet ? 'guia_tutor_pet' : 'guia_paciente'}_${sanitizeFileName(
+      anamnesis.fullName || 'atendimento'
+    )}.pdf`,
+    ethicalDisclaimer
+  );
 }
 
 export function buildWhatsAppShareUrl(
@@ -2493,6 +2676,9 @@ export function buildWhatsAppShareUrl(
   const { anamnesis, aiResult, protocol } = session;
   const { sheet } = resolveDocContext(session, ctx);
   const profile = getProfessionalProfile();
+  const isPet = isPetInteragent(anamnesis);
+  const displayInteragent = formatInteragentDisplayLabel(anamnesis);
+  const tutorGreeting = anamnesis.tutorName?.trim() || 'Tutor(a)';
   const pilares = aiResult?.prescricoes.pilaresAutocuidado;
   const freqs =
     aiResult?.prescricoes.frequenciasSolfeggio.map((f) => `${f.hz} Hz`).join(', ') || '432 Hz';
@@ -2537,11 +2723,16 @@ export function buildWhatsAppShareUrl(
 
   const text = [
     `*${profile.clinicName.toUpperCase()}*`,
-    `_Guia de Orientação e Conscientização Vibracional_`,
+    isPet
+      ? `_Guia de Orientação Veterinária Integrativa ao Tutor_`
+      : `_Guia de Orientação e Conscientização Vibracional_`,
     ``,
-    `Olá, *${anamnesis.fullName}*!`,
+    isPet ? `Olá, *${tutorGreeting}*!` : `Olá, *${anamnesis.fullName}*!`,
+    isPet ? `*Interagente PET:* ${displayInteragent}` : '',
     welcomeSynthesis ? `_${welcomeSynthesis}_` : '',
-    `Segue o resumo do seu atendimento integrativo:`,
+    isPet
+      ? `Segue o resumo do atendimento vibracional complementar do seu pet:`
+      : `Segue o resumo do seu atendimento integrativo:`,
     ``,
     `*Foco:* ${anamnesis.therapeuticFocus}`,
     `*Etapa:* ${
@@ -2549,24 +2740,58 @@ export function buildWhatsAppShareUrl(
         ? 'Protocolo Suave em 2 Etapas (Limpeza & Blindagem -> Pausa 12h -> Vitalização)'
         : 'Harmonização Direta (7 a 10 dias)'
     }`,
-    missingColors ? `*Cores da Aura para nutrir seu campo:* ${missingColors}` : '',
+    missingColors
+      ? `*Cores da Aura para nutrir ${isPet ? 'o campo do pet' : 'seu campo'}:* ${missingColors}`
+      : '',
     remediesSummary
-      ? `*Remédios Sutis em apoio vibracional à distância:* ${remediesSummary} _(apoio complementar — nunca suspenda medicações prescritas pelo seu médico)_`
+      ? `*Remédios Sutis em apoio vibracional à distância:* ${remediesSummary} _(apoio complementar — nunca suspenda medicações prescritas pelo ${
+          isPet ? 'médico-veterinário' : 'seu médico'
+        })_`
       : '',
     ``,
-    `*4 Pilares Diários:*`,
-    `1. Hidratação/Chás: ${pilares?.hidratacaoFitoterapia || 'Beber 2L de água pura e chás suaves.'}`,
-    `2. Higiene Mental/Oração: ${pilares?.higieneMentalOracao || '10 min de respiração calma e oração diária.'}`,
-    `3. Ambiente: ${pilares?.ambiente || 'Manter o quarto arejado e livre de excesso de telas à noite.'}`,
-    `4. Acompanhamento Médico: ${pilares?.acompanhamentoMedico || 'Manter normalmente seus cuidados médicos convencionais.'}`,
+    isPet ? `*4 Pilares Diários de Cuidado com o Pet:*` : `*4 Pilares Diários:*`,
+    isPet
+      ? `1. Água Fresca & Florais sem Álcool: ${
+          pilares?.hidratacaoFitoterapia ||
+          'Manter água limpa e fresca no bebedouro; florais físicos sempre manipulados sem álcool.'
+        }`
+      : `1. Hidratação/Chás: ${
+          pilares?.hidratacaoFitoterapia || 'Beber 2L de água pura e chás suaves.'
+        }`,
+    isPet
+      ? `2. Rotina Calma & Acolhimento: ${
+          pilares?.higieneMentalOracao ||
+          'Manter voz serena, manejo gentil e tranquilidade emocional no lar.'
+        }`
+      : `2. Higiene Mental/Oração: ${
+          pilares?.higieneMentalOracao || '10 min de respiração calma e oração diária.'
+        }`,
+    isPet
+      ? `3. Higiene do Leito & Caminha: ${
+          pilares?.ambiente ||
+          'Higienizar caminha, cobertores e o espaço de descanso do animal.'
+        }`
+      : `3. Ambiente: ${
+          pilares?.ambiente || 'Manter o quarto arejado e livre de excesso de telas à noite.'
+        }`,
+    isPet
+      ? `4. Acompanhamento Veterinário: ${
+          pilares?.acompanhamentoMedico ||
+          'Manter normalmente consultas, exames, vacinas e prescrições do médico-veterinário.'
+        }`
+      : `4. Acompanhamento Médico: ${
+          pilares?.acompanhamentoMedico || 'Manter normalmente seus cuidados médicos convencionais.'
+        }`,
     ``,
     `*Frequência Solfeggio indicada:* ${freqs}`,
     ``,
     `_${therapistSummary}_`,
     contactSummary ? `_${contactSummary}_` : '',
-    `_Ressalva Ética: Apoio vibracional integrativo complementar; não substitui diagnóstico ou tratamento médico/psicológico (LGPD)._`,
+    isPet
+      ? `_Ressalva Ética Veterinária: Apoio vibracional integrativo complementar; não substitui consulta, diagnóstico ou tratamento do médico-veterinário (LGPD)._`
+      : `_Ressalva Ética: Apoio vibracional integrativo complementar; não substitui diagnóstico ou tratamento médico/psicológico (LGPD)._`,
   ]
-    .filter((line) => line !== undefined)
+    .filter((line) => line !== undefined && line !== '')
     .join('\n');
 
   return `https://wa.me/?text=${encodeURIComponent(text)}`;

@@ -49,8 +49,10 @@ import {
   computeChartEmissionMetrics,
   formatAngstromsBR,
   formatChartDurationLabel,
+  formatInteragentDisplayLabel,
   formatTestemunho,
   getHawkinsLevelInfo,
+  isPetInteragent,
   resolveCrystalForChart,
 } from '../utils/antiCatharsis';
 import {
@@ -765,9 +767,10 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
         <div>
           <p className="text-xs font-semibold tracking-wider uppercase text-[#B45309]">
             Etapa Clínica 03 · Mesa Radiônica & Ressonância Harmônica · {sessionType}
+            {isPetInteragent(anamnesis) ? ' · PET' : ''}
           </p>
           <h1 className="mt-1.5 font-serif text-3xl font-light text-[#0F172A]">
-            {anamnesis.fullName}
+            {formatInteragentDisplayLabel(anamnesis)}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#64748B]">
             <span className="font-mono tabular-nums text-[#0F172A] font-semibold">
@@ -1603,8 +1606,11 @@ export const MesaQuantica: React.FC<MesaQuanticaProps> = ({
                   Onda Colapsada e Ancorada no Campo de Ponto Zero
                 </h3>
                 <p className="text-sm text-[#45464D] leading-relaxed">
-                  A sessão de <strong className="text-[#0F172A]">{anamnesis.fullName}</strong> está
-                  salva e ativa no Dashboard com cronômetro contínuo e prontuário ANSAE/RHEN.
+                  A sessão de{' '}
+                  <strong className="text-[#0F172A]">
+                    {formatInteragentDisplayLabel(anamnesis)}
+                  </strong>{' '}
+                  está salva e ativa no Dashboard com cronômetro contínuo e prontuário ANSAE/RHEN.
                 </p>
                 <div className="pt-2 flex flex-wrap items-center gap-3">
                   <button

@@ -2,6 +2,8 @@ import {
   AntiCatharsisProtocol,
   ChartWithdrawalLogEntry,
   EnergeticRemedyEmission,
+  InteragentType,
+  PetSpecies,
   QuantumGenerationResult,
   RoomPhase,
 } from './quantum';
@@ -729,9 +731,15 @@ export interface ClinicalAnsaeRhenSheet {
 
 export interface MasterPatient {
   id: string;
+  interagentType?: InteragentType;
   fullName: string;
   birthDate: string;
   phone: string;
+  petSpecies?: PetSpecies;
+  petBreed?: string;
+  petAge?: string;
+  petEnvironment?: string;
+  tutorName?: string;
   createdAt: string;
   notes?: string;
 }

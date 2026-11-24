@@ -4,16 +4,23 @@ import {
   Bot,
   Check,
   Mic,
-  MicOff,
   Pause,
+  PawPrint,
   Play,
-  RotateCcw,
   ShieldCheck,
   Sparkles,
+  User,
   UserCheck,
   UserPlus,
 } from 'lucide-react';
-import { CopilotAnalysisResult, PatientAnamnesis, QuantumRoomSession } from '../types/quantum';
+import {
+  CopilotAnalysisResult,
+  InteragentType,
+  PatientAnamnesis,
+  PetSpecies,
+  QuantumRoomSession,
+} from '../types/quantum';
+import { formatInteragentDisplayLabel, isPetInteragent } from '../utils/antiCatharsis';
 
 interface AnamneseFormProps {
   anamnesis: PatientAnamnesis;
@@ -206,8 +213,26 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
+  const isPet = isPetInteragent(anamnesis);
+  const petSpeciesOptions: PetSpecies[] = ['Cão', 'Gato', 'Ave', 'Equino', 'Outro'];
+
   const handleField = (field: keyof PatientAnamnesis, value: string) => {
     onChange({ ...anamnesis, [field]: value });
+  };
+
+  const handleInteragentTypeChange = (nextType: InteragentType) => {
+    if (nextType === 'pet') {
+      onChange({
+        ...anamnesis,
+        interagentType: 'pet',
+        petSpecies: anamnesis.petSpecies || 'Cão',
+      });
+    } else {
+      onChange({
+        ...anamnesis,
+        interagentType: 'humano',
+      });
+    }
   };
 
   const handleLgpdToggle = (checked: boolean) => {
@@ -231,9 +256,16 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     });
   };
 
+  const hasBirthOrPetAge = isPet
+    ? anamnesis.birthDate.trim().length > 0 || (anamnesis.petAge || '').trim().length > 0
+    : anamnesis.birthDate.trim().length > 0;
+
+  const hasValidTutor = !isPet || (anamnesis.tutorName || '').trim().length >= 2;
+
   const canProceed =
-    anamnesis.fullName.trim().length >= 3 &&
-    anamnesis.birthDate.trim().length > 0 &&
+    anamnesis.fullName.trim().length >= (isPet ? 2 : 3) &&
+    hasBirthOrPetAge &&
+    hasValidTutor &&
     anamnesis.therapeuticFocus.trim().length >= 3 &&
     Boolean(anamnesis.lgpdConsent);
 
@@ -275,7 +307,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 <option value="">Carregar paciente salvo...</option>
                 {existingSessions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.anamnesis.fullName}
+                    {formatInteragentDisplayLabel(s.anamnesis)}
                   </option>
                 ))}
               </select>
@@ -289,6 +321,55 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
           >
             <UserPlus className="w-3.5 h-3.5" />
             Limpar Ficha
+          </button>
+        </div>
+      </section>
+
+      {/* Seletor de Perfil do Interagente: Pessoa (Humano) vs Animal (PET) */}
+      <section className="bg-white border border-[#E2E8F0] rounded-xl p-4 sm:p-5 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <p className="text-xs font-bold uppercase tracking-wider text-[#B45309]">
+            Perfil do Interagente
+          </p>
+          <p className="text-xs text-[#45464D]">
+            {isPet
+              ? 'Modo Veterinário Integrativo ativo: testemunho, Dock Contextual (Saúde Animal / PETS) e Guia do Tutor serão adaptados automaticamente.'
+              : 'Selecione se o atendimento vibracional é direcionado para uma pessoa (humano) ou para um animal de estimação (PET).'}
+          </p>
+        </div>
+
+        <div
+          role="radiogroup"
+          aria-label="Perfil do Interagente"
+          className="inline-flex items-center gap-1.5 p-1 bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg self-start md:self-auto shrink-0"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!isPet}
+            onClick={() => handleInteragentTypeChange('humano')}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              !isPet
+                ? 'bg-[#0F172A] text-white shadow-sm'
+                : 'text-[#475569] hover:text-[#0F172A]'
+            }`}
+          >
+            <User className={`w-3.5 h-3.5 ${!isPet ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
+            Pessoa (Humano)
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={isPet}
+            onClick={() => handleInteragentTypeChange('pet')}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              isPet
+                ? 'bg-[#0F172A] text-white shadow-sm'
+                : 'text-[#475569] hover:text-[#0F172A]'
+            }`}
+          >
+            <PawPrint className={`w-3.5 h-3.5 ${isPet ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
+            Animal (PET)
           </button>
         </div>
       </section>
@@ -480,53 +561,201 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Identificação & Foco */}
         <div className="lg:col-span-5 bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
-          <h2 className="font-serif text-lg font-bold text-[#0F172A] pb-3 border-b border-[#E2E8F0]">
-            Identificação e Foco do Atendimento
-          </h2>
-
-          <div>
-            <label htmlFor="fullName" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
-              Nome Completo do Paciente *
-            </label>
-            <input
-              id="fullName"
-              type="text"
-              required
-              value={anamnesis.fullName}
-              onChange={(e) => handleField('fullName', e.target.value)}
-              placeholder="Ex.: Maria Clara de Oliveira Santos"
-              className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
-            />
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#E2E8F0]">
+            <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+              {isPet ? 'Dados do Pet & Tutor Responsável' : 'Identificação e Foco do Atendimento'}
+            </h2>
+            {isPet && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded bg-[#FEF3C7] text-[#92400E] border border-[#D97706]/40">
+                <PawPrint className="w-3 h-3" />
+                PET
+              </span>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="birthDate" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
-                Data de Nascimento *
-              </label>
-              <input
-                id="birthDate"
-                type="date"
-                required
-                value={anamnesis.birthDate}
-                onChange={(e) => handleField('birthDate', e.target.value)}
-                className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
-              />
-            </div>
-            <div>
-              <label htmlFor="phone" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
-                Telefone / WhatsApp
-              </label>
-              <input
-                id="phone"
-                type="tel"
-                value={anamnesis.phone}
-                onChange={(e) => handleField('phone', e.target.value)}
-                placeholder="(11) 99999-9999"
-                className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
-              />
-            </div>
-          </div>
+          {isPet ? (
+            <>
+              {/* Dados do Pet */}
+              <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#B45309]">
+                  Dados do Pet
+                </p>
+
+                <div>
+                  <label htmlFor="fullName" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                    Nome do Animal *
+                  </label>
+                  <input
+                    id="fullName"
+                    type="text"
+                    required
+                    value={anamnesis.fullName}
+                    onChange={(e) => handleField('fullName', e.target.value)}
+                    placeholder="Ex.: Thor, Luna, Pipoca..."
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label htmlFor="petSpecies" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                      Espécie *
+                    </label>
+                    <select
+                      id="petSpecies"
+                      value={anamnesis.petSpecies || 'Cão'}
+                      onChange={(e) => handleField('petSpecies', e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                    >
+                      {petSpeciesOptions.map((sp) => (
+                        <option key={sp} value={sp}>
+                          {sp}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="petBreed" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                      Raça
+                    </label>
+                    <input
+                      id="petBreed"
+                      type="text"
+                      value={anamnesis.petBreed || ''}
+                      onChange={(e) => handleField('petBreed', e.target.value)}
+                      placeholder="Ex.: Golden Retriever, SRD..."
+                      className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label htmlFor="birthDate" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                      Data de Nascimento
+                    </label>
+                    <input
+                      id="birthDate"
+                      type="date"
+                      value={anamnesis.birthDate}
+                      onChange={(e) => handleField('birthDate', e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="petAge" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                      Idade {!anamnesis.birthDate ? '*' : '(opcional)'}
+                    </label>
+                    <input
+                      id="petAge"
+                      type="text"
+                      value={anamnesis.petAge || ''}
+                      onChange={(e) => handleField('petAge', e.target.value)}
+                      placeholder="Ex.: 4 anos / 8 meses"
+                      className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="petEnvironment" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                    Ambiente Doméstico
+                  </label>
+                  <input
+                    id="petEnvironment"
+                    type="text"
+                    value={anamnesis.petEnvironment || ''}
+                    onChange={(e) => handleField('petEnvironment', e.target.value)}
+                    placeholder="Ex.: Apartamento, casa com quintal, convive com outros animais..."
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                  />
+                </div>
+              </div>
+
+              {/* Dados do Tutor Responsável */}
+              <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-4">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#B45309]">
+                  Dados do Tutor Responsável
+                </p>
+
+                <div>
+                  <label htmlFor="tutorName" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                    Nome Completo do Tutor *
+                  </label>
+                  <input
+                    id="tutorName"
+                    type="text"
+                    required
+                    value={anamnesis.tutorName || ''}
+                    onChange={(e) => handleField('tutorName', e.target.value)}
+                    placeholder="Ex.: Ana Paula Ferreira"
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="phone" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                    WhatsApp / Contato do Tutor
+                  </label>
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={anamnesis.phone}
+                    onChange={(e) => handleField('phone', e.target.value)}
+                    placeholder="(11) 99999-9999"
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label htmlFor="fullName" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                  Nome Completo do Paciente *
+                </label>
+                <input
+                  id="fullName"
+                  type="text"
+                  required
+                  value={anamnesis.fullName}
+                  onChange={(e) => handleField('fullName', e.target.value)}
+                  placeholder="Ex.: Maria Clara de Oliveira Santos"
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="birthDate" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                    Data de Nascimento *
+                  </label>
+                  <input
+                    id="birthDate"
+                    type="date"
+                    required
+                    value={anamnesis.birthDate}
+                    onChange={(e) => handleField('birthDate', e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="phone" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                    Telefone / WhatsApp
+                  </label>
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={anamnesis.phone}
+                    onChange={(e) => handleField('phone', e.target.value)}
+                    placeholder="(11) 99999-9999"
+                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           <div>
             <label
@@ -541,13 +770,19 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
               required
               value={anamnesis.therapeuticFocus}
               onChange={(e) => handleField('therapeuticFocus', e.target.value)}
-              placeholder="Ex.: Equilíbrio Neuroemocional, Vitalidade e Prosperidade Profissional"
+              placeholder={
+                isPet
+                  ? 'Ex.: Ansiedade de separação, alergia de pele e vitalidade articular'
+                  : 'Ex.: Equilíbrio Neuroemocional, Vitalidade e Prosperidade Profissional'
+              }
               className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
             />
-            <p className="mt-1.5 text-xs text-[#64748B]">
-              Se o foco incluir prosperidade, finanças ou carreira, o algoritmo habilita o arquétipo
-              Turbilhão com Prosperador na Etapa 2.
-            </p>
+            {!isPet && (
+              <p className="mt-1.5 text-xs text-[#64748B]">
+                Se o foco incluir prosperidade, finanças ou carreira, o algoritmo habilita o arquétipo
+                Turbilhão com Prosperador na Etapa 2.
+              </p>
+            )}
           </div>
 
           <div>
@@ -555,14 +790,20 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
               htmlFor="medicalTreatments"
               className="block text-xs font-semibold text-[#0F172A] mb-1.5"
             >
-              Acompanhamento Médico / Medicações em Uso
+              {isPet
+                ? 'Acompanhamento Veterinário / Medicações em Uso'
+                : 'Acompanhamento Médico / Medicações em Uso'}
             </label>
             <textarea
               id="medicalTreatments"
               rows={3}
               value={anamnesis.medicalTreatments}
               onChange={(e) => handleField('medicalTreatments', e.target.value)}
-              placeholder="Descreva diagnósticos clínicos, acompanhamentos médicos ou medicações atuais..."
+              placeholder={
+                isPet
+                  ? 'Descreva diagnósticos veterinários, vermífugos, ração terapêutica ou medicações atuais do animal...'
+                  : 'Descreva diagnósticos clínicos, acompanhamentos médicos ou medicações atuais...'
+              }
               className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
             />
           </div>
@@ -572,7 +813,9 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         <div className="lg:col-span-7 bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col justify-between space-y-5">
           <div className="space-y-5">
             <h2 className="font-serif text-lg font-bold text-[#0F172A] pb-3 border-b border-[#E2E8F0]">
-              Queixas Clínicas e Mapeamento Psicossomático
+              {isPet
+                ? 'Comportamento do Pet, Sinais Clínicos & Campo do Lar'
+                : 'Queixas Clínicas e Mapeamento Psicossomático'}
             </h2>
 
             <div>
@@ -580,14 +823,20 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 htmlFor="emotionalHistory"
                 className="block text-xs font-semibold text-[#0F172A] mb-1.5"
               >
-                Histórico Emocional, Mental e Gatilhos Recentes
+                {isPet
+                  ? 'Comportamento, Rotina Emocional e Mudanças no Ambiente'
+                  : 'Histórico Emocional, Mental e Gatilhos Recentes'}
               </label>
               <textarea
                 id="emotionalHistory"
                 rows={4}
                 value={anamnesis.emotionalHistory}
                 onChange={(e) => handleField('emotionalHistory', e.target.value)}
-                placeholder="Ansiedade, luto, sobrecarga familiar/profissional, padrões de pensamento recorrentes, qualidade do sono..."
+                placeholder={
+                  isPet
+                    ? 'Medo de fogos/trovões, agitação, tristeza, mudança de residência, chegada de outro animal ou bebê, apego ao tutor...'
+                    : 'Ansiedade, luto, sobrecarga familiar/profissional, padrões de pensamento recorrentes, qualidade do sono...'
+                }
                 className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
               />
             </div>
@@ -597,14 +846,20 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 htmlFor="physicalSymptoms"
                 className="block text-xs font-semibold text-[#0F172A] mb-1.5"
               >
-                Queixas Clínicas Físicas e Sinais Corporais
+                {isPet
+                  ? 'Queixas Físicas, Pele/Pelo e Sinais Observados'
+                  : 'Queixas Clínicas Físicas e Sinais Corporais'}
               </label>
               <textarea
                 id="physicalSymptoms"
                 rows={4}
                 value={anamnesis.physicalSymptoms}
                 onChange={(e) => handleField('physicalSymptoms', e.target.value)}
-                placeholder="Fadiga, dores musculares/cervicais, alterações digestivas, baixa imunidade, enxaqueca..."
+                placeholder={
+                  isPet
+                    ? 'Coceira, dermatite, queda de pelo, sensibilidade digestiva/renal, dor articular, falta de apetite ou prostração...'
+                    : 'Fadiga, dores musculares/cervicais, alterações digestivas, baixa imunidade, enxaqueca...'
+                }
                 className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
               />
             </div>
@@ -621,7 +876,11 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 rows={2}
                 value={anamnesis.clinicalNotes}
                 onChange={(e) => handleField('clinicalNotes', e.target.value)}
-                placeholder="Percepções iniciais durante a entrevista clínica..."
+                placeholder={
+                  isPet
+                    ? 'Percepções sobre a sintonia do pet com o tutor e ambiente da casa...'
+                    : 'Percepções iniciais durante a entrevista clínica...'
+                }
                 className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
               />
             </div>
@@ -643,7 +902,9 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                   }`}
                 />
                 <span className="text-xs font-bold text-[#0F172A]">
-                  Ciência e Consentimento (LGPD) *
+                  {isPet
+                    ? 'Consentimento Ético Veterinário e LGPD do Tutor *'
+                    : 'Ciência e Consentimento (LGPD) *'}
                 </span>
               </div>
               {anamnesis.lgpdConsent && anamnesis.lgpdConsentDate && (
@@ -665,9 +926,9 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 className="mt-0.5 h-4 w-4 rounded border-[#CBD5E1] text-[#0F172A] accent-[#0F172A] focus:ring-[#D97706] shrink-0 cursor-pointer"
               />
               <span className="text-xs leading-relaxed text-[#334155]">
-                Consulente ciente de que a Radiestesia Terapêutica atua como suporte vibracional
-                integrativo complementar, não substituindo diagnóstico ou tratamento
-                médico/psicológico, e autoriza o registro confidencial dos seus dados.
+                {isPet
+                  ? 'Tutor responsável ciente de que a Radiestesia Terapêutica Veterinária atua estritamente como suporte vibracional integrativo complementar, não substituindo consulta, diagnóstico, exames ou tratamento do médico-veterinário, e autoriza o registro confidencial dos dados.'
+                  : 'Consulente ciente de que a Radiestesia Terapêutica atua como suporte vibracional integrativo complementar, não substituindo diagnóstico ou tratamento médico/psicológico, e autoriza o registro confidencial dos seus dados.'}
               </span>
             </label>
           </div>
@@ -675,7 +936,9 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
           <div className="pt-4 border-t border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <p className="text-xs text-[#64748B]">
               {!anamnesis.lgpdConsent
-                ? 'Campos com * e confirmação de ciência LGPD são obrigatórios para avançar.'
+                ? isPet
+                  ? 'Preencha os campos com * (Pet, Tutor, Foco) e confirme o consentimento ético veterinário para avançar.'
+                  : 'Campos com * e confirmação de ciência LGPD são obrigatórios para avançar.'
                 : 'Campos com * são obrigatórios para formatar o Testemunho Informacional.'}
             </p>
             <button
@@ -683,7 +946,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
               disabled={!canProceed}
               className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] hover:shadow-[0_0_16px_rgba(217,119,6,0.25)] disabled:opacity-45 disabled:cursor-not-allowed transition-all cursor-pointer whitespace-nowrap"
             >
-              Avançar para Sintonia Sensitiva
+              {isPet ? 'Avançar para Sintonia (Contexto PETS)' : 'Avançar para Sintonia Sensitiva'}
               <ArrowRight className="w-4 h-4 text-[#F59E0B]" />
             </button>
           </div>

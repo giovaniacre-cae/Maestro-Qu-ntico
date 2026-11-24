@@ -154,7 +154,7 @@ function getGeminiClient(): GoogleGenAI {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '15mb' }));
+  app.use(express.json({ limit: '25mb' }));
 
   // Allow cross-origin API requests when frontend is wrapped in Median.co or GitHub Pages
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
@@ -419,18 +419,41 @@ async function startServer() {
         ? `Tipo de Sessão: ${sessionType} (Pós-Tratamento — gere análise evolutiva positiva coerente com o quadro atual)`
         : 'Sessão de Avaliação Inicial (não há sessão anterior).';
 
+      const isPet = anamnesis.interagentType === 'pet';
+      const petSpeciesBreed = [anamnesis.petSpecies, anamnesis.petBreed?.trim()]
+        .filter(Boolean)
+        .join('/');
+      const tutorPart = anamnesis.tutorName?.trim()
+        ? `Tutor: ${anamnesis.tutorName.trim()}`
+        : '';
+      const petMeta = [petSpeciesBreed, tutorPart].filter(Boolean).join(' • ');
+      const interagentWitnessName = isPet
+        ? petMeta
+          ? `${anamnesis.fullName} (${petMeta})`
+          : anamnesis.fullName
+        : anamnesis.fullName;
+      const birthOrAgeFormatted = isPet
+        ? [birthFormatted !== 'Data não informada' ? birthFormatted : '', anamnesis.petAge?.trim() || '']
+            .filter(Boolean)
+            .join(' • ') || 'Idade não informada'
+        : birthFormatted;
+
       const prompt = `
 Você é o Motor de Ressonância Harmônica do sistema clínico "Maestro Quântico v2.0" (Maestro Terapias Vibracionais, conduzido pelo terapeuta Giovani Caetano).
 Com base na ficha clínica completa ANSAE + RHEN e nos biômetros consultados abaixo, gere o protocolo vibracional completo em JSON estrito.
 
-DADOS DO PACIENTE (ANAMNESE):
+${isPet ? 'PERFIL DO INTERAGENTE: ANIMAL DE ESTIMAÇÃO (PET) — ATENDIMENTO VETERINÁRIO INTEGRATIVO COMPLEMENTAR' : 'PERFIL DO INTERAGENTE: PESSOA (HUMANO)'}
+DADOS DA ANAMNESE:
 - Tipo de Sessão: ${sessionType || 'Avaliação Inicial'}
-- Nome Completo: ${anamnesis.fullName}
-- Data de Nascimento: ${birthFormatted}
+- Identificação / Testemunho: ${interagentWitnessName}
+- ${isPet ? 'Nascimento / Idade do Pet' : 'Data de Nascimento'}: ${birthOrAgeFormatted}
+${isPet ? `- Espécie / Raça: ${petSpeciesBreed || 'Não informada'}
+- Ambiente Doméstico: ${anamnesis.petEnvironment || 'Não informado'}
+- Tutor Responsável: ${anamnesis.tutorName || 'Não informado'}` : ''}
 - Foco Específico: ${anamnesis.therapeuticFocus}
-- Histórico Emocional/Mental: ${anamnesis.emotionalHistory}
+- ${isPet ? 'Comportamento / Rotina Emocional' : 'Histórico Emocional/Mental'}: ${anamnesis.emotionalHistory}
 - Sintomas Físicos: ${anamnesis.physicalSymptoms}
-- Tratamentos Médicos Atuais: ${anamnesis.medicalTreatments}
+- ${isPet ? 'Acompanhamento Veterinário Atual' : 'Tratamentos Médicos Atuais'}: ${anamnesis.medicalTreatments}
 - Observações Clínicas: ${anamnesis.clinicalNotes}
 
 FICHA COMPLETA ANSAE & RHEN:
@@ -459,8 +482,8 @@ ${JSON.stringify(geometriesList, null, 2)}
 
 REGRAS OBRIGATÓRIAS DE REDAÇÃO:
 1. "testemunhos": Crie um item para CADA geometria listada acima (incluindo obrigatoriamente todas as marcadas como "Pendulado pelo Terapeuta"). O campo "testemunhoFormatado" DEVE seguir rigorosamente o padrão:
-   "${anamnesis.fullName} - ${birthFormatted} | [Foco específico (se houver focoEspecifico, priorize-o) adaptado à função daquela geometria]" — e caso a geometria possua "cristalAncorado", inclua ao final " • Frequência Cristalina: [cristalAncorado]" e preencha "cristalAncorado".
-2. "comandosQuanticos": Crie comandos quânticos profundos e personalizados para CADA geometria/etapa ativa selecionada (incluindo obrigatoriamente todas as marcadas como "Pendulado pelo Terapeuta" e respeitando seu "focoEspecifico"), integrando os chakras, órgãos/sistemas ANSAE (citando explicitamente os valores exatos em Ångströms aferidos quando disponíveis, comandando a elevação de órgãos/sistemas em 0.000 Å, 4.500 Å ou < 6.500 Å para acima de 9.500 Å de Energia de Saúde), cores em falta e virtudes detectadas. Se a geometria possuir "cristalAncorado", incorpore explicitamente a assinatura vibracional informacional desse cristal no comando (ex.: "Ativo a geometria de [Gráfico] potencializada pela frequência vibracional informacional de [Cristal] sobre ${anamnesis.fullName}...") e preencha "cristalAncorado". Cada "comandoTexto" DEVE:
+   "${interagentWitnessName} - ${birthOrAgeFormatted} | [Foco específico (se houver focoEspecifico, priorize-o) adaptado à função daquela geometria]" — e caso a geometria possua "cristalAncorado", inclua ao final " • Frequência Cristalina: [cristalAncorado]" e preencha "cristalAncorado".
+2. "comandosQuanticos": Crie comandos quânticos profundos e personalizados para CADA geometria/etapa ativa selecionada (incluindo obrigatoriamente todas as marcadas como "Pendulado pelo Terapeuta" e respeitando seu "focoEspecifico"), integrando os chakras, órgãos/sistemas ANSAE (citando explicitamente os valores exatos em Ångströms aferidos quando disponíveis, comandando a elevação de órgãos/sistemas em 0.000 Å, 4.500 Å ou < 6.500 Å para acima de 9.500 Å de Energia de Saúde), cores em falta e virtudes detectadas. Se a geometria possuir "cristalAncorado", incorpore explicitamente a assinatura vibracional informacional desse cristal no comando (ex.: "Ativo a geometria de [Gráfico] potencializada pela frequência vibracional informacional de [Cristal] sobre ${interagentWitnessName}...") e preencha "cristalAncorado". Cada "comandoTexto" DEVE:
    - Ser redigido na 1ª pessoa do presente do indicativo ("Eu colapso...", "Eu ativo...", "Eu ancoro...").
    - Integrar conceitos de física quântica (colapso de função de onda, campo de ponto zero, não-localidade).
    - Integrar Ressonância Harmônica (transferência de informação arquetípica pura, transmutação na Escala de Hawkins).
@@ -468,16 +491,16 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
 3. "analiseCausaRaiz": Análise técnica cruzando especificamente os sistemas e órgãos ANSAE em desequilíbrio (citando % e Energia de Saúde em Å), os chakras/glândulas afetados, os campos eletromagnéticos, as áreas da vida comprometidas e as emoções/causas raiz.
 4. "analisePsicossomatica": Texto técnico-clínico de 2 parágrafos para o Relatório do Terapeuta correlacionando Bovis, Hawkins/Ágatha, Yin/Yang, campo áurico (cruzando obrigatoriamente cada cor em falta/excesso com o seu Chakra correspondente — ex.: excessos inferiores/médios vs. carências superiores) e somatização orgânica.
 5. "comparativoEvolutivo": ${isPostTreatment ? 'OBRIGATÓRIO: Compare numericamente e clinicamente os ganhos entre a sessão anterior e a leitura atual (Bovis, Hawkins, Aura, Estresse e órgãos), destacando a resposta do organismo ao protocolo.' : 'Retorne string vazia "" por ser Avaliação Inicial.'}
-6. "orientacaoPacienteResumo": Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual${activeRemediesList.length > 0 ? ', mencionando com suavidade o suporte vibracional à distância dos remédios sutis programados e reforçando que nunca substitui nem autoriza suspender medicações médicas prescritas' : ''}.
-7. "orientacaoChakrasAuraHabitos": Texto prático e acolhedor traduzindo para o paciente o significado dos chakras em atenção, relacionando diretamente cada cor da aura em falta e em excesso ao seu chakra correspondente (como nutrir as cores em falta em roupas, visualização ou ambiente e desacelerar os excessos) e dos hábitos saudáveis aferidos.
-8. "welcomeMessage": Redija uma Mensagem Inicial de Acolhimento Humanizado (1 parágrafo acolhedor, empático, fraterno e encorajador, de 5 a 7 linhas) para abrir o Guia do Paciente. Valide com sensibilidade as queixas físicas ou emocionais relatadas pelo interagente na anamnese, desmistifique a leitura energética sem gerar medo ou alarme, e reforce o vínculo terapêutico e a confiança serena no processo de restauração e cura.
+6. "orientacaoPacienteResumo": ${isPet ? `Texto acolhedor, humanizado e claro direcionado ao(à) Tutor(a) ${anamnesis.tutorName || 'responsável'} explicando o momento energético do pet ${interagentWitnessName}, reforçando que este apoio vibracional nunca substitui nem autoriza suspender medicações prescritas pelo médico-veterinário.` : `Texto acolhedor, humanizado, claro e sem jargões técnicos pesados (2 parágrafos) explicando para o paciente seu momento energético atual${activeRemediesList.length > 0 ? ', mencionando com suavidade o suporte vibracional à distância dos remédios sutis programados e reforçando que nunca substitui nem autoriza suspender medicações médicas prescritas' : ''}.`}
+7. "orientacaoChakrasAuraHabitos": ${isPet ? 'Texto prático direcionado ao Tutor traduzindo os chakras e cores em atenção do pet (ex.: mantinhas/caminha nas cores indicadas, ambiente tranquilo) e os cuidados no espaço de descanso.' : 'Texto prático e acolhedor traduzindo para o paciente o significado dos chakras em atenção, relacionando diretamente cada cor da aura em falta e em excesso ao seu chakra correspondente (como nutrir as cores em falta em roupas, visualização ou ambiente e desacelerar os excessos) e dos hábitos saudáveis aferidos.'}
+8. "welcomeMessage": ${isPet ? `Redija uma Mensagem Inicial de Acolhimento ao Tutor (começando com "Prezado(a) ${anamnesis.tutorName?.trim().split(/\s+/)[0] || 'Tutor(a)'}:\\n", 1 parágrafo empático de 5 a 7 linhas) para abrir o Guia do Tutor sobre o cuidado de ${interagentWitnessName}, acolhendo as queixas físicas/comportamentais do pet e reforçando a parceria complementar com o médico-veterinário.` : 'Redija uma Mensagem Inicial de Acolhimento Humanizado (1 parágrafo acolhedor, empático, fraterno e encorajador, de 5 a 7 linhas) para abrir o Guia do Paciente. Valide com sensibilidade as queixas físicas ou emocionais relatadas pelo interagente na anamnese, desmistifique a leitura energética sem gerar medo ou alarme, e reforce o vínculo terapêutico e a confiança serena no processo de restauração e cura.'}
 9. "prescricoes":
-   - "floraisBach": 3 a 4 recomendações específicas (incorporando os aferidos nos biômetros, se houver) com breve justificativa.
-   - "cristais": 2 a 4 cristais terapêuticos alinhados aos chakras em desequilíbrio e cores em falta (informando uso prático).
-   - "fitoterapiaChas": 2 a 3 recomendações de chás/fitoterápicos suaves e integrativos alinhados aos órgãos ANSAE.
-   - "bonsHabitos": 3 a 4 hábitos práticos de rotina aferidos para consolidação do equilíbrio.
+   - "floraisBach": ${isPet ? '3 recomendações de Florais de Bach SEM ÁLCOOL (manipulados em base água pura ou glicerina para colocar na água limpa do bebedouro do pet) com breve justificativa.' : '3 a 4 recomendações específicas (incorporando os aferidos nos biômetros, se houver) com breve justificativa.'}
+   - "cristais": 2 a 4 cristais terapêuticos alinhados aos chakras em desequilíbrio e cores em falta (${isPet ? 'uso seguro próximo ao cantinho/caminha, fora do alcance para ingestão pelo pet' : 'informando uso prático'}).
+   - "fitoterapiaChas": ${isPet ? '2 orientações seguras de hidratação com água fresca e apoio vibracional (NUNCA recomendar chás ou ervas potencialmente tóxicos a cães/gatos sem liberação do médico-veterinário).' : '2 a 3 recomendações de chás/fitoterápicos suaves e integrativos alinhados aos órgãos ANSAE.'}
+   - "bonsHabitos": ${isPet ? '3 a 4 hábitos práticos de cuidado do tutor com a água, caminha/leito, rotina tranquila e higiene energética do lar.' : '3 a 4 hábitos práticos de rotina aferidos para consolidação do equilíbrio.'}
    - "frequenciasSolfeggio": 2 a 3 frequências recomendadas escolhidas preferencialmente entre 432, 528 e 741 Hz (com hz numérico, nome e indicação).
-   - "pilaresAutocuidado": orientações práticas e acolhedoras para cada um dos 4 pilares diários (hidratacaoFitoterapia, higieneMentalOracao, ambiente, acompanhamentoMedico — sempre reforçando que a terapia vibracional é complementar e não substitui acompanhamento médico convencional).
+   - "pilaresAutocuidado": ${isPet ? 'orientações práticas para o Tutor cuidar do pet em cada um dos 4 pilares: hidratacaoFitoterapia (água fresca e florais sem álcool), higieneMentalOracao (rotina calma e serenidade do tutor), ambiente (higiene física e energética da caminha e do lar), acompanhamentoMedico (manter consultas, exames e prescrições do médico-veterinário).' : 'orientações práticas e acolhedoras para cada um dos 4 pilares diários (hidratacaoFitoterapia, higieneMentalOracao, ambiente, acompanhamentoMedico — sempre reforçando que a terapia vibracional é complementar e não substitui acompanhamento médico convencional).'}
 `;
 
       const generateRequest = () =>
@@ -981,6 +1004,522 @@ Retorne EXCLUSIVAMENTE um JSON válido exatamente neste formato curto:
       }
       res.status(500).json({ error: msg });
     }
+  });
+
+  // Rota rápida para Análise Onírica & Acompanhamento Clínico com IA (gemini-3.8-flash)
+  app.post('/api/clinical/analyze-dream', async (req: Request, res: Response) => {
+    try {
+      const {
+        patientName,
+        category,
+        narrative,
+        activeGraphics,
+        clinicalContext,
+      } = req.body as {
+        patientName?: string;
+        category?: 'sonho' | 'catarse_sintoma' | 'evolucao_emocional' | 'retorno_geral';
+        narrative?: string;
+        activeGraphics?: string[];
+        clinicalContext?: {
+          bovis?: number;
+          hawkinsLabel?: string;
+          auricProtection?: number;
+          stressLevel?: number;
+          therapeuticFocus?: string;
+          emotionalHistory?: string;
+          imbalancedChakras?: string[];
+          criticalOrgans?: string[];
+          phaseLabel?: string;
+          interagentType?: 'humano' | 'pet';
+          petSpecies?: string;
+          tutorName?: string;
+        };
+      };
+
+      const cleanNarrative = typeof narrative === 'string' ? narrative.trim() : '';
+      if (!cleanNarrative) {
+        res.status(400).json({
+          error: 'Descreva o sonho, sensação ou relato de retorno antes de solicitar a análise.',
+        });
+        return;
+      }
+
+      const cleanName =
+        typeof patientName === 'string' && patientName.trim()
+          ? patientName.trim()
+          : 'Consulente';
+
+      const categoryLabelMap: Record<string, string> = {
+        sonho: 'Relato Onírico (Sonho)',
+        catarse_sintoma: 'Catarse ou Sintoma Físico/Energético',
+        evolucao_emocional: 'Evolução Emocional / Percepção Sutil',
+        retorno_geral: 'Retorno Geral de Acompanhamento',
+      };
+      const categoryLabel = categoryLabelMap[String(category || 'retorno_geral')] || 'Retorno Geral';
+
+      const graphicsList =
+        Array.isArray(activeGraphics) && activeGraphics.length > 0
+          ? activeGraphics.map((g) => String(g).trim()).filter(Boolean)
+          : ['Nenhuma placa radiônica ativa registrada no momento'];
+
+      const ctx = clinicalContext && typeof clinicalContext === 'object' ? clinicalContext : {};
+      const isPet = ctx.interagentType === 'pet';
+      const imbalancedChakrasText =
+        Array.isArray(ctx.imbalancedChakras) && ctx.imbalancedChakras.length > 0
+          ? ctx.imbalancedChakras.join(', ')
+          : 'Sem chakras em desequilíbrio acentuado registrados';
+      const criticalOrgansText =
+        Array.isArray(ctx.criticalOrgans) && ctx.criticalOrgans.length > 0
+          ? ctx.criticalOrgans.join(', ')
+          : 'Sem órgãos/sistemas críticos destacados';
+
+      const ai = getGeminiClient();
+
+      const prompt = `Você é um radiestesista clínico experiente, psicoterapeuta integrativo e analista simbólico junguiano atuando no sistema Maestro Quântico.
+
+DADOS DO ACOMPANHAMENTO:
+- Interagente: ${cleanName}${isPet ? ` (Animal / PET${ctx.petSpecies ? ` - ${ctx.petSpecies}` : ''}${ctx.tutorName ? ` | Tutor: ${ctx.tutorName}` : ''})` : ''}
+- Categoria do Relato: ${categoryLabel}
+- Fase atual na Mesa Quântica: ${ctx.phaseLabel || 'Em acompanhamento'}
+- Gráficos Radiônicos Ativos no Momento: ${graphicsList.join(' | ')}
+
+CONTEXTO CLÍNICO DA ÚLTIMA AVALIAÇÃO (ANSAE + RHEN):
+- Biômetro de Bovis: ${typeof ctx.bovis === 'number' ? `${ctx.bovis} Å` : 'Não informado'}
+- Escala Hawkins / Ágatha: ${ctx.hawkinsLabel || 'Não informada'}
+- Proteção Áurica: ${typeof ctx.auricProtection === 'number' ? `${ctx.auricProtection}%` : 'Não informada'}
+- Estresse Neural (0-9): ${typeof ctx.stressLevel === 'number' ? `${ctx.stressLevel}/9` : 'Não informado'}
+- Chakras em Atenção: ${imbalancedChakrasText}
+- Órgãos / Sistemas Críticos: ${criticalOrgansText}
+- Foco Terapêutico / Queixa Principal: ${ctx.therapeuticFocus || 'Harmonização integral'}
+- Histórico Emocional: ${ctx.emotionalHistory || 'Não informado'}
+
+RELATO ENVIADO:
+"${cleanNarrative}"
+
+INSTRUÇÕES DE ANÁLISE CRUZADA:
+1. No campo "therapistAnalysis", escreva uma análise clínica técnica, profunda e objetiva para o terapeuta (em português brasileiro, texto corrido bem estruturado em 2 a 3 parágrafos curtos, sem usar asteriscos "*"). Cruze diretamente os símbolos do sonho ou os sintomas/emoções relatados com os gráficos radiônicos ativos no momento (explicando como placas como Programador Físico, Alta Vitalidade, Mesa D'Amiens, Decágono Duplo, SCAP Cabalístico, Desimpregnador, Yoshua etc. estão mobilizando o campo), relacione com os chakras/órgãos/Bovis/Hawkins informados, avalie se há sinal de catarse terapêutica ou acomodação vibracional e sugira uma conduta prática (ex.: manter a emissão, observar hidratação, fazer pausa ou revisar placa).
+2. No campo "patientFeedbackMessage", escreva uma mensagem pronta para WhatsApp direcionada ao paciente${isPet ? ' (dirigindo-se com carinho ao tutor responsável pelo animal)' : ''}. A mensagem deve:
+- Ter tom acolhedor, sereno, positivo e tranquilizador;
+- Explicar de forma simples e construtiva por que esse sonho, sensação ou movimento emocional costuma acontecer durante o processo de limpeza e reequilíbrio energético;
+- NUNCA usar jargão técnico assustador (evite palavras como "catarse severa", "implante", "obsessão", "perigo", "doença grave") e NUNCA usar asteriscos "*" ou marcação markdown;
+- Incluir uma orientação prática breve de 2 minutos (respiração calma, hidratação e visualização positiva ou acolhimento tranquilo${isPet ? ' ao lado do pet' : ''}).
+
+Retorne EXCLUSIVAMENTE um JSON válido com estas duas chaves exatas:
+{
+  "therapistAnalysis": "...",
+  "patientFeedbackMessage": "..."
+}`;
+
+      const callAnalyze = async (useFallbackLite: boolean) => {
+        if (!useFallbackLite) {
+          return ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: prompt,
+            config: {
+              thinkingConfig: { thinkingBudget: 0 },
+              responseMimeType: 'application/json',
+              abortSignal: AbortSignal.timeout(8000),
+            },
+          });
+        }
+        return ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: prompt,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+            responseMimeType: 'application/json',
+            abortSignal: AbortSignal.timeout(9000),
+          },
+        });
+      };
+
+      let response;
+      try {
+        response = await callAnalyze(false);
+      } catch (primaryErr) {
+        const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        const shouldTryFallback =
+          /503|404|UNAVAILABLE|NOT_FOUND|high demand|overloaded|abort|timeout/i.test(primaryMsg);
+        if (!shouldTryFallback) {
+          throw primaryErr;
+        }
+        console.warn(
+          '[POST /api/clinical/analyze-dream] gemini-3.8-flash indisponível, alternando para gemini-3.1-flash-lite:',
+          primaryMsg
+        );
+        response = await callAnalyze(true);
+      }
+
+      const rawText = (response?.text ?? '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida do modelo Gemini.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText) as {
+        therapistAnalysis?: unknown;
+        patientFeedbackMessage?: unknown;
+      };
+
+      const therapistAnalysis =
+        typeof parsed.therapistAnalysis === 'string'
+          ? parsed.therapistAnalysis.replace(/\*/g, '').trim()
+          : '';
+      const patientFeedbackMessage =
+        typeof parsed.patientFeedbackMessage === 'string'
+          ? parsed.patientFeedbackMessage.replace(/\*/g, '').trim()
+          : '';
+
+      if (!therapistAnalysis || !patientFeedbackMessage) {
+        res.status(502).json({
+          error: 'O modelo não retornou os dois blocos esperados da análise clínica.',
+        });
+        return;
+      }
+
+      res.json({
+        therapistAnalysis,
+        patientFeedbackMessage,
+      });
+    } catch (err) {
+      console.error('[POST /api/clinical/analyze-dream] Erro:', err);
+      let msg =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Erro interno ao processar análise onírica e clínica.';
+      try {
+        const parsedErr = JSON.parse(msg);
+        if (parsedErr?.error?.message) {
+          msg = String(parsedErr.error.message);
+        }
+      } catch {
+        // Keep raw message when not JSON
+      }
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  const MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024;
+  const ALLOWED_GEMINI_AUDIO_MIMES = new Set([
+    'audio/ogg',
+    'audio/mp3',
+    'audio/mp4',
+    'audio/wav',
+    'audio/webm',
+    'audio/aac',
+    'audio/flac',
+  ]);
+
+  function normalizeAudioMimeTypeServer(rawMime?: string, fileName?: string): string | null {
+    const baseMime = typeof rawMime === 'string' ? rawMime.split(';')[0].trim().toLowerCase() : '';
+    const ext = typeof fileName === 'string' ? path.extname(fileName).trim().toLowerCase() : '';
+
+    const byAlias: Record<string, string> = {
+      'audio/ogg': 'audio/ogg',
+      'application/ogg': 'audio/ogg',
+      'audio/opus': 'audio/ogg',
+      'audio/mpeg': 'audio/mp3',
+      'audio/mp3': 'audio/mp3',
+      'audio/mp4': 'audio/mp4',
+      'audio/x-m4a': 'audio/mp4',
+      'audio/m4a': 'audio/mp4',
+      'video/mp4': 'audio/mp4',
+      'audio/wav': 'audio/wav',
+      'audio/x-wav': 'audio/wav',
+      'audio/wave': 'audio/wav',
+      'audio/webm': 'audio/webm',
+      'video/webm': 'audio/webm',
+      'audio/aac': 'audio/aac',
+      'audio/flac': 'audio/flac',
+    };
+
+    if (baseMime && byAlias[baseMime]) {
+      return byAlias[baseMime];
+    }
+
+    const byExt: Record<string, string> = {
+      '.ogg': 'audio/ogg',
+      '.opus': 'audio/ogg',
+      '.mp3': 'audio/mp3',
+      '.m4a': 'audio/mp4',
+      '.mp4': 'audio/mp4',
+      '.wav': 'audio/wav',
+      '.webm': 'audio/webm',
+      '.aac': 'audio/aac',
+      '.flac': 'audio/flac',
+    };
+
+    if (ext && byExt[ext]) {
+      return byExt[ext];
+    }
+
+    if (baseMime && ALLOWED_GEMINI_AUDIO_MIMES.has(baseMime)) {
+      return baseMime;
+    }
+
+    return null;
+  }
+
+  // Endpoint Multimodal para Transcrição de Áudio (WhatsApp/Celular) + Análise Clínica Cruzada
+  app.post('/api/clinical/analyze-dream-audio', async (req: Request, res: Response) => {
+    try {
+      const {
+        audioBase64,
+        mimeType,
+        fileName,
+        patientName,
+        category,
+        activeGraphics,
+        clinicalContext,
+      } = req.body as {
+        audioBase64?: string;
+        mimeType?: string;
+        fileName?: string;
+        patientName?: string;
+        category?: 'sonho' | 'catarse_sintoma' | 'evolucao_emocional' | 'retorno_geral';
+        activeGraphics?: string[];
+        clinicalContext?: {
+          bovis?: number;
+          hawkinsLabel?: string;
+          auricProtection?: number;
+          stressLevel?: number;
+          therapeuticFocus?: string;
+          emotionalHistory?: string;
+          imbalancedChakras?: string[];
+          criticalOrgans?: string[];
+          phaseLabel?: string;
+          interagentType?: 'humano' | 'pet';
+          petSpecies?: string;
+          tutorName?: string;
+        };
+      };
+
+      const rawAudio = typeof audioBase64 === 'string' ? audioBase64.trim() : '';
+      if (!rawAudio) {
+        res.status(400).json({ error: 'Nenhum arquivo de áudio foi enviado para transcrição.' });
+        return;
+      }
+
+      const cleanBase64 = rawAudio.includes('base64,')
+        ? rawAudio.split('base64,')[1].trim()
+        : rawAudio;
+
+      if (!cleanBase64) {
+        res.status(400).json({ error: 'Conteúdo Base64 do áudio está vazio ou inválido.' });
+        return;
+      }
+
+      const audioByteLength = Buffer.from(cleanBase64, 'base64').byteLength;
+      if (audioByteLength === 0) {
+        res.status(400).json({ error: 'Arquivo de áudio vazio ou corrompido.' });
+        return;
+      }
+      if (audioByteLength > MAX_AUDIO_UPLOAD_BYTES) {
+        res.status(500).json({
+          error: 'O arquivo de áudio excede o limite máximo de 15 MB. Envie um áudio menor.',
+        });
+        return;
+      }
+
+      const resolvedMime = normalizeAudioMimeTypeServer(mimeType, fileName);
+      if (!resolvedMime) {
+        res.status(400).json({
+          error:
+            'Formato de áudio não suportado. Utilize arquivos .ogg, .opus, .mp3, .m4a, .mp4, .wav ou .webm.',
+        });
+        return;
+      }
+
+      const cleanName =
+        typeof patientName === 'string' && patientName.trim()
+          ? patientName.trim()
+          : 'Consulente';
+
+      const categoryLabelMap: Record<string, string> = {
+        sonho: 'Relato Onírico (Sonho)',
+        catarse_sintoma: 'Catarse ou Sintoma Físico/Energético',
+        evolucao_emocional: 'Evolução Emocional / Percepção Sutil',
+        retorno_geral: 'Retorno Geral de Acompanhamento',
+      };
+      const categoryLabel = categoryLabelMap[String(category || 'retorno_geral')] || 'Retorno Geral';
+
+      const graphicsList =
+        Array.isArray(activeGraphics) && activeGraphics.length > 0
+          ? activeGraphics.map((g) => String(g).trim()).filter(Boolean)
+          : ['Nenhuma placa radiônica ativa registrada no momento'];
+
+      const ctx = clinicalContext && typeof clinicalContext === 'object' ? clinicalContext : {};
+      const isPet = ctx.interagentType === 'pet';
+      const imbalancedChakrasText =
+        Array.isArray(ctx.imbalancedChakras) && ctx.imbalancedChakras.length > 0
+          ? ctx.imbalancedChakras.join(', ')
+          : 'Sem chakras em desequilíbrio acentuado registrados';
+      const criticalOrgansText =
+        Array.isArray(ctx.criticalOrgans) && ctx.criticalOrgans.length > 0
+          ? ctx.criticalOrgans.join(', ')
+          : 'Sem órgãos/sistemas críticos destacados';
+
+      const ai = getGeminiClient();
+
+      const prompt = `Você é um radiestesista clínico experiente, psicoterapeuta integrativo e analista simbólico junguiano atuando no sistema Maestro Quântico.
+Ouça atentamente o áudio enviado pelo paciente${isPet ? ' (ou tutor responsável)' : ''} pelo WhatsApp/celular e execute estas três tarefas em uma única resposta JSON:
+
+DADOS DO ACOMPANHAMENTO:
+- Interagente: ${cleanName}${isPet ? ` (Animal / PET${ctx.petSpecies ? ` - ${ctx.petSpecies}` : ''}${ctx.tutorName ? ` | Tutor: ${ctx.tutorName}` : ''})` : ''}
+- Categoria selecionada: ${categoryLabel}
+- Fase atual na Mesa Quântica: ${ctx.phaseLabel || 'Em acompanhamento'}
+- Gráficos Radiônicos Ativos no Momento: ${graphicsList.join(' | ')}
+
+CONTEXTO CLÍNICO DA ÚLTIMA AVALIAÇÃO (ANSAE + RHEN):
+- Biômetro de Bovis: ${typeof ctx.bovis === 'number' ? `${ctx.bovis} Å` : 'Não informado'}
+- Escala Hawkins / Ágatha: ${ctx.hawkinsLabel || 'Não informada'}
+- Proteção Áurica: ${typeof ctx.auricProtection === 'number' ? `${ctx.auricProtection}%` : 'Não informada'}
+- Estresse Neural (0-9): ${typeof ctx.stressLevel === 'number' ? `${ctx.stressLevel}/9` : 'Não informado'}
+- Chakras em Atenção: ${imbalancedChakrasText}
+- Órgãos / Sistemas Críticos: ${criticalOrgansText}
+- Foco Terapêutico / Queixa Principal: ${ctx.therapeuticFocus || 'Harmonização integral'}
+- Histórico Emocional: ${ctx.emotionalHistory || 'Não informado'}
+
+TAREFAS OBRIGATÓRIAS:
+1. "transcription": Transcreva fielmente em português brasileiro tudo o que foi falado no áudio, com pontuação limpa e natural, preservando detalhes simbólicos, sintomas e emoções narradas sem inventar informações.
+2. "therapistAnalysis": Escreva uma análise clínica técnica, profunda e objetiva para o terapeuta (em português brasileiro, texto corrido bem estruturado em 2 a 3 parágrafos curtos, sem usar asteriscos "*"). Cruze o conteúdo transcrito do áudio diretamente com os gráficos radiônicos ativos no momento (explicando como placas como Programador Físico, Alta Vitalidade, Mesa D'Amiens, Decágono Duplo, SCAP Cabalístico, Desimpregnador, Yoshua etc. estão mobilizando o campo), relacione com os chakras/órgãos/Bovis/Hawkins informados, avalie se há sinal de catarse terapêutica ou acomodação vibracional e sugira conduta prática.
+3. "patientFeedbackMessage": Escreva uma mensagem acolhedora, serena, positiva e tranquilizadora pronta para enviar no WhatsApp ao paciente${isPet ? ' (dirigindo-se ao tutor responsável pelo animal)' : ''}. Explique de forma leve e construtiva o movimento de limpeza/reequilíbrio percebido, NUNCA use jargão técnico assustador nem asteriscos "*" ou marcação markdown, e inclua uma prática breve de 2 minutos de respiração calma ou visualização positiva.
+
+Retorne EXCLUSIVAMENTE um JSON válido com estas três chaves exatas:
+{
+  "transcription": "...",
+  "therapistAnalysis": "...",
+  "patientFeedbackMessage": "..."
+}`;
+
+      const contents = [
+        {
+          inlineData: {
+            data: cleanBase64,
+            mimeType: resolvedMime,
+          },
+        },
+        { text: prompt },
+      ];
+
+      const callAnalyzeAudio = async (useFallbackLite: boolean) => {
+        if (!useFallbackLite) {
+          return ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents,
+            config: {
+              thinkingConfig: { thinkingBudget: 0 },
+              responseMimeType: 'application/json',
+              abortSignal: AbortSignal.timeout(25000),
+            },
+          });
+        }
+        return ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+            responseMimeType: 'application/json',
+            abortSignal: AbortSignal.timeout(25000),
+          },
+        });
+      };
+
+      let response;
+      try {
+        response = await callAnalyzeAudio(false);
+      } catch (primaryErr) {
+        const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        const shouldTryFallback =
+          /503|404|UNAVAILABLE|NOT_FOUND|high demand|overloaded|abort|timeout/i.test(primaryMsg);
+        if (!shouldTryFallback) {
+          throw primaryErr;
+        }
+        console.warn(
+          '[POST /api/clinical/analyze-dream-audio] gemini-3.8-flash indisponível, alternando para gemini-3.1-flash-lite:',
+          primaryMsg
+        );
+        response = await callAnalyzeAudio(true);
+      }
+
+      const rawText = (response?.text ?? '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      if (!rawText) {
+        res.status(502).json({ error: 'Resposta vazia recebida ao processar o áudio no Gemini.' });
+        return;
+      }
+
+      const parsed = JSON.parse(rawText) as {
+        transcription?: unknown;
+        therapistAnalysis?: unknown;
+        patientFeedbackMessage?: unknown;
+      };
+
+      const transcription =
+        typeof parsed.transcription === 'string' ? parsed.transcription.trim() : '';
+      const therapistAnalysis =
+        typeof parsed.therapistAnalysis === 'string'
+          ? parsed.therapistAnalysis.replace(/\*/g, '').trim()
+          : '';
+      const patientFeedbackMessage =
+        typeof parsed.patientFeedbackMessage === 'string'
+          ? parsed.patientFeedbackMessage.replace(/\*/g, '').trim()
+          : '';
+
+      if (!transcription || !therapistAnalysis || !patientFeedbackMessage) {
+        res.status(502).json({
+          error:
+            'O modelo não retornou transcrição, análise clínica e devolutiva completas para este áudio.',
+        });
+        return;
+      }
+
+      res.json({
+        transcription,
+        therapistAnalysis,
+        patientFeedbackMessage,
+      });
+    } catch (err) {
+      console.error('[POST /api/clinical/analyze-dream-audio] Erro:', err);
+      let msg =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Erro interno ao transcrever e analisar o áudio.';
+      try {
+        const parsedErr = JSON.parse(msg);
+        if (parsedErr?.error?.message) {
+          msg = String(parsedErr.error.message);
+        }
+      } catch {
+        // Keep raw message when not JSON
+      }
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // Garante resposta JSON clara para payloads acima do limite no /api
+  app.use('/api', (err: any, _req: Request, res: Response, next: NextFunction) => {
+    if (!err) {
+      next();
+      return;
+    }
+    if (err.type === 'entity.too.large' || err.status === 413) {
+      res.status(500).json({
+        error: 'O arquivo enviado excede o limite máximo permitido de 15 MB.',
+      });
+      return;
+    }
+    const msg = err instanceof Error && err.message ? err.message : 'Erro na requisição da API.';
+    res.status(500).json({ error: msg });
   });
 
   // Serve official biometer & radionic graphic assets directly in both development and production

@@ -6,7 +6,10 @@ import {
   EnergeticRemedyEmitterGraph,
   PatientAnamnesis,
 } from '../types/quantum';
-import { formatBirthDateBR } from './antiCatharsis';
+import {
+  formatInteragentBirthOrAge,
+  formatInteragentDisplayLabel,
+} from './antiCatharsis';
 
 export const ENERGETIC_REMEDY_CATEGORIES: EnergeticRemedyCategory[] = [
   'Florais de Bach',
@@ -175,8 +178,8 @@ export function buildEnergeticRemedyTestimony(params: {
   anamnesis: PatientAnamnesis;
 }): string {
   const formulaLabel = params.items.join(' + ') || 'Fórmula Informacional';
-  const nome = params.anamnesis.fullName.trim() || 'Paciente';
-  const nasc = formatBirthDateBR(params.anamnesis.birthDate) || 'Data não informada';
+  const nome = formatInteragentDisplayLabel(params.anamnesis);
+  const nasc = formatInteragentBirthOrAge(params.anamnesis);
   return `${formulaLabel} → Direcionado para ${nome} - ${nasc} | Emissor: ${params.emitterGraph}`;
 }
 
@@ -189,7 +192,7 @@ export function buildEnergeticRemedyCommand(params: {
   anamnesis: PatientAnamnesis;
   ansaeSheet?: ClinicalAnsaeRhenSheet;
 }): string {
-  const nome = params.anamnesis.fullName.trim() || 'Paciente';
+  const nome = formatInteragentDisplayLabel(params.anamnesis);
   const formulaLabel = params.items.join(', ') || 'fórmula vibracional selecionada';
   const durationLabel = formatRemedyDurationLabel(params.durationHours);
 

@@ -21,6 +21,25 @@ import { loadSessions, saveSessions } from '../data/seedSessions';
 
 const CLINICAL_DB_KEY = 'maestro_quantico_clinical_db_v2';
 const CUSTOM_BIOMETERS_KEY = 'maestro_quantico_custom_biometers_v2';
+export const FOLLOW_UP_LOGS_STORAGE_KEY = 'maestro_quantico_follow_up_logs_v1';
+
+export type FollowUpCategory =
+  | 'sonho'
+  | 'catarse_sintoma'
+  | 'evolucao_emocional'
+  | 'retorno_geral';
+
+export interface FollowUpLogEntry {
+  id: string;
+  patientId: string;
+  patientName: string;
+  date: string;
+  category: FollowUpCategory;
+  narrative: string;
+  activeGraphicsSnapshot: string[];
+  therapistAnalysis: string;
+  patientFeedbackMessage: string;
+}
 
 export const ANSAE_SYSTEMS_META: Record<AnsaeSystemCode, string> = {
   SC: 'Sistema Cardiovascular',
@@ -472,9 +491,15 @@ export function loadClinicalDatabase(): MasterClinicalDatabase {
   const rooms = loadSessions();
   const patients: MasterPatient[] = rooms.map((r) => ({
     id: r.anamnesis.id || `patient-${r.id}`,
+    interagentType: r.anamnesis.interagentType,
     fullName: r.anamnesis.fullName,
     birthDate: r.anamnesis.birthDate,
     phone: r.anamnesis.phone,
+    petSpecies: r.anamnesis.petSpecies,
+    petBreed: r.anamnesis.petBreed,
+    petAge: r.anamnesis.petAge,
+    petEnvironment: r.anamnesis.petEnvironment,
+    tutorName: r.anamnesis.tutorName,
     createdAt: r.activatedAt,
     notes: r.anamnesis.clinicalNotes,
   }));
@@ -856,6 +881,7 @@ export interface FullBackupPayload {
   printableGraphicOverrides: Record<string, PrintableGraphicOverride>;
   customTherapeuticKits?: TherapeuticKit[];
   professionalProfile?: ProfessionalProfile;
+  followUpLogs?: FollowUpLogEntry[];
 }
 
 export interface FullBackupImportSummary {
@@ -867,6 +893,7 @@ export interface FullBackupImportSummary {
   biometerOverridesCount: number;
   customGraphicsCount: number;
   ansaeDraftsCount: number;
+  followUpLogsCount?: number;
 }
 
 function collectAllAnsaeDrafts(): Record<string, ClinicalAnsaeRhenSheet> {
@@ -953,6 +980,7 @@ export function exportFullBackup(): {
   const customTherapeuticKits = loadCustomTherapeuticKits();
   const professionalProfile = getProfessionalProfile();
   const ansaeDrafts = collectAllAnsaeDrafts();
+  const followUpLogs = loadFollowUpLogs();
 
   const payload: FullBackupPayload = {
     backupVersion: 3,
@@ -972,6 +1000,7 @@ export function exportFullBackup(): {
     printableGraphicOverrides,
     customTherapeuticKits,
     professionalProfile,
+    followUpLogs,
   };
 
   const now = new Date();
@@ -1067,6 +1096,10 @@ export async function importFullBackup(
     ? (parsed.customTherapeuticKits as TherapeuticKit[])
     : [];
 
+  const incomingFollowUpLogs: FollowUpLogEntry[] = Array.isArray(parsed.followUpLogs)
+    ? normalizeFollowUpLogs(parsed.followUpLogs as Partial<FollowUpLogEntry>[])
+    : [];
+
   let finalRooms: QuantumRoomSession[];
   let finalDb: MasterClinicalDatabase;
   let finalCustomBiometers: BiometerDefinition[];
@@ -1076,6 +1109,7 @@ export async function importFullBackup(
   let finalHiddenGraphics: string[];
   let finalGraphicOverrides: Record<string, PrintableGraphicOverride>;
   let finalCustomKits: TherapeuticKit[];
+  let finalFollowUpLogs: FollowUpLogEntry[];
 
   if (mode === 'replace') {
     finalRooms = incomingRoomsRaw ?? [];
@@ -1086,6 +1120,7 @@ export async function importFullBackup(
     finalHiddenGraphics = Array.from(new Set(incomingHiddenGraphics));
     finalGraphicOverrides = incomingGraphicOverrides;
     finalCustomKits = incomingCustomKits;
+    finalFollowUpLogs = incomingFollowUpLogs;
 
     finalDb = {
       version: 2,
@@ -1119,6 +1154,7 @@ export async function importFullBackup(
     const existingHiddenGraphics = loadHiddenOfficialGraphics();
     const existingGraphicOverrides = loadPrintableGraphicOverrides();
     const existingCustomKits = loadCustomTherapeuticKits();
+    const existingFollowUpLogs = loadFollowUpLogs();
 
     finalRooms = incomingRoomsRaw
       ? mergeById(existingRooms, incomingRoomsRaw)
@@ -1135,6 +1171,12 @@ export async function importFullBackup(
     );
     finalGraphicOverrides = { ...existingGraphicOverrides, ...incomingGraphicOverrides };
     finalCustomKits = mergeById(existingCustomKits, incomingCustomKits);
+    finalFollowUpLogs = mergeById(
+      existingFollowUpLogs.map((item) => ({ ...item, updatedAt: item.date })),
+      incomingFollowUpLogs.map((item) => ({ ...item, updatedAt: item.date }))
+    )
+      .map(({ updatedAt: _u, ...rest }) => rest as FollowUpLogEntry)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const incomingPatients = Array.isArray(incomingDb?.patients) ? incomingDb.patients : [];
     const incomingSessions = Array.isArray(incomingDb?.sessions)
@@ -1168,6 +1210,7 @@ export async function importFullBackup(
   saveHiddenOfficialBiometers(finalHiddenBiometers);
   saveClinicalDatabase(finalDb);
   saveCustomTherapeuticKits(finalCustomKits);
+  saveFollowUpLogs(finalFollowUpLogs);
 
   try {
     saveCustomPrintableGraphics(finalCustomGraphics);
@@ -1209,6 +1252,7 @@ export async function importFullBackup(
     biometerOverridesCount: Object.keys(finalBiometerOverrides).length,
     customGraphicsCount: finalCustomGraphics.length,
     ansaeDraftsCount: Object.keys(incomingDrafts).length,
+    followUpLogsCount: finalFollowUpLogs.length,
   };
 }
 
@@ -1277,6 +1321,9 @@ export function importClinicalBackupJson(rawJson: string): {
   }
   if (Array.isArray(parsed.customTherapeuticKits)) {
     saveCustomTherapeuticKits(parsed.customTherapeuticKits);
+  }
+  if (Array.isArray(parsed.followUpLogs)) {
+    saveFollowUpLogs(normalizeFollowUpLogs(parsed.followUpLogs));
   }
   if (Array.isArray(rooms)) {
     saveSessions(rooms);
@@ -1361,4 +1408,115 @@ export function getPreviousSessionForPatient(
     );
   return candidates.length > 0 ? candidates[0] : null;
 }
+
+function normalizeFollowUpTextKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+const VALID_FOLLOW_UP_CATEGORIES: FollowUpCategory[] = [
+  'sonho',
+  'catarse_sintoma',
+  'evolucao_emocional',
+  'retorno_geral',
+];
+
+function normalizeFollowUpLogs(items: Partial<FollowUpLogEntry>[]): FollowUpLogEntry[] {
+  return items
+    .filter((item): item is Partial<FollowUpLogEntry> & { id: string } =>
+      Boolean(item && typeof item.id === 'string' && item.id.trim().length > 0)
+    )
+    .map((item) => {
+      const rawCategory = item.category as FollowUpCategory;
+      const category: FollowUpCategory = VALID_FOLLOW_UP_CATEGORIES.includes(rawCategory)
+        ? rawCategory
+        : 'retorno_geral';
+      return {
+        id: item.id,
+        patientId: typeof item.patientId === 'string' ? item.patientId : '',
+        patientName: typeof item.patientName === 'string' ? item.patientName : 'Consulente',
+        date:
+          typeof item.date === 'string' && !Number.isNaN(new Date(item.date).getTime())
+            ? item.date
+            : new Date().toISOString(),
+        category,
+        narrative: typeof item.narrative === 'string' ? item.narrative : '',
+        activeGraphicsSnapshot: Array.isArray(item.activeGraphicsSnapshot)
+          ? item.activeGraphicsSnapshot.map((g) => String(g)).filter(Boolean)
+          : [],
+        therapistAnalysis: typeof item.therapistAnalysis === 'string' ? item.therapistAnalysis : '',
+        patientFeedbackMessage:
+          typeof item.patientFeedbackMessage === 'string' ? item.patientFeedbackMessage : '',
+      };
+    })
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
+export function loadFollowUpLogs(): FollowUpLogEntry[] {
+  try {
+    const raw = localStorage.getItem(FOLLOW_UP_LOGS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return normalizeFollowUpLogs(parsed as Partial<FollowUpLogEntry>[]);
+  } catch {
+    return [];
+  }
+}
+
+export function saveFollowUpLogs(logs: FollowUpLogEntry[]): void {
+  try {
+    const sorted = [...logs].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    localStorage.setItem(FOLLOW_UP_LOGS_STORAGE_KEY, JSON.stringify(sorted));
+  } catch (err) {
+    console.error('Erro ao salvar diário de acompanhamento:', err);
+  }
+}
+
+export function matchesPatientFollowUpLog(
+  entry: FollowUpLogEntry,
+  patientId: string,
+  patientName?: string
+): boolean {
+  if (patientId && entry.patientId === patientId) return true;
+  if (patientName && patientName.trim()) {
+    return (
+      normalizeFollowUpTextKey(entry.patientName) ===
+      normalizeFollowUpTextKey(patientName)
+    );
+  }
+  return false;
+}
+
+export function getPatientFollowUpLogs(
+  patientId: string,
+  patientName?: string
+): FollowUpLogEntry[] {
+  return loadFollowUpLogs().filter((entry) =>
+    matchesPatientFollowUpLog(entry, patientId, patientName)
+  );
+}
+
+export function upsertFollowUpLog(entry: FollowUpLogEntry): FollowUpLogEntry[] {
+  const existing = loadFollowUpLogs();
+  const idx = existing.findIndex((item) => item.id === entry.id);
+  const next =
+    idx >= 0
+      ? existing.map((item, i) => (i === idx ? entry : item))
+      : [entry, ...existing];
+  saveFollowUpLogs(next);
+  return loadFollowUpLogs();
+}
+
+export function deleteFollowUpLog(entryId: string): FollowUpLogEntry[] {
+  const next = loadFollowUpLogs().filter((item) => item.id !== entryId);
+  saveFollowUpLogs(next);
+  return next;
+}
+
 

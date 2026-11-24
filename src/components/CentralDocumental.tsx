@@ -8,8 +8,10 @@ import {
 import { QuantumRoomSession } from '../types/quantum';
 import {
   formatAngstromsBR,
-  formatBirthDateBR,
+  formatInteragentBirthOrAge,
+  formatInteragentDisplayLabel,
   getHawkinsLevelInfo,
+  isPetInteragent,
   resolveCrystalForChart,
 } from '../utils/antiCatharsis';
 import { formatRemedyDurationLabel } from '../utils/energeticRemedies';
@@ -73,15 +75,27 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
   }, []);
 
   const { anamnesis, sensitivity, protocol, aiResult } = activeSession;
-  const firstName = anamnesis.fullName.trim().split(/\s+/)[0] || anamnesis.fullName;
+  const isPet = isPetInteragent(anamnesis);
+  const displayInteragent = formatInteragentDisplayLabel(anamnesis);
+  const tutorFullName = anamnesis.tutorName?.trim() || 'Tutor(a)';
+  const firstName = isPet
+    ? tutorFullName.split(/\s+/)[0] || 'Tutor(a)'
+    : anamnesis.fullName.trim().split(/\s+/)[0] || anamnesis.fullName;
   const vocativeOptions = useMemo(
-    () => [
-      `Prezado(a) ${firstName}:`,
-      `Querido(a) ${firstName}:`,
-      'Meu Amado irmão:',
-      'Minha Amada irmã:',
-    ],
-    [firstName]
+    () =>
+      isPet
+        ? [
+            `Prezado(a) ${firstName}:`,
+            `Querido(a) ${firstName}:`,
+            `Olá, ${firstName}:`,
+          ]
+        : [
+            `Prezado(a) ${firstName}:`,
+            `Querido(a) ${firstName}:`,
+            'Meu Amado irmão:',
+            'Minha Amada irmã:',
+          ],
+    [firstName, isPet]
   );
 
   const initialWelcomeMessage = useMemo(() => {
@@ -185,7 +199,7 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
             >
               {sessions.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.anamnesis.fullName}
+                  {formatInteragentDisplayLabel(s.anamnesis)}
                 </option>
               ))}
             </select>
@@ -237,7 +251,9 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                 : 'text-[#64748B] hover:text-[#0F172A]'
             }`}
           >
-            Documento 2 · Guia do Paciente
+            {isPet
+              ? 'Documento 2 · Guia do Tutor (PET)'
+              : 'Documento 2 · Guia do Paciente'}
           </button>
         </div>
 
@@ -355,14 +371,33 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-[#FAF8F5] p-4 rounded-lg border border-[#E2E8F0]">
                 <p>
-                  <strong className="text-[#0F172A]">Paciente:</strong> {anamnesis.fullName}
+                  <strong className="text-[#0F172A]">
+                    {isPet ? 'Interagente (PET):' : 'Paciente:'}
+                  </strong>{' '}
+                  {displayInteragent}
                 </p>
                 <p>
-                  <strong className="text-[#0F172A]">Nascimento:</strong>{' '}
-                  {formatBirthDateBR(anamnesis.birthDate)}
+                  <strong className="text-[#0F172A]">
+                    {isPet ? 'Nascimento / Idade:' : 'Nascimento:'}
+                  </strong>{' '}
+                  {formatInteragentBirthOrAge(anamnesis)}
                 </p>
+                {isPet && (
+                  <>
+                    <p>
+                      <strong className="text-[#0F172A]">Tutor Responsável:</strong>{' '}
+                      {anamnesis.tutorName || 'Não informado'}
+                    </p>
+                    <p>
+                      <strong className="text-[#0F172A]">Ambiente Doméstico:</strong>{' '}
+                      {anamnesis.petEnvironment || 'Não informado'}
+                    </p>
+                  </>
+                )}
                 <p>
-                  <strong className="text-[#0F172A]">Contato:</strong>{' '}
+                  <strong className="text-[#0F172A]">
+                    {isPet ? 'Contato do Tutor:' : 'Contato:'}
+                  </strong>{' '}
                   {anamnesis.phone || 'Não informado'}
                 </p>
                 <p>
@@ -942,21 +977,23 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                 </div>
               )}
               <p className="pt-3 text-xs text-[#64748B] italic">
-                Ressalva Ética: Este documento registra terapias integrativas vibracionais de
-                caráter estritamente complementar, não substituindo diagnóstico ou tratamento médico
-                convencional.
+                {isPet
+                  ? 'Ressalva Ética Veterinária: Este documento registra terapias integrativas vibracionais de caráter estritamente complementar, não substituindo consulta, diagnóstico ou tratamento prescrito pelo médico-veterinário.'
+                  : 'Ressalva Ética: Este documento registra terapias integrativas vibracionais de caráter estritamente complementar, não substituindo diagnóstico ou tratamento médico convencional.'}
               </p>
             </section>
           </div>
         ) : (
-          /* Documento 2 — Guia Humanizado para o Paciente */
+          /* Documento 2 — Guia Humanizado para o Paciente ou Tutor (PET) */
           <div className="space-y-7 text-sm text-[#334155] leading-relaxed">
             <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
               <p className="font-serif text-base font-bold text-[#0F172A]">
-                Olá, {anamnesis.fullName}
+                {isPet
+                  ? `Guia de Orientação ao Tutor (${tutorFullName}) — ${displayInteragent}`
+                  : `Olá, ${anamnesis.fullName}`}
               </p>
               <p className="mt-1 text-xs text-[#45464D]">
-                Foco do seu acompanhamento: <strong>{anamnesis.therapeuticFocus}</strong>
+                Foco do acompanhamento: <strong>{anamnesis.therapeuticFocus}</strong>
               </p>
             </div>
 
@@ -1067,46 +1104,70 @@ export const CentralDocumental: React.FC<CentralDocumentalProps> = ({
                     ))}
                 </ul>
                 <p className="text-xs text-[#B45309] font-medium pt-1">
-                  Ressalva ética fundamental: este envio vibracional atua de forma estritamente
-                  complementar ao seu bem-estar. Nunca suspenda ou altere por conta própria as
-                  medicações prescritas pelo seu médico.
+                  {isPet
+                    ? 'Ressalva ética fundamental: este envio vibracional atua de forma estritamente complementar ao bem-estar do animal. Nunca suspenda ou altere por conta própria as medicações prescritas pelo médico-veterinário.'
+                    : 'Ressalva ética fundamental: este envio vibracional atua de forma estritamente complementar ao seu bem-estar. Nunca suspenda ou altere por conta própria as medicações prescritas pelo seu médico.'}
                 </p>
               </section>
             )}
 
             <section className="space-y-3">
               <h3 className="font-serif text-base font-bold text-[#0F172A] border-b border-[#E2E8F0] pb-1.5">
-                Os 4 Pilares Diários de Autocuidado
+                {isPet
+                  ? 'Os 4 Pilares Diários de Cuidado com o Pet'
+                  : 'Os 4 Pilares Diários de Autocuidado'}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm">
                 <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
-                  <p className="font-bold text-[#B45309] mb-1">1. Hidratação e Fitoterapia</p>
+                  <p className="font-bold text-[#B45309] mb-1">
+                    {isPet
+                      ? '1. Água Fresca & Florais sem Álcool'
+                      : '1. Hidratação e Fitoterapia'}
+                  </p>
                   <p>
                     {aiResult?.prescricoes.pilaresAutocuidado.hidratacaoFitoterapia ||
-                      'Ingira ao menos 2 litros de água pura ao dia e utilize os chás calmantes sugeridos.'}
-                  </p>
-                </div>
-                <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
-                  <p className="font-bold text-[#B45309] mb-1">2. Higiene Mental e Oração</p>
-                  <p>
-                    {aiResult?.prescricoes.pilaresAutocuidado.higieneMentalOracao ||
-                      'Dedique 10 minutos diários à respiração tranquila, gratidão ou oração antes de dormir.'}
-                  </p>
-                </div>
-                <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
-                  <p className="font-bold text-[#B45309] mb-1">3. Harmonia do Ambiente</p>
-                  <p>
-                    {aiResult?.prescricoes.pilaresAutocuidado.ambiente ||
-                      'Mantenha seu ambiente de descanso arejado, organizado e com luz suave ao anoitecer.'}
+                      (isPet
+                        ? 'Manter sempre água fresca e limpa no bebedouro; quando indicados, utilizar florais sem álcool (base glicerina ou água pura).'
+                        : 'Ingira ao menos 2 litros de água pura ao dia e utilize os chás calmantes sugeridos.')}
                   </p>
                 </div>
                 <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
                   <p className="font-bold text-[#B45309] mb-1">
-                    4. Acompanhamento Médico Convencional
+                    {isPet
+                      ? '2. Rotina Calma & Acolhimento do Tutor'
+                      : '2. Higiene Mental e Oração'}
+                  </p>
+                  <p>
+                    {aiResult?.prescricoes.pilaresAutocuidado.higieneMentalOracao ||
+                      (isPet
+                        ? 'Preservar rotina tranquila, manejo gentil e serenidade emocional do tutor próximo ao pet.'
+                        : 'Dedique 10 minutos diários à respiração tranquila, gratidão ou oração antes de dormir.')}
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
+                  <p className="font-bold text-[#B45309] mb-1">
+                    {isPet
+                      ? '3. Higiene do Leito, Caminha & Lar'
+                      : '3. Harmonia do Ambiente'}
+                  </p>
+                  <p>
+                    {aiResult?.prescricoes.pilaresAutocuidado.ambiente ||
+                      (isPet
+                        ? 'Higienizar caminha, cobertores e espaço de descanso do animal, garantindo ar fresco e conforto.'
+                        : 'Mantenha seu ambiente de descanso arejado, organizado e com luz suave ao anoitecer.')}
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg bg-[#FAF8F5] border border-[#E2E8F0]">
+                  <p className="font-bold text-[#B45309] mb-1">
+                    {isPet
+                      ? '4. Acompanhamento Médico-Veterinário'
+                      : '4. Acompanhamento Médico Convencional'}
                   </p>
                   <p>
                     {aiResult?.prescricoes.pilaresAutocuidado.acompanhamentoMedico ||
-                      'Mantenha normalmente suas consultas médicas, exames e medicações prescritas.'}
+                      (isPet
+                        ? 'Manter normalmente consultas, exames, vacinas e medicações prescritas pelo médico-veterinário.'
+                        : 'Mantenha normalmente suas consultas médicas, exames e medicações prescritas.')}
                   </p>
                 </div>
               </div>

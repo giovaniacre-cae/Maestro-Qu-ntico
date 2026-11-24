@@ -84,12 +84,40 @@ export function formatBirthDateBR(birthDate: string): string {
   return birthDate;
 }
 
+export function isPetInteragent(anamnesis?: Partial<PatientAnamnesis> | null): boolean {
+  return anamnesis?.interagentType === 'pet';
+}
+
+export function formatInteragentDisplayLabel(anamnesis: PatientAnamnesis): string {
+  if (!isPetInteragent(anamnesis)) {
+    return anamnesis.fullName.trim() || 'Paciente';
+  }
+  const petName = anamnesis.fullName.trim() || 'Pet';
+  const speciesBreed = [anamnesis.petSpecies, anamnesis.petBreed?.trim()]
+    .filter(Boolean)
+    .join('/');
+  const tutorPart = anamnesis.tutorName?.trim()
+    ? `Tutor: ${anamnesis.tutorName.trim()}`
+    : '';
+  const meta = [speciesBreed, tutorPart].filter(Boolean).join(' • ');
+  return meta ? `${petName} (${meta})` : petName;
+}
+
+export function formatInteragentBirthOrAge(anamnesis: PatientAnamnesis): string {
+  const birthBR = formatBirthDateBR(anamnesis.birthDate);
+  if (isPetInteragent(anamnesis)) {
+    const parts = [birthBR, anamnesis.petAge?.trim()].filter(Boolean);
+    return parts.join(' • ') || 'Idade não informada';
+  }
+  return birthBR || 'Data não informada';
+}
+
 export function formatTestemunho(
   anamnesis: PatientAnamnesis,
   customFocus?: string
 ): string {
-  const nome = anamnesis.fullName.trim() || 'Paciente';
-  const nasc = formatBirthDateBR(anamnesis.birthDate) || 'Data não informada';
+  const nome = formatInteragentDisplayLabel(anamnesis);
+  const nasc = formatInteragentBirthOrAge(anamnesis);
   const foco = (customFocus || anamnesis.therapeuticFocus || 'Equilíbrio Vibracional Integral').trim();
   return `${nome} - ${nasc} | ${foco}`;
 }
@@ -143,7 +171,7 @@ export function buildPendulatedGraphicCommand(
   crystalName: string | undefined,
   anamnesis: PatientAnamnesis
 ): string {
-  const nome = anamnesis.fullName.trim() || 'Paciente';
+  const nome = formatInteragentDisplayLabel(anamnesis);
   const targetFocus =
     geometry.customFocus?.trim() ||
     anamnesis.therapeuticFocus?.trim() ||
@@ -171,7 +199,7 @@ export function applyCrystalToComando(
   anamnesis: PatientAnamnesis,
   geometry?: QuantumGeometry
 ): string {
-  const nome = anamnesis.fullName.trim() || 'Paciente';
+  const nome = formatInteragentDisplayLabel(anamnesis);
   const foco =
     geometry?.customFocus?.trim() ||
     anamnesis.therapeuticFocus.trim() ||
@@ -322,6 +350,57 @@ export function applyChartCrystalsToResult(
   }
 
   const hawkins = getHawkinsLevelInfo(sensitivity.hawkins);
+  const isPet = isPetInteragent(anamnesis);
+  const displayLabel = formatInteragentDisplayLabel(anamnesis);
+  const tutorFirstName =
+    anamnesis.tutorName?.trim().split(/\s+/)[0] ||
+    anamnesis.tutorName?.trim() ||
+    'Tutor(a)';
+
+  if (isPet) {
+    return {
+      welcomeMessage: `Prezado(a) ${tutorFirstName}:\nReceba este acompanhamento vibracional com serenidade para o cuidado de ${displayLabel}. A leitura radiestésica registrada na Mesa acolhe as necessidades energéticas, comportamentais e ambientais do animal com suavidade, sempre em apoio complementar ao médico-veterinário.`,
+      testemunhos: nextTestemunhos,
+      comandosQuanticos: nextComandos,
+      analisePsicossomatica: `Leitura veterinária integrativa de ${displayLabel} aferida em ${sensitivity.bovis.toLocaleString('pt-BR')} Å na escala de Bovis e ${hawkins.fullLabel} na escala de Hawkins, com proteção áurica em ${sensitivity.auricProtection}%. Protocolo configurado em ${protocol.mode === 'escalonado' ? '2 etapas anti-catarse' : 'etapa única direta'} com seleção radiestésica de cristais informacionais.`,
+      orientacaoPacienteResumo: `O atendimento de ${displayLabel} foi estruturado para promover acolhimento energético gradual, respeitando a vitalidade atual do animal (${sensitivity.bovis.toLocaleString('pt-BR')} Å) e favorecendo calma, recuperação física e equilíbrio no ambiente doméstico.`,
+      prescricoes: {
+        floraisBach: [
+          'Rescue Remedy sem álcool (estabilização emocional e conforto no bebedouro)',
+        ],
+        cristais:
+          anchoredCrystalNames.length > 0
+            ? anchoredCrystalNames
+            : ['Quartzo Transparente (harmonização suave do espaço de descanso)'],
+        fitoterapiaChas: [
+          'Apoio vibracional em água fresca e pura (sem ervas ou extratos sem liberação veterinária)',
+        ],
+        bonsHabitos: [
+          'Trocar a água do bebedouro com frequência mantendo-a limpa e fresca',
+          'Manter a caminha e o espaço de descanso limpos, arejados e tranquilos',
+        ],
+        frequenciasSolfeggio: [
+          {
+            hz: 432,
+            nome: '432 Hz — Coerência Natural',
+            indicacao: 'Relaxamento suave do pet e do ambiente doméstico',
+          },
+        ],
+        pilaresAutocuidado: {
+          hidratacaoFitoterapia:
+            'Disponibilizar sempre água fresca e limpa; caso utilize florais de Bach físicos, solicitar manipulação sem álcool (base glicerina ou água pura) conforme orientação.',
+          higieneMentalOracao:
+            'Manter rotina previsível, tom de voz calmo, carinho e serenidade emocional do tutor, evitando estresse ou conflitos próximos ao animal.',
+          ambiente:
+            'Higienizar periodicamente a caminha, cobertores e o cantinho de descanso, preservando ventilação natural e silêncio no período noturno.',
+          acompanhamentoMedico:
+            'Manter integralmente todas as consultas, exames, vacinas e medicações prescritas pelo médico-veterinário responsável.',
+        },
+      },
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   return {
     welcomeMessage: `Receba este atendimento integrativo com serenidade, ${anamnesis.fullName || 'paciente'}. A leitura vibracional registrada na Mesa Radiônica acolhe suas necessidades atuais com respeito ao ritmo do seu organismo e confiança no processo de reequilíbrio.`,
     testemunhos: nextTestemunhos,

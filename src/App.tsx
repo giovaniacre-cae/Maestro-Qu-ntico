@@ -63,9 +63,15 @@ import {
 function createEmptyAnamnesis(): PatientAnamnesis {
   return {
     id: `patient-${Date.now()}`,
+    interagentType: 'humano',
     fullName: '',
     birthDate: '',
     phone: '',
+    petSpecies: 'Cão',
+    petBreed: '',
+    petAge: '',
+    petEnvironment: '',
+    tutorName: '',
     therapeuticFocus: '',
     emotionalHistory: '',
     physicalSymptoms: '',
@@ -220,9 +226,15 @@ export default function App() {
       const newSessionId = `room-${Date.now()}`;
       const clonedAnamnesis: PatientAnamnesis = {
         id: patient.id,
+        interagentType: patient.interagentType,
         fullName: patient.fullName,
         birthDate: patient.birthDate,
         phone: patient.phone,
+        petSpecies: patient.petSpecies,
+        petBreed: patient.petBreed,
+        petAge: patient.petAge,
+        petEnvironment: patient.petEnvironment,
+        tutorName: patient.tutorName,
         therapeuticFocus: baseRecord.therapeuticFocus,
         emotionalHistory: baseRecord.emotionalHistory,
         physicalSymptoms: baseRecord.physicalSymptoms,
@@ -304,9 +316,15 @@ export default function App() {
         sessionType: record.sessionType,
         anamnesis: {
           id: record.patientId,
+          interagentType: patient?.interagentType,
           fullName: patient?.fullName || 'Paciente',
           birthDate: patient?.birthDate || '',
           phone: patient?.phone || '',
+          petSpecies: patient?.petSpecies,
+          petBreed: patient?.petBreed,
+          petAge: patient?.petAge,
+          petEnvironment: patient?.petEnvironment,
+          tutorName: patient?.tutorName,
           therapeuticFocus: record.therapeuticFocus,
           emotionalHistory: record.emotionalHistory,
           physicalSymptoms: record.physicalSymptoms,
@@ -363,9 +381,15 @@ export default function App() {
   const handleStartNewForPatient = useCallback((patient: MasterPatient) => {
     const emptyA: PatientAnamnesis = {
       id: patient.id,
+      interagentType: patient.interagentType,
       fullName: patient.fullName,
       birthDate: patient.birthDate,
       phone: patient.phone,
+      petSpecies: patient.petSpecies,
+      petBreed: patient.petBreed,
+      petAge: patient.petAge,
+      petEnvironment: patient.petEnvironment,
+      tutorName: patient.tutorName,
       therapeuticFocus: '',
       emotionalHistory: '',
       physicalSymptoms: '',
@@ -1034,18 +1058,28 @@ export default function App() {
 
       const db = loadClinicalDatabase();
       const patientId = draftAnamnesis.id || `patient-${draftSessionId}`;
-      if (
-        draftAnamnesis.fullName.trim() &&
-        !db.patients.some((p) => p.id === patientId)
-      ) {
-        db.patients.push({
+      if (draftAnamnesis.fullName.trim()) {
+        const existingPatientIdx = db.patients.findIndex((p) => p.id === patientId);
+        const patientRecord: MasterPatient = {
           id: patientId,
+          interagentType: draftAnamnesis.interagentType,
           fullName: draftAnamnesis.fullName,
           birthDate: draftAnamnesis.birthDate,
           phone: draftAnamnesis.phone,
-          createdAt: nowIso,
+          petSpecies: draftAnamnesis.petSpecies,
+          petBreed: draftAnamnesis.petBreed,
+          petAge: draftAnamnesis.petAge,
+          petEnvironment: draftAnamnesis.petEnvironment,
+          tutorName: draftAnamnesis.tutorName,
+          createdAt:
+            existingPatientIdx >= 0 ? db.patients[existingPatientIdx].createdAt : nowIso,
           notes: draftAnamnesis.clinicalNotes,
-        });
+        };
+        if (existingPatientIdx >= 0) {
+          db.patients[existingPatientIdx] = patientRecord;
+        } else {
+          db.patients.push(patientRecord);
+        }
       }
       const idx = db.sessions.findIndex((s) => s.id === draftSessionId);
       if (idx >= 0) {
@@ -1409,18 +1443,28 @@ export default function App() {
     // Save into Master Clinical DB V2 as well
     const db = loadClinicalDatabase();
     const patientId = draftAnamnesis.id || `patient-${draftSessionId}`;
-    if (
-      draftAnamnesis.fullName.trim() &&
-      !db.patients.some((p) => p.id === patientId)
-    ) {
-      db.patients.push({
+    if (draftAnamnesis.fullName.trim()) {
+      const existingPatientIdx = db.patients.findIndex((p) => p.id === patientId);
+      const patientRecord: MasterPatient = {
         id: patientId,
+        interagentType: draftAnamnesis.interagentType,
         fullName: draftAnamnesis.fullName,
         birthDate: draftAnamnesis.birthDate,
         phone: draftAnamnesis.phone,
-        createdAt: nowIso,
+        petSpecies: draftAnamnesis.petSpecies,
+        petBreed: draftAnamnesis.petBreed,
+        petAge: draftAnamnesis.petAge,
+        petEnvironment: draftAnamnesis.petEnvironment,
+        tutorName: draftAnamnesis.tutorName,
+        createdAt:
+          existingPatientIdx >= 0 ? db.patients[existingPatientIdx].createdAt : nowIso,
         notes: draftAnamnesis.clinicalNotes,
-      });
+      };
+      if (existingPatientIdx >= 0) {
+        db.patients[existingPatientIdx] = patientRecord;
+      } else {
+        db.patients.push(patientRecord);
+      }
     }
     const existingRecIdx = db.sessions.findIndex((s) => s.id === draftSessionId);
     const existingRec = existingRecIdx >= 0 ? db.sessions[existingRecIdx] : undefined;

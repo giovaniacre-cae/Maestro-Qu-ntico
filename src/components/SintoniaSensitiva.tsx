@@ -48,8 +48,10 @@ import {
   INTERFERENCE_OPTIONS,
   evaluateAntiCatharsis,
   formatAngstromsBR,
-  formatBirthDateBR,
+  formatInteragentBirthOrAge,
+  formatInteragentDisplayLabel,
   getHawkinsLevelInfo,
+  isPetInteragent,
 } from '../utils/antiCatharsis';
 import {
   ANSAE_SYSTEMS_META,
@@ -388,6 +390,7 @@ const CONTEXT_ORDER: SintoniaContextKey[] = [
 ];
 
 function isVeterinaryAnamnesis(anamnesis: PatientAnamnesis): boolean {
+  if (isPetInteragent(anamnesis)) return true;
   const combined = `${anamnesis.fullName} ${anamnesis.therapeuticFocus} ${anamnesis.physicalSymptoms} ${anamnesis.clinicalNotes}`
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -973,12 +976,16 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     setShowExtraExcessColors(
       nextLoaded.auricField.excessColors.some((c) => SECONDARY_COLOR_NAMES.has(c))
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anamnesis.id]);
+
+  // Auto-activate Saúde Animal / PETS context when interagent is PET
+  useEffect(() => {
     if (isVeterinaryAnamnesis(anamnesis)) {
       setActiveDockContext('pets_animal');
       setSelectedDockBiometerId(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anamnesis.id]);
+  }, [anamnesis.id, anamnesis.interagentType, anamnesis]);
 
   useEffect(() => {
     setHawkinsInputText(String(sheet.spiritualPsycho.hawkinsAgathaHz));
@@ -1380,10 +1387,11 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
     return resolveBiometerImageUrl(activeDockRawImgUrl);
   }, [activeDockRawImgUrl, dockImgFallbackTried]);
 
-  const witnessNameDisplay = anamnesis.fullName.trim() || 'Testemunho Padrão';
-  const witnessBirthDisplay = anamnesis.birthDate
-    ? `Nasc.: ${formatBirthDateBR(anamnesis.birthDate)}`
-    : '';
+  const isPet = isPetInteragent(anamnesis);
+  const witnessNameDisplay = anamnesis.fullName.trim()
+    ? formatInteragentDisplayLabel(anamnesis)
+    : 'Testemunho Padrão';
+  const witnessBirthDisplay = formatInteragentBirthOrAge(anamnesis);
 
   return (
     <div
@@ -1399,10 +1407,12 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
       <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-[#E2E8F0] pb-6">
         <div>
           <p className="text-xs font-semibold tracking-wider uppercase text-[#B45309]">
-            Etapa Clínica 02 · Ficha Completa ANSAE & RHEN
+            Etapa Clínica 02 · Ficha Completa ANSAE & RHEN{isPet ? ' · Veterinária Integrativa (PET)' : ''}
           </p>
           <h1 className="mt-1.5 font-serif text-3xl font-light text-[#0F172A]">
-            {anamnesis.fullName || 'Aferição Bioenergética Completa'}
+            {anamnesis.fullName.trim()
+              ? formatInteragentDisplayLabel(anamnesis)
+              : 'Aferição Bioenergética Completa'}
           </h1>
           <p className="mt-1.5 text-sm text-[#45464D]">
             Foco: <span className="font-medium text-[#0F172A]">{anamnesis.therapeuticFocus || 'Não definido'}</span>
@@ -4001,8 +4011,8 @@ export const SintoniaSensitiva: React.FC<SintoniaSensitivaProps> = ({
             setIsBiometersOpen(false);
             setBiometerOverrides(loadBiometerOverrides());
           }}
-          patientName={anamnesis.fullName}
-          birthDate={anamnesis.birthDate}
+          patientName={witnessNameDisplay}
+          birthDate={witnessBirthDisplay}
           customBiometers={customBiometers}
           hiddenOfficialBiometers={hiddenOfficialBiometers}
           onSaveCustomBiometer={handleSaveCustomBiometer}
