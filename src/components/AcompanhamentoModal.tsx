@@ -23,6 +23,10 @@ import {
   upsertFollowUpLog,
 } from '../utils/storage';
 import { InteragentType } from '../types/quantum';
+import {
+  analyzeFollowUpAudioWithGemini,
+  analyzeFollowUpTextWithGemini,
+} from '../utils/geminiAudio';
 
 export interface FollowUpClinicalContext {
   bovis?: number;
@@ -159,25 +163,6 @@ function resolveClientAudioMimeType(file: File): string | null {
 
   if (ext && extMap[ext]) return extMap[ext];
   return null;
-}
-
-function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      const base64Part = result.includes('base64,') ? result.split('base64,')[1] : result;
-      if (!base64Part) {
-        reject(new Error('Não foi possível ler os dados do arquivo de áudio.'));
-        return;
-      }
-      resolve(base64Part);
-    };
-    reader.onerror = () => {
-      reject(new Error('Falha ao ler o arquivo de áudio selecionado.'));
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 export const AcompanhamentoModal: React.FC<AcompanhamentoModalProps> = ({
@@ -431,35 +416,16 @@ export const AcompanhamentoModal: React.FC<AcompanhamentoModalProps> = ({
     const timeoutId = window.setTimeout(() => controller.abort(), 35000);
 
     try {
-      const audioBase64 = await readFileAsBase64(attachedAudio.file);
-
-      const res = await fetch('/api/clinical/analyze-dream-audio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const data = await analyzeFollowUpAudioWithGemini({
+        file: attachedAudio.file,
+        mimeType: attachedAudio.mimeType,
+        fileName: attachedAudio.name,
+        patientName,
+        category,
+        activeGraphics,
+        clinicalContext,
         signal: controller.signal,
-        body: JSON.stringify({
-          audioBase64,
-          mimeType: attachedAudio.mimeType,
-          fileName: attachedAudio.name,
-          patientName,
-          category,
-          activeGraphics,
-          clinicalContext,
-        }),
       });
-
-      const data = (await res.json()) as {
-        transcription?: string;
-        therapistAnalysis?: string;
-        patientFeedbackMessage?: string;
-        error?: string;
-      };
-
-      if (!res.ok) {
-        throw new Error(
-          data?.error || 'Não foi possível transcrever e analisar o áudio no servidor.'
-        );
-      }
 
       const nextTranscription = (data.transcription || '').trim();
       const nextAnalysis = (data.therapistAnalysis || '').trim();
@@ -519,28 +485,14 @@ export const AcompanhamentoModal: React.FC<AcompanhamentoModalProps> = ({
     const timeoutId = window.setTimeout(() => controller.abort(), 18000);
 
     try {
-      const res = await fetch('/api/clinical/analyze-dream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const data = await analyzeFollowUpTextWithGemini({
+        patientName,
+        category,
+        narrative: cleanNarrative,
+        activeGraphics,
+        clinicalContext,
         signal: controller.signal,
-        body: JSON.stringify({
-          patientName,
-          category,
-          narrative: cleanNarrative,
-          activeGraphics,
-          clinicalContext,
-        }),
       });
-
-      const data = (await res.json()) as {
-        therapistAnalysis?: string;
-        patientFeedbackMessage?: string;
-        error?: string;
-      };
-
-      if (!res.ok) {
-        throw new Error(data?.error || 'Não foi possível concluir a análise no servidor.');
-      }
 
       const nextAnalysis = (data.therapistAnalysis || '').trim();
       const nextFeedback = (data.patientFeedbackMessage || '').trim();

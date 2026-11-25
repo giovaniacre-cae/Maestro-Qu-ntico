@@ -25,7 +25,10 @@ import {
   QuantumRoomSession,
 } from '../types/quantum';
 import { formatInteragentDisplayLabel, isPetInteragent } from '../utils/antiCatharsis';
-import { extractAnamnesisFromAudioBlob } from '../utils/geminiAudio';
+import {
+  analyzeAnamnesisTextWithGemini,
+  extractAnamnesisFromAudioBlob,
+} from '../utils/geminiAudio';
 
 interface AnamneseFormProps {
   anamnesis: PatientAnamnesis;
@@ -72,33 +75,6 @@ function createVoiceOptimizedRecorder(stream: MediaStream, chosenMime: string): 
   } catch {
     return chosenMime ? new MediaRecorder(stream, { mimeType: chosenMime }) : new MediaRecorder(stream);
   }
-}
-
-async function safeParseApiJson<T = Record<string, unknown>>(
-  res: Response,
-  nonJsonFallbackMessage: string
-): Promise<T> {
-  const rawText = await res.text();
-  if (!rawText || !rawText.trim()) {
-    throw new Error(nonJsonFallbackMessage);
-  }
-
-  let parsed: T & { error?: unknown };
-  try {
-    parsed = JSON.parse(rawText) as T & { error?: unknown };
-  } catch {
-    throw new Error(nonJsonFallbackMessage);
-  }
-
-  if (!res.ok) {
-    const serverError =
-      parsed && typeof parsed.error === 'string' && parsed.error.trim()
-        ? parsed.error.trim()
-        : nonJsonFallbackMessage;
-    throw new Error(serverError);
-  }
-
-  return parsed;
 }
 
 function describeMicrophoneError(err: unknown): string {
@@ -630,22 +606,11 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         );
       }
 
-      const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-      const res = await fetch(`${apiBase}/api/anamnese/copilot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const data = await analyzeAnamnesisTextWithGemini({
+        transcript: cleanText,
+        patientName: anamnesisRef.current.fullName,
         signal: controller.signal,
-        body: JSON.stringify({
-          transcript: cleanText,
-          patientName: anamnesisRef.current.fullName,
-        }),
       });
-      const data = await safeParseApiJson<CopilotAnalysisResult>(
-        res,
-        blobToProcess
-          ? AUDIO_CONNECTION_FALLBACK_MSG
-          : 'Falha na conexão ao processar a análise da anamnese. Tente novamente em instantes.'
-      );
       setCopilotAnalysis(data);
 
       const latestAnamnesis = anamnesisRef.current;
