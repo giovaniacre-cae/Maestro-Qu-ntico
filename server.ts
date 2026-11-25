@@ -726,16 +726,20 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
   // Copiloto IA para Anamnese & Transcrição
   app.post('/api/anamnese/copilot', async (req: Request, res: Response) => {
     try {
-      const { transcript, patientName } = req.body;
+      const { transcript, patientName, mainComplaint } = req.body;
       if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
         res.status(400).json({ error: 'Transcrição vazia ou inválida.' });
         return;
       }
 
       const ai = getGeminiClient();
+      const complaintLine =
+        typeof mainComplaint === 'string' && mainComplaint.trim()
+          ? `\nQueixa/Foco Principal já registrado pelo terapeuta: "${mainComplaint.trim()}".`
+          : '';
       const prompt = `
 Você é o Copiloto Clínico IA do sistema "Maestro Quântico v2.0" (Maestro Terapias Vibracionais, conduzido pelo terapeuta Giovani Caetano).
-Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com o paciente "${patientName || 'Paciente'}" e extraia os insights estruturados em JSON estrito.
+Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com o paciente "${patientName || 'Paciente'}"${complaintLine} e extraia os insights estruturados em JSON estrito.
 
 TRANSCRIÇÃO DA SESSÃO / ANAMNESE:
 """
@@ -863,6 +867,7 @@ Retorne um JSON contendo estritamente as seguintes chaves:
         mimeType,
         fileName,
         patientName,
+        mainComplaint,
         partialTranscript,
         interagentType,
       } = req.body as {
@@ -871,6 +876,7 @@ Retorne um JSON contendo estritamente as seguintes chaves:
         mimeType?: string;
         fileName?: string;
         patientName?: string;
+        mainComplaint?: string;
         partialTranscript?: string;
         interagentType?: 'humano' | 'pet';
       };
@@ -927,7 +933,12 @@ Retorne um JSON contendo estritamente as seguintes chaves:
         typeof patientName === 'string' && patientName.trim()
           ? patientName.trim()
           : 'Paciente';
+      const cleanComplaint =
+        typeof mainComplaint === 'string' && mainComplaint.trim() ? mainComplaint.trim() : '';
       const isPet = interagentType === 'pet';
+      const complaintHint = cleanComplaint
+        ? `\nQueixa/Foco Principal já informado pelo terapeuta: "${cleanComplaint}".`
+        : '';
       const partialHint =
         typeof partialTranscript === 'string' && partialTranscript.trim()
           ? `\nRascunho parcial captado em tempo real (use apenas como apoio se ajudar nomes próprios): "${partialTranscript.trim()}"`
@@ -936,7 +947,7 @@ Retorne um JSON contendo estritamente as seguintes chaves:
       const ai = getGeminiClient();
 
       const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
-Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${partialHint}
+Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${complaintHint}${partialHint}
 
 Execute duas ações em uma única resposta JSON:
 1. Transcreva literalmente e com fidelidade em português brasileiro tudo o que foi falado na gravação.
@@ -1049,7 +1060,7 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
       const transcriptionText = cleanStr(parsed.transcription ?? parsed.transcript);
       const extractedPatientName = cleanStr(sourceFields.patientName);
       const extractedBirthDate = cleanStr(sourceFields.birthDate);
-      const mainComplaint = cleanStr(
+      const extractedMainComplaint = cleanStr(
         sourceFields.mainComplaint ?? sourceFields.centralIntention ?? parsed.centralIntention
       );
       const clinicalHistory = cleanStr(
@@ -1075,21 +1086,21 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
         extractedFields: {
           patientName: extractedPatientName,
           birthDate: extractedBirthDate,
-          mainComplaint,
+          mainComplaint: extractedMainComplaint,
           clinicalHistory,
           emotionalSymptoms,
           medications,
           lifestyleNotes,
           clinicalComplaints: clinicalHistory,
           psychosomaticMapping: emotionalSymptoms,
-          centralIntention: mainComplaint,
+          centralIntention: extractedMainComplaint,
           suggestedFocus,
           highlightedOrgansAndChakras,
         },
         transcript: transcriptionText,
         clinicalComplaints: clinicalHistory,
         psychosomaticMapping: emotionalSymptoms,
-        centralIntention: mainComplaint,
+        centralIntention: extractedMainComplaint,
         suggestedFocus,
         highlightedOrgansAndChakras,
       });

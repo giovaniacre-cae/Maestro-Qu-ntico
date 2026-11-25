@@ -541,6 +541,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         const result = await extractAnamnesisFromAudioBlob({
           recordedBlob: blobToProcess,
           patientName: anamnesisRef.current.fullName,
+          mainComplaint: anamnesisRef.current.therapeuticFocus,
           partialTranscript: textFallback,
           interagentType: anamnesisRef.current.interagentType,
           signal: controller.signal,
@@ -555,15 +556,15 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
 
         const latestAnamnesis = anamnesisRef.current;
         const fields = result.extractedFields;
-        const nextFullName = fields.patientName?.trim()
-          ? fields.patientName.trim()
-          : latestAnamnesis.fullName;
-        const nextBirthDate = fields.birthDate?.trim()
-          ? fields.birthDate.trim()
-          : latestAnamnesis.birthDate;
-        const nextTherapeuticFocus = fields.mainComplaint?.trim()
-          ? fields.mainComplaint.trim()
-          : result.copilotAnalysis.centralIntention || latestAnamnesis.therapeuticFocus;
+        const nextFullName = latestAnamnesis.fullName.trim()
+          ? latestAnamnesis.fullName
+          : fields.patientName?.trim() || '';
+        const nextBirthDate = latestAnamnesis.birthDate.trim()
+          ? latestAnamnesis.birthDate
+          : fields.birthDate?.trim() || '';
+        const nextTherapeuticFocus = latestAnamnesis.therapeuticFocus.trim()
+          ? latestAnamnesis.therapeuticFocus
+          : fields.mainComplaint?.trim() || result.copilotAnalysis.centralIntention || '';
         const nextPhysicalSymptoms = fields.clinicalHistory?.trim()
           ? fields.clinicalHistory.trim()
           : result.copilotAnalysis.clinicalComplaints || latestAnamnesis.physicalSymptoms;
@@ -609,6 +610,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       const data = await analyzeAnamnesisTextWithGemini({
         transcript: cleanText,
         patientName: anamnesisRef.current.fullName,
+        mainComplaint: anamnesisRef.current.therapeuticFocus,
         signal: controller.signal,
       });
       setCopilotAnalysis(data);
@@ -620,7 +622,9 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         copilotAnalysis: data,
         physicalSymptoms: data.clinicalComplaints || latestAnamnesis.physicalSymptoms,
         emotionalHistory: data.psychosomaticMapping || latestAnamnesis.emotionalHistory,
-        therapeuticFocus: data.centralIntention || latestAnamnesis.therapeuticFocus,
+        therapeuticFocus: latestAnamnesis.therapeuticFocus.trim()
+          ? latestAnamnesis.therapeuticFocus
+          : data.centralIntention || '',
       });
       setSuccessNotice('Dados extraídos da gravação e preenchidos na Anamnese');
     } catch (err) {
@@ -671,7 +675,9 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       ...anamnesis,
       physicalSymptoms: copilotAnalysis.clinicalComplaints || anamnesis.physicalSymptoms,
       emotionalHistory: copilotAnalysis.psychosomaticMapping || anamnesis.emotionalHistory,
-      therapeuticFocus: copilotAnalysis.centralIntention || anamnesis.therapeuticFocus,
+      therapeuticFocus: anamnesis.therapeuticFocus.trim()
+        ? anamnesis.therapeuticFocus
+        : copilotAnalysis.centralIntention || '',
     });
     setSuccessNotice('Sugestões da Copiloto aplicadas com sucesso nos campos da anamnese!');
     setTimeout(() => setSuccessNotice(null), 3500);
@@ -795,347 +801,72 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         </div>
       </section>
 
-      {/* Seletor de Perfil do Interagente: Pessoa (Humano) vs Animal (PET) */}
-      <section className="bg-white border border-[#E2E8F0] rounded-xl p-4 sm:p-5 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-[#B45309]">
-            Perfil do Interagente
-          </p>
-          <p className="text-xs text-[#45464D]">
-            {isPet
-              ? 'Modo Veterinário Integrativo ativo: testemunho, Dock Contextual (Saúde Animal / PETS) e Guia do Tutor serão adaptados automaticamente.'
-              : 'Selecione se o atendimento vibracional é direcionado para uma pessoa (humano) ou para um animal de estimação (PET).'}
-          </p>
-        </div>
-
-        <div
-          role="radiogroup"
-          aria-label="Perfil do Interagente"
-          className="inline-flex items-center gap-1.5 p-1 bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg self-start md:self-auto shrink-0"
-        >
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!isPet}
-            onClick={() => handleInteragentTypeChange('humano')}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-              !isPet
-                ? 'bg-[#0F172A] text-white shadow-sm'
-                : 'text-[#475569] hover:text-[#0F172A]'
-            }`}
-          >
-            <User className={`w-3.5 h-3.5 ${!isPet ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
-            Pessoa (Humano)
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={isPet}
-            onClick={() => handleInteragentTypeChange('pet')}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-              isPet
-                ? 'bg-[#0F172A] text-white shadow-sm'
-                : 'text-[#475569] hover:text-[#0F172A]'
-            }`}
-          >
-            <PawPrint className={`w-3.5 h-3.5 ${isPet ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
-            Animal (PET)
-          </button>
-        </div>
-      </section>
-
-      {/* Escuta Ativa & Copiloto IA Panel */}
-      <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-[#FAF8F5] border border-[#D97706]/40 text-[#B45309]">
-              <Mic className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-serif text-lg font-bold text-[#0F172A]">
-                Escuta Ativa & Copiloto IA (Atendimento Presencial)
-              </h2>
+      <form onSubmit={handleSubmit} className="space-y-8">
+        {/* BLOCO 1 (Topo da Tela): Identificação e Foco do Atendimento */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#E2E8F0]">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#0F172A] text-[#F59E0B] text-xs font-bold">
+                  1
+                </span>
+                <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                  {isPet
+                    ? 'Identificação, Dados do Pet/Tutor e Foco do Atendimento'
+                    : 'Identificação e Foco do Atendimento'}
+                </h2>
+                {isPet && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded bg-[#FEF3C7] text-[#92400E] border border-[#D97706]/40">
+                    <PawPrint className="w-3 h-3" />
+                    PET
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-[#64748B]">
-                Transcreva a conversa da consulta em tempo real e deixe a Copiloto IA estruturar a anamnese.
+                {isPet
+                  ? 'Modo Veterinário Integrativo ativo: preencha os dados do animal, tutor e foco para contextualizar a escuta e a Sintonia.'
+                  : 'Preencha primeiro a identificação e a queixa principal — o Copiloto IA usará esses dados como contexto da consulta.'}
               </p>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            {!isRecording ? (
-              <button
-                type="button"
-                disabled={isAnalyzing}
-                onClick={startRecording}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-[#DC2626] rounded-lg hover:bg-[#B91C1C] disabled:opacity-50 shadow-sm cursor-pointer whitespace-nowrap"
-              >
-                <Mic className="w-3.5 h-3.5" />
-                Iniciar Escuta Ativa
-              </button>
-            ) : isPaused ? (
-              <button
-                type="button"
-                onClick={resumeRecording}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#FEF3C7] border border-[#D97706]/50 rounded-lg hover:bg-[#FDE68A] cursor-pointer whitespace-nowrap"
-              >
-                <Play className="w-3.5 h-3.5 text-[#B45309]" />
-                Retomar Gravação
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={pauseRecording}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#FEF3C7] border border-[#D97706]/50 rounded-lg hover:bg-[#FDE68A] cursor-pointer whitespace-nowrap"
-              >
-                <Pause className="w-3.5 h-3.5 text-[#B45309]" />
-                Pausar Gravação
-              </button>
-            )}
-
-            <button
-              type="button"
-              disabled={isAnalyzing || (!transcript.trim() && !isRecording && !recordedAudioBlob)}
-              onClick={stopAndAnalyze}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm cursor-pointer whitespace-nowrap"
+            <div
+              role="radiogroup"
+              aria-label="Perfil do Interagente"
+              className="inline-flex items-center gap-1.5 p-1 bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg self-start md:self-auto shrink-0"
             >
-              {isAnalyzing ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Transcrevendo e Analisando (IA)...
-                </>
-              ) : (
-                <>
-                  {isRecording ? (
-                    <Square className="w-3.5 h-3.5 text-[#F59E0B]" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5 text-[#F59E0B]" />
-                  )}
-                  Finalizar &amp; Extrair Dados para Anamnese
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Live Recording Telemetry Panel + VU Meter + Conference Player */}
-        {(isRecording || durationSeconds > 0 || recordedAudioUrl) && (
-          <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                {isRecording && !isPaused ? (
-                  <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#DC2626] text-white text-[11px] font-bold tracking-wider uppercase">
-                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                    ● GRAVANDO ÁUDIO
-                  </span>
-                ) : isPaused ? (
-                  <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#FEF3C7] border border-[#D97706]/50 text-[#92400E] text-[11px] font-bold tracking-wider uppercase">
-                    <span className="w-2 h-2 rounded-full bg-[#D97706]" />
-                    GRAVAÇÃO PAUSADA
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-white border border-[#CBD5E1] text-[#475569] text-[11px] font-semibold uppercase tracking-wider">
-                    ÁUDIO CAPTURADO PARA CONFERÊNCIA
-                  </span>
-                )}
-
-                <span className="text-xs text-[#45464D]">
-                  {isRecording && !isPaused
-                    ? 'Microfone ativo · captando voz em tempo real'
-                    : isPaused
-                    ? 'Clique em "Retomar Gravação" para continuar'
-                    : 'Reproduza abaixo para conferir ou clique em reprocessar'}
-                </span>
-              </div>
-
-              <div className="font-mono tabular-nums text-sm font-bold text-[#0F172A]">
-                {formatTimer(durationSeconds)}
-              </div>
-            </div>
-
-            {/* Dynamic VU Meter Waveform */}
-            {isRecording && (
-              <div className="p-3 rounded-lg bg-white border border-[#E2E8F0] space-y-2">
-                <div className="flex items-center justify-between gap-2 text-[11px]">
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-[#0F172A]">
-                    <Volume2 className="w-3.5 h-3.5 text-[#B45309]" />
-                    Nível de Captação do Microfone (VU Meter)
-                  </span>
-                  <span className="font-mono tabular-nums font-semibold text-[#B45309]">
-                    {isPaused ? '0%' : `${audioLevel}%`}
-                  </span>
-                </div>
-                <div
-                  className="h-10 flex items-end justify-between gap-1 px-1"
-                  aria-label="Medidor visual de ondas de áudio do microfone"
-                >
-                  {vuBars.map((barHeight, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex-1 rounded-sm transition-[height] duration-75 ${
-                        isPaused
-                          ? 'bg-[#CBD5E1]'
-                          : barHeight > 65
-                          ? 'bg-[#DC2626]'
-                          : barHeight > 32
-                          ? 'bg-[#D97706]'
-                          : 'bg-[#0F172A]/60'
-                      }`}
-                      style={{ height: `${isPaused ? 10 : barHeight}%` }}
-                    />
-                  ))}
-                </div>
-                {interimTranscript && (
-                  <p className="text-[11px] italic text-[#64748B] truncate pt-1 border-t border-[#E2E8F0]">
-                    Ouvindo: &ldquo;{interimTranscript}&rdquo;
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Conference Audio Player */}
-            {recordedAudioUrl && !isRecording && (
-              <div className="p-3 rounded-lg bg-white border border-[#D97706]/35 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-[#0F172A]">
-                    Player de Conferência da Consulta Gravada
-                  </span>
-                  {recordedAudioBlob && (
-                    <button
-                      type="button"
-                      disabled={isAnalyzing}
-                      onClick={() =>
-                        void processCapturedDataWithAI(recordedAudioBlob, transcriptRef.current)
-                      }
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#CBD5E1] rounded-md hover:border-[#D97706] disabled:opacity-50 cursor-pointer whitespace-nowrap"
-                    >
-                      <RefreshCw className="w-3 h-3 text-[#B45309]" />
-                      Reprocessar Áudio com IA
-                    </button>
-                  )}
-                </div>
-                <audio controls src={recordedAudioUrl} className="w-full h-9" />
-              </div>
-            )}
-          </div>
-        )}
-
-        {micStatusNote && (
-          <div className="p-3 rounded-xl bg-[#FFFBEB] border border-[#D97706]/35 text-xs text-[#92400E]">
-            {micStatusNote}
-          </div>
-        )}
-
-        {copilotError && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-[#FEF2F2] border border-[#BA1A1A]/40 text-xs text-[#93000A]">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{copilotError}</span>
-          </div>
-        )}
-
-        {successNotice && !copilotError && (
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-[#DCFCE7] border border-[#16A34A]/40 text-xs font-semibold text-[#166534]">
-            <Check className="w-4 h-4 shrink-0 text-[#16A34A]" />
-            <span>{successNotice}</span>
-          </div>
-        )}
-
-        {/* Transcription Textarea */}
-        <div className="space-y-1.5">
-          <label htmlFor="sessionTranscript" className="block text-xs font-semibold text-[#0F172A]">
-            Transcrição ao Vivo da Sessão (Editável ou Colada Manualmente)
-          </label>
-          <textarea
-            id="sessionTranscript"
-            rows={5}
-            value={transcript}
-            onChange={(e) => {
-              setTranscript(e.target.value);
-              onChange({ ...anamnesis, sessionTranscript: e.target.value });
-            }}
-            placeholder="A transcrição da fala aparecerá aqui automaticamente conforme o paciente relata seus sintomas e emoções, ou você pode colar/editar o texto diretamente..."
-            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] font-sans focus:outline-none focus:border-[#D97706]"
-          />
-        </div>
-
-        {/* Copilot Insights Card */}
-        {copilotAnalysis && (
-          <div className="p-5 rounded-xl bg-[#FAF8F5] border-2 border-[#D97706]/40 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
-              <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-[#B45309]" />
-                <h3 className="font-serif text-base font-bold text-[#0F172A]">
-                  Insights Clínicos da Copiloto IA
-                </h3>
-              </div>
               <button
                 type="button"
-                onClick={applySuggestions}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#16A34A] rounded-lg hover:bg-[#15803D] transition-colors cursor-pointer whitespace-nowrap shadow-sm"
+                role="radio"
+                aria-checked={!isPet}
+                onClick={() => handleInteragentTypeChange('humano')}
+                className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  !isPet
+                    ? 'bg-[#0F172A] text-white shadow-sm'
+                    : 'text-[#475569] hover:text-[#0F172A]'
+                }`}
               >
-                <Check className="w-3.5 h-3.5" />
-                Aplicar Sugestões nos Campos da Anamnese
+                <User className={`w-3.5 h-3.5 ${!isPet ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
+                Pessoa (Humano)
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isPet}
+                onClick={() => handleInteragentTypeChange('pet')}
+                className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  isPet
+                    ? 'bg-[#0F172A] text-white shadow-sm'
+                    : 'text-[#475569] hover:text-[#0F172A]'
+                }`}
+              >
+                <PawPrint className={`w-3.5 h-3.5 ${isPet ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
+                Animal (PET)
               </button>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
-                <span className="font-bold text-[#B45309]">Foco Sugerido:</span>
-                <p className="font-serif font-bold text-[#0F172A] text-sm">
-                  {copilotAnalysis.suggestedFocus}
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
-                <span className="font-bold text-[#B45309]">Intenção Central Sugerida:</span>
-                <p className="font-medium text-[#0F172A]">{copilotAnalysis.centralIntention}</p>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1 md:col-span-2">
-                <span className="font-bold text-[#B45309]">Resumo das Queixas Clínicas Físicas:</span>
-                <p className="text-[#334155] leading-relaxed">{copilotAnalysis.clinicalComplaints}</p>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1 md:col-span-2">
-                <span className="font-bold text-[#B45309]">Mapeamento Psicossomático:</span>
-                <p className="text-[#334155] leading-relaxed">{copilotAnalysis.psychosomaticMapping}</p>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1.5 md:col-span-2">
-                <span className="font-bold text-[#B45309]">Órgãos ANSAE & Chakras Destaque:</span>
-                <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {(copilotAnalysis.highlightedOrgansAndChakras || []).map((item, idx) => (
-                    <span
-                      key={idx}
-                      className="px-2 py-0.5 text-[11px] font-semibold rounded bg-[#FEF3C7] text-[#92400E] border border-[#D97706]/40"
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Main Form */}
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Identificação & Foco */}
-        <div className="lg:col-span-5 bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
-          <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#E2E8F0]">
-            <h2 className="font-serif text-lg font-bold text-[#0F172A]">
-              {isPet ? 'Dados do Pet & Tutor Responsável' : 'Identificação e Foco do Atendimento'}
-            </h2>
-            {isPet && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded bg-[#FEF3C7] text-[#92400E] border border-[#D97706]/40">
-                <PawPrint className="w-3 h-3" />
-                PET
-              </span>
-            )}
           </div>
 
           {isPet ? (
-            <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {/* Dados do Pet */}
               <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-4">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-[#B45309]">
@@ -1269,10 +1000,10 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                   />
                 </div>
               </div>
-            </>
+            </div>
           ) : (
-            <>
-              <div>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <div className="md:col-span-6">
                 <label htmlFor="fullName" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
                   Nome Completo do Paciente *
                 </label>
@@ -1287,35 +1018,34 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="birthDate" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
-                    Data de Nascimento *
-                  </label>
-                  <input
-                    id="birthDate"
-                    type="date"
-                    required
-                    value={anamnesis.birthDate}
-                    onChange={(e) => handleField('birthDate', e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="phone" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
-                    Telefone / WhatsApp
-                  </label>
-                  <input
-                    id="phone"
-                    type="tel"
-                    value={anamnesis.phone}
-                    onChange={(e) => handleField('phone', e.target.value)}
-                    placeholder="(11) 99999-9999"
-                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
-                  />
-                </div>
+              <div className="md:col-span-3">
+                <label htmlFor="birthDate" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                  Data de Nascimento *
+                </label>
+                <input
+                  id="birthDate"
+                  type="date"
+                  required
+                  value={anamnesis.birthDate}
+                  onChange={(e) => handleField('birthDate', e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                />
               </div>
-            </>
+
+              <div className="md:col-span-3">
+                <label htmlFor="phone" className="block text-xs font-semibold text-[#0F172A] mb-1.5">
+                  Telefone / WhatsApp
+                </label>
+                <input
+                  id="phone"
+                  type="tel"
+                  value={anamnesis.phone}
+                  onChange={(e) => handleField('phone', e.target.value)}
+                  placeholder="(11) 99999-9999"
+                  className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] font-mono focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+                />
+              </div>
+            </div>
           )}
 
           <div>
@@ -1323,7 +1053,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
               htmlFor="therapeuticFocus"
               className="block text-xs font-semibold text-[#0F172A] mb-1.5"
             >
-              Foco do Atendimento / Intenção Central *
+              Queixa / Foco Principal do Atendimento (Intenção Central) *
             </label>
             <input
               id="therapeuticFocus"
@@ -1345,40 +1075,301 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
               </p>
             )}
           </div>
+        </section>
 
-          <div>
-            <label
-              htmlFor="medicalTreatments"
-              className="block text-xs font-semibold text-[#0F172A] mb-1.5"
-            >
-              {isPet
-                ? 'Acompanhamento Veterinário / Medicações em Uso'
-                : 'Acompanhamento Médico / Medicações em Uso'}
+        {/* BLOCO 2 (Logo Abaixo da Identificação): Escuta Ativa & Copiloto IA Panel */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-[#FAF8F5] border border-[#D97706]/40 text-[#B45309]">
+                <Mic className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#0F172A] text-[#F59E0B] text-xs font-bold">
+                    2
+                  </span>
+                  <h2 className="font-serif text-lg font-bold text-[#0F172A]">
+                    Escuta Ativa & Copiloto IA (Atendimento Presencial)
+                  </h2>
+                </div>
+                <p className="text-xs text-[#64748B] mt-0.5">
+                  Transcreva a conversa da consulta usando o nome e foco acima como contexto para preencher os campos detalhados abaixo.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {!isRecording ? (
+                <button
+                  type="button"
+                  disabled={isAnalyzing}
+                  onClick={startRecording}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-[#DC2626] rounded-lg hover:bg-[#B91C1C] disabled:opacity-50 shadow-sm cursor-pointer whitespace-nowrap"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  Iniciar Escuta Ativa
+                </button>
+              ) : isPaused ? (
+                <button
+                  type="button"
+                  onClick={resumeRecording}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#FEF3C7] border border-[#D97706]/50 rounded-lg hover:bg-[#FDE68A] cursor-pointer whitespace-nowrap"
+                >
+                  <Play className="w-3.5 h-3.5 text-[#B45309]" />
+                  Retomar Gravação
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={pauseRecording}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#FEF3C7] border border-[#D97706]/50 rounded-lg hover:bg-[#FDE68A] cursor-pointer whitespace-nowrap"
+                >
+                  <Pause className="w-3.5 h-3.5 text-[#B45309]" />
+                  Pausar Gravação
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={isAnalyzing || (!transcript.trim() && !isRecording && !recordedAudioBlob)}
+                onClick={stopAndAnalyze}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm cursor-pointer whitespace-nowrap"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Transcrevendo e Analisando (IA)...
+                  </>
+                ) : (
+                  <>
+                    {isRecording ? (
+                      <Square className="w-3.5 h-3.5 text-[#F59E0B]" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-[#F59E0B]" />
+                    )}
+                    Finalizar &amp; Extrair Dados para Anamnese
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Live Recording Telemetry Panel + VU Meter + Conference Player */}
+          {(isRecording || durationSeconds > 0 || recordedAudioUrl) && (
+            <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E2E8F0] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {isRecording && !isPaused ? (
+                    <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#DC2626] text-white text-[11px] font-bold tracking-wider uppercase">
+                      <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                      ● GRAVANDO ÁUDIO
+                    </span>
+                  ) : isPaused ? (
+                    <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#FEF3C7] border border-[#D97706]/50 text-[#92400E] text-[11px] font-bold tracking-wider uppercase">
+                      <span className="w-2 h-2 rounded-full bg-[#D97706]" />
+                      GRAVAÇÃO PAUSADA
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-white border border-[#CBD5E1] text-[#475569] text-[11px] font-semibold uppercase tracking-wider">
+                      ÁUDIO CAPTURADO PARA CONFERÊNCIA
+                    </span>
+                  )}
+
+                  <span className="text-xs text-[#45464D]">
+                    {isRecording && !isPaused
+                      ? 'Microfone ativo · captando voz em tempo real'
+                      : isPaused
+                      ? 'Clique em "Retomar Gravação" para continuar'
+                      : 'Reproduza abaixo para conferir ou clique em reprocessar'}
+                  </span>
+                </div>
+
+                <div className="font-mono tabular-nums text-sm font-bold text-[#0F172A]">
+                  {formatTimer(durationSeconds)}
+                </div>
+              </div>
+
+              {/* Dynamic VU Meter Waveform */}
+              {isRecording && (
+                <div className="p-3 rounded-lg bg-white border border-[#E2E8F0] space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-[#0F172A]">
+                      <Volume2 className="w-3.5 h-3.5 text-[#B45309]" />
+                      Nível de Captação do Microfone (VU Meter)
+                    </span>
+                    <span className="font-mono tabular-nums font-semibold text-[#B45309]">
+                      {isPaused ? '0%' : `${audioLevel}%`}
+                    </span>
+                  </div>
+                  <div
+                    className="h-10 flex items-end justify-between gap-1 px-1"
+                    aria-label="Medidor visual de ondas de áudio do microfone"
+                  >
+                    {vuBars.map((barHeight, idx) => (
+                      <div
+                        key={idx}
+                        className={`flex-1 rounded-sm transition-[height] duration-75 ${
+                          isPaused
+                            ? 'bg-[#CBD5E1]'
+                            : barHeight > 65
+                            ? 'bg-[#DC2626]'
+                            : barHeight > 32
+                            ? 'bg-[#D97706]'
+                            : 'bg-[#0F172A]/60'
+                        }`}
+                        style={{ height: `${isPaused ? 10 : barHeight}%` }}
+                      />
+                    ))}
+                  </div>
+                  {interimTranscript && (
+                    <p className="text-[11px] italic text-[#64748B] truncate pt-1 border-t border-[#E2E8F0]">
+                      Ouvindo: &ldquo;{interimTranscript}&rdquo;
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Conference Audio Player */}
+              {recordedAudioUrl && !isRecording && (
+                <div className="p-3 rounded-lg bg-white border border-[#D97706]/35 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-[#0F172A]">
+                      Player de Conferência da Consulta Gravada
+                    </span>
+                    {recordedAudioBlob && (
+                      <button
+                        type="button"
+                        disabled={isAnalyzing}
+                        onClick={() =>
+                          void processCapturedDataWithAI(recordedAudioBlob, transcriptRef.current)
+                        }
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-[#0F172A] bg-[#FAF8F5] border border-[#CBD5E1] rounded-md hover:border-[#D97706] disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                      >
+                        <RefreshCw className="w-3 h-3 text-[#B45309]" />
+                        Reprocessar Áudio com IA
+                      </button>
+                    )}
+                  </div>
+                  <audio controls src={recordedAudioUrl} className="w-full h-9" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {micStatusNote && (
+            <div className="p-3 rounded-xl bg-[#FFFBEB] border border-[#D97706]/35 text-xs text-[#92400E]">
+              {micStatusNote}
+            </div>
+          )}
+
+          {copilotError && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-[#FEF2F2] border border-[#BA1A1A]/40 text-xs text-[#93000A]">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{copilotError}</span>
+            </div>
+          )}
+
+          {successNotice && !copilotError && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-[#DCFCE7] border border-[#16A34A]/40 text-xs font-semibold text-[#166534]">
+              <Check className="w-4 h-4 shrink-0 text-[#16A34A]" />
+              <span>{successNotice}</span>
+            </div>
+          )}
+
+          {/* Transcription Textarea */}
+          <div className="space-y-1.5">
+            <label htmlFor="sessionTranscript" className="block text-xs font-semibold text-[#0F172A]">
+              Transcrição ao Vivo da Sessão (Editável ou Colada Manualmente)
             </label>
             <textarea
-              id="medicalTreatments"
-              rows={3}
-              value={anamnesis.medicalTreatments}
-              onChange={(e) => handleField('medicalTreatments', e.target.value)}
-              placeholder={
-                isPet
-                  ? 'Descreva diagnósticos veterinários, vermífugos, ração terapêutica ou medicações atuais do animal...'
-                  : 'Descreva diagnósticos clínicos, acompanhamentos médicos ou medicações atuais...'
-              }
-              className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+              id="sessionTranscript"
+              rows={5}
+              value={transcript}
+              onChange={(e) => {
+                setTranscript(e.target.value);
+                onChange({ ...anamnesis, sessionTranscript: e.target.value });
+              }}
+              placeholder="A transcrição da fala aparecerá aqui automaticamente conforme o paciente relata seus sintomas e emoções, ou você pode colar/editar o texto diretamente..."
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] font-sans focus:outline-none focus:border-[#D97706]"
             />
           </div>
-        </div>
 
-        {/* Queixas Clínicas e Histórico */}
-        <div className="lg:col-span-7 bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] flex flex-col justify-between space-y-5">
-          <div className="space-y-5">
-            <h2 className="font-serif text-lg font-bold text-[#0F172A] pb-3 border-b border-[#E2E8F0]">
+          {/* Copilot Insights Card */}
+          {copilotAnalysis && (
+            <div className="p-5 rounded-xl bg-[#FAF8F5] border-2 border-[#D97706]/40 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-5 h-5 text-[#B45309]" />
+                  <h3 className="font-serif text-base font-bold text-[#0F172A]">
+                    Insights Clínicos da Copiloto IA
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={applySuggestions}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#16A34A] rounded-lg hover:bg-[#15803D] transition-colors cursor-pointer whitespace-nowrap shadow-sm"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Aplicar Sugestões nos Campos da Anamnese
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
+                  <span className="font-bold text-[#B45309]">Foco Sugerido:</span>
+                  <p className="font-serif font-bold text-[#0F172A] text-sm">
+                    {copilotAnalysis.suggestedFocus}
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
+                  <span className="font-bold text-[#B45309]">Intenção Central Sugerida:</span>
+                  <p className="font-medium text-[#0F172A]">{copilotAnalysis.centralIntention}</p>
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1 md:col-span-2">
+                  <span className="font-bold text-[#B45309]">Resumo das Queixas Clínicas Físicas:</span>
+                  <p className="text-[#334155] leading-relaxed">{copilotAnalysis.clinicalComplaints}</p>
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1 md:col-span-2">
+                  <span className="font-bold text-[#B45309]">Mapeamento Psicossomático:</span>
+                  <p className="text-[#334155] leading-relaxed">{copilotAnalysis.psychosomaticMapping}</p>
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1.5 md:col-span-2">
+                  <span className="font-bold text-[#B45309]">Órgãos ANSAE & Chakras Destaque:</span>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {(copilotAnalysis.highlightedOrgansAndChakras || []).map((item, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2 py-0.5 text-[11px] font-semibold rounded bg-[#FEF3C7] text-[#92400E] border border-[#D97706]/40"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* BLOCO 3: Histórico Clínico Detalhado, Observações & Consentimento LGPD */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-[0_4px_20px_-2px_rgba(15,23,42,0.04)] space-y-5">
+          <div className="flex items-center gap-2 pb-3 border-b border-[#E2E8F0]">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#0F172A] text-[#F59E0B] text-xs font-bold">
+              3
+            </span>
+            <h2 className="font-serif text-lg font-bold text-[#0F172A]">
               {isPet
-                ? 'Comportamento do Pet, Sinais Clínicos & Campo do Lar'
-                : 'Queixas Clínicas e Mapeamento Psicossomático'}
+                ? 'Histórico Clínico do Pet, Medicações, Observações & Consentimento'
+                : 'Histórico Clínico Detalhado, Medicações, Observações & Consentimento LGPD'}
             </h2>
+          </div>
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <div>
               <label
                 htmlFor="emotionalHistory"
@@ -1427,20 +1418,43 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
 
             <div>
               <label
+                htmlFor="medicalTreatments"
+                className="block text-xs font-semibold text-[#0F172A] mb-1.5"
+              >
+                {isPet
+                  ? 'Acompanhamento Veterinário / Medicações em Uso'
+                  : 'Acompanhamento Médico / Medicações em Uso'}
+              </label>
+              <textarea
+                id="medicalTreatments"
+                rows={3}
+                value={anamnesis.medicalTreatments}
+                onChange={(e) => handleField('medicalTreatments', e.target.value)}
+                placeholder={
+                  isPet
+                    ? 'Descreva diagnósticos veterinários, vermífugos, ração terapêutica ou medicações atuais do animal...'
+                    : 'Descreva diagnósticos clínicos, acompanhamentos médicos ou medicações atuais...'
+                }
+                className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
+              />
+            </div>
+
+            <div>
+              <label
                 htmlFor="clinicalNotes"
                 className="block text-xs font-semibold text-[#0F172A] mb-1.5"
               >
-                Observações do Terapeuta
+                Observações do Terapeuta & Estilo de Vida
               </label>
               <textarea
                 id="clinicalNotes"
-                rows={2}
+                rows={3}
                 value={anamnesis.clinicalNotes}
                 onChange={(e) => handleField('clinicalNotes', e.target.value)}
                 placeholder={
                   isPet
                     ? 'Percepções sobre a sintonia do pet com o tutor e ambiente da casa...'
-                    : 'Percepções iniciais durante a entrevista clínica...'
+                    : 'Percepções iniciais durante a entrevista clínica, sono, rotina e hábitos...'
                 }
                 className="w-full px-3.5 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-lg text-[#0F172A] focus:outline-none focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/15"
               />
@@ -1507,11 +1521,11 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
               disabled={!canProceed}
               className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-[#0F172A] rounded-lg hover:bg-[#1E293B] hover:shadow-[0_0_16px_rgba(217,119,6,0.25)] disabled:opacity-45 disabled:cursor-not-allowed transition-all cursor-pointer whitespace-nowrap"
             >
-              {isPet ? 'Avançar para Sintonia (Contexto PETS)' : 'Avançar para Sintonia Sensitiva'}
+              Salvar Anamnese &amp; Avançar para Sintonia
               <ArrowRight className="w-4 h-4 text-[#F59E0B]" />
             </button>
           </div>
-        </div>
+        </section>
       </form>
     </div>
   );

@@ -23,6 +23,7 @@ export interface GeminiAudioExtractionResult {
 export interface ExtractAudioOptions {
   recordedBlob: Blob;
   patientName?: string;
+  mainComplaint?: string;
   partialTranscript?: string;
   interagentType?: InteragentType;
   signal?: AbortSignal;
@@ -264,7 +265,8 @@ function mapTranscribedPayload(
 export async function extractAnamnesisFromAudioBlob(
   options: ExtractAudioOptions
 ): Promise<GeminiAudioExtractionResult> {
-  const { recordedBlob, patientName, partialTranscript, interagentType, signal } = options;
+  const { recordedBlob, patientName, mainComplaint, partialTranscript, interagentType, signal } =
+    options;
 
   if (!recordedBlob || recordedBlob.size === 0) {
     throw new Error('Nenhum áudio válido foi gravado para extração.');
@@ -287,14 +289,19 @@ export async function extractAnamnesisFromAudioBlob(
   if (directAi) {
     const cleanName =
       typeof patientName === 'string' && patientName.trim() ? patientName.trim() : 'Paciente';
+    const cleanComplaint =
+      typeof mainComplaint === 'string' && mainComplaint.trim() ? mainComplaint.trim() : '';
     const isPet = interagentType === 'pet';
+    const complaintHint = cleanComplaint
+      ? `\nQueixa/Foco Principal já registrado pelo terapeuta: "${cleanComplaint}".`
+      : '';
     const partialHint =
       typeof partialTranscript === 'string' && partialTranscript.trim()
         ? `\nRascunho parcial em tempo real (apoio para nomes próprios): "${partialTranscript.trim()}"`
         : '';
 
     const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
-Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${partialHint}
+Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${complaintHint}${partialHint}
 
 Execute duas ações em uma única resposta JSON:
 1. Transcreva literalmente e com fidelidade em português brasileiro tudo o que foi falado na gravação.
@@ -382,6 +389,7 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
       mimeType,
       fileName: `consulta.${ext}`,
       patientName,
+      mainComplaint,
       partialTranscript,
       interagentType,
     }),
@@ -397,9 +405,10 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
 export async function analyzeAnamnesisTextWithGemini(options: {
   transcript: string;
   patientName?: string;
+  mainComplaint?: string;
   signal?: AbortSignal;
 }): Promise<CopilotAnalysisResult> {
-  const { transcript, patientName, signal } = options;
+  const { transcript, patientName, mainComplaint, signal } = options;
   const cleanText = transcript.trim();
   if (!cleanText) {
     throw new Error('Transcrição vazia ou inválida para análise.');
@@ -407,8 +416,13 @@ export async function analyzeAnamnesisTextWithGemini(options: {
 
   const directAi = createDirectGeminiClient();
   if (directAi) {
+    const cleanComplaint =
+      typeof mainComplaint === 'string' && mainComplaint.trim() ? mainComplaint.trim() : '';
+    const complaintContext = cleanComplaint
+      ? `\nQueixa/Foco Principal já informado: "${cleanComplaint}".`
+      : '';
     const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
-Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com "${patientName || 'Paciente'}" e extraia os insights estruturados em JSON estrito.
+Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com "${patientName || 'Paciente'}"${complaintContext} e extraia os insights estruturados em JSON estrito.
 
 TRANSCRIÇÃO DA SESSÃO:
 """
@@ -458,6 +472,7 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas chaves:
     body: JSON.stringify({
       transcript: cleanText,
       patientName,
+      mainComplaint,
     }),
   });
   return parseJsonOrThrowDetailedError<CopilotAnalysisResult>(res, '/api/anamnese/copilot');
