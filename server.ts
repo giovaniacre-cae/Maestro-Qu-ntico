@@ -1823,6 +1823,11 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas três chaves exatas:
     }
   });
 
+  // Garante que qualquer rota /api/* inexistente retorne JSON em vez de cair no catch-all HTML
+  app.all('/api/*', (req: Request, res: Response) => {
+    res.status(404).json({ error: `Rota de API não encontrada: ${req.method} ${req.path}` });
+  });
+
   // Garante resposta JSON clara para payloads acima do limite no /api
   app.use('/api', (err: any, _req: Request, res: Response, next: NextFunction) => {
     if (!err) {

@@ -24,7 +24,7 @@ export interface ExtractAudioOptions {
   signal?: AbortSignal;
 }
 
-const SINGLE_REQUEST_BASE64_LIMIT = 380_000;
+const SINGLE_REQUEST_BASE64_LIMIT = 650_000;
 const CHUNK_BASE64_SIZE = 320_000;
 
 export function normalizeAudioBlobMimeType(blob: Blob): string {

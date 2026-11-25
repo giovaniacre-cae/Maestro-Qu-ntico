@@ -64,8 +64,8 @@ const AUDIO_CONNECTION_FALLBACK_MSG =
 
 function createVoiceOptimizedRecorder(stream: MediaStream, chosenMime: string): MediaRecorder {
   const preferredOptions: MediaRecorderOptions = chosenMime
-    ? { mimeType: chosenMime, audioBitsPerSecond: 32000 }
-    : { audioBitsPerSecond: 32000 };
+    ? { mimeType: chosenMime, audioBitsPerSecond: 24000 }
+    : { audioBitsPerSecond: 24000 };
 
   try {
     return new MediaRecorder(stream, preferredOptions);
