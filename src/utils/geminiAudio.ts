@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { CopilotAnalysisResult, InteragentType } from '../types/quantum';
 import { FollowUpCategory } from './storage';
 
-declare const process: { env: { GEMINI_API_KEY?: string } };
+declare const process: { env: { GEMINI_API_KEY?: string; API_KEY?: string } };
 
 export interface ExtractedAnamnesisFields {
   patientName?: string;
@@ -142,12 +142,18 @@ export function normalizeBirthDateInput(rawDate?: string): string {
 function getClientGeminiApiKey(): string {
   let envKey = '';
   try {
-    envKey = process.env.GEMINI_API_KEY || '';
+    envKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
   } catch {
     envKey = '';
   }
-  const viteKey =
-    (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+
+  let viteKey = '';
+  try {
+    viteKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+  } catch {
+    viteKey = '';
+  }
+
   const chosen = (envKey || viteKey || '').trim();
   if (!chosen || chosen === 'MY_GEMINI_API_KEY') {
     return '';
@@ -164,6 +170,11 @@ function createDirectGeminiClient(): GoogleGenAI | null {
 function isAbortError(err: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) return true;
   return err instanceof DOMException && err.name === 'AbortError';
+}
+
+function isAuthKeyError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /API_KEY_INVALID|PERMISSION_DENIED|API key not valid|\b401\b|\b403\b/i.test(msg);
 }
 
 async function generateJsonWithGeminiFallback(
@@ -192,32 +203,26 @@ async function generateJsonWithGeminiFallback(
   try {
     return await callModel('gemini-3.8-flash', true);
   } catch (primaryErr) {
-    if (isAbortError(primaryErr, signal)) {
+    if (isAbortError(primaryErr, signal) || isAuthKeyError(primaryErr)) {
       throw primaryErr;
     }
     const primaryMsg =
       primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
 
-    // If thinkingBudget is rejected on this model/endpoint, retry gemini-3.8-flash without thinkingConfig
     if (/thinking/i.test(primaryMsg)) {
       try {
         return await callModel('gemini-3.8-flash', false);
       } catch (retryErr) {
-        if (isAbortError(retryErr, signal)) {
+        if (isAbortError(retryErr, signal) || isAuthKeyError(retryErr)) {
           throw retryErr;
         }
       }
     }
 
-    const shouldTryFallback =
-      /503|404|UNAVAILABLE|NOT_FOUND|high demand|overloaded|thinking/i.test(primaryMsg);
-    if (!shouldTryFallback) {
-      throw primaryErr;
-    }
     try {
       return await callModel('gemini-4-hydrogen', false);
     } catch (fallbackErr) {
-      if (isAbortError(fallbackErr, signal)) {
+      if (isAbortError(fallbackErr, signal) || isAuthKeyError(fallbackErr)) {
         throw fallbackErr;
       }
       return await callModel('gemini-3.1-flash-lite', false);

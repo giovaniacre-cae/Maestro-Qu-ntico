@@ -5,20 +5,30 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
-  const geminiKey =
-    env.GEMINI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    env.VITE_GEMINI_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    env.API_KEY ||
-    process.env.API_KEY ||
-    '';
+  const env = loadEnv(mode, process.cwd(), '');
+  const pickValidKey = (...values: Array<string | undefined>): string => {
+    for (const value of values) {
+      const trimmed = (value || '').trim();
+      if (trimmed && trimmed !== 'MY_GEMINI_API_KEY') {
+        return trimmed;
+      }
+    }
+    return '';
+  };
+  const geminiKey = pickValidKey(
+    env.GEMINI_API_KEY,
+    env.VITE_GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY,
+    process.env.VITE_GEMINI_API_KEY,
+    env.API_KEY,
+    process.env.API_KEY
+  );
   return {
     base: './',
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
       'process.env.API_KEY': JSON.stringify(geminiKey),
+      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(geminiKey),
     },
     plugins: [
       react(),
