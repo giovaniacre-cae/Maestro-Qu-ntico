@@ -164,6 +164,26 @@ export const BUILTIN_PRINTABLE_GRAPHICS: PrintableGraphic[] = [
       'água energizada',
     ],
   },
+  {
+    id: 'graf-54-queima-de-karma',
+    number: 54,
+    title: 'Queima de Karma',
+    category: 'Limpeza & Purificação',
+    imageUrl: '/graficos/56.png',
+    presentation:
+      'Estrela de 6 pontas contendo cruz solar dextrógira de transmutação, envolta por anéis graduados e coroa externa de 64 setas radiantes.',
+    usageAspects:
+      'Liberação profunda de padrões repetitivos, bloqueios cármicos, contratos e votos limitantes de vidas passadas ou ancestrais, promovendo transmutação e desbloqueio evolutivo. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'queima de karma',
+      'carmas',
+      'padrões repetitivos',
+      'divórcio energético',
+      'transmutação',
+      'ancestralidade',
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // 2. POTENCIALIZAÇÃO & GEOMETRIA SAGRADA
@@ -314,6 +334,45 @@ export const BUILTIN_PRINTABLE_GRAPHICS: PrintableGraphic[] = [
       'vendas',
       'aceleração de resultados',
       'florais',
+    ],
+  },
+  {
+    id: 'graf-48-acelerador',
+    number: 48,
+    title: 'Acelerador',
+    category: 'Potencialização & Geometria Sagrada',
+    imageUrl: '/graficos/46.png',
+    presentation:
+      'Círculos concêntricos externos envolvendo um hexagrama (Estrela de Davi) e uma espiral central ascendente. Combina a estabilidade e transmutação do hexagrama com a dinâmica centrípeta/centrífuga da espiral.',
+    usageAspects:
+      'Acelera a materialização de objetivos legítimos, destrava processos lentos, potencializa pedidos previamente valorizados no Decágono Duplo e dinamiza respostas terapêuticas sem dispersão. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'acelerador',
+      'acelerar processos',
+      'destravamento',
+      'materialização',
+      'potencialização',
+      'negócios',
+    ],
+  },
+  {
+    id: 'graf-56-turbilhao-matriz-classica',
+    number: 56,
+    title: 'Turbilhão (Matriz Clássica)',
+    category: 'Potencialização & Geometria Sagrada',
+    imageUrl: '/graficos/59.png',
+    presentation:
+      'Vórtice composto por 9 arcos em rotação horária formando um anel dinâmico com centro livre.',
+    usageAspects:
+      'Acelerador universal para precipitação de objetivos materiais, financeiros, profissionais ou de saúde. Por ter centro livre, permite associar o testemunho a cristais, florais, números ou metas escritas. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'turbilhão',
+      'aceleração',
+      'precipitação',
+      'prosperidade',
+      'materialização',
     ],
   },
 
@@ -629,6 +688,45 @@ export const BUILTIN_PRINTABLE_GRAPHICS: PrintableGraphic[] = [
       'defesa espiritual',
     ],
   },
+  {
+    id: 'graf-49-escudo-magico',
+    number: 49,
+    title: 'Escudo Mágico',
+    category: 'Proteção & Defesa Espiritual',
+    imageUrl: '/graficos/47.png',
+    presentation:
+      'Pantáculo cabalístico retangular com as letras sagradas do Tetragrammaton (IHVH) nos quatro pontos cardeais, nomes angélicos nas diagonais, círculos concêntricos protetores e pentagrama central com a letra hebraica Shin.',
+    usageAspects:
+      'Defesa psíquica e espiritual de alta potência contra ataques espirituais, demandas, magia ritualística, inveja densa e invasões no campo áurico. Alinhar o eixo superior (Iod) ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'escudo mágico',
+      'proteção espiritual',
+      'tetragrammaton',
+      'anti magia',
+      'defesa psíquica',
+      'blindagem',
+    ],
+  },
+  {
+    id: 'graf-51-heiki',
+    number: 51,
+    title: 'Heiki',
+    category: 'Proteção & Defesa Espiritual',
+    imageUrl: '/graficos/51.png',
+    presentation:
+      'Selo retangular composto por colunas verticais de caracteres sagrados e glifos de proteção hermética de alta densidade vibracional.',
+    usageAspects:
+      'Escudo selador e neutralizador de energias intrusas, miasmas pesados, formas-pensamento nocivas e interferências espirituais em pessoas ou imóveis. Alinhar verticalmente ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'heiki',
+      'proteção',
+      'selamento áurico',
+      'limpeza profunda',
+      'defesa espiritual',
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // 4. SAÚDE FÍSICA & VITALIDADE
@@ -865,6 +963,83 @@ export const BUILTIN_PRINTABLE_GRAPHICS: PrintableGraphic[] = [
       'harmonização animal',
     ],
   },
+  {
+    id: 'graf-50-turbilhao-gordura-corporal',
+    number: 50,
+    title: 'Turbilhão — Derretimento de Gordura Corporal',
+    category: 'Saúde Física & Vitalidade',
+    imageUrl: '/graficos/48.png',
+    presentation:
+      'Vórtice de arcos em rotação horária (Turbilhão) contendo no núcleo a sequência numérica 4456 6654 direcionada à metabolização lipídica.',
+    usageAspects:
+      'Suporte vibracional complementar para estimular o metabolismo basal, auxiliar na redução de gordura localizada e apoiar processos de reeducação alimentar e desintoxicação física. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'gordura corporal',
+      'metabolismo',
+      'emagrecimento',
+      'turbilhão',
+      'saúde física',
+    ],
+  },
+  {
+    id: 'graf-52-magnetismo-vital-curativo',
+    number: 52,
+    title: 'Gráfico Magnetismo Vital e Curativo',
+    category: 'Saúde Física & Vitalidade',
+    imageUrl: '/graficos/53.png',
+    presentation:
+      'Conjunto composto por três círculos concêntricos superiores conectados a um anel de 12 esferas polares que envolvem um heptagrama (estrela de 7 pontas).',
+    usageAspects:
+      'Canaliza e irradia fluidos magnéticos curativos e regeneradores para tecidos debilitados, órgãos inflamados, fadiga crônica e baixa imunidade. Pode ser associado à Apatita Azul ou Quartzo Verde. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'magnetismo vital',
+      'magnetismo curativo',
+      'cura física',
+      'regeneração',
+      'vitalidade',
+    ],
+  },
+  {
+    id: 'graf-57-turbilhao-emagrecimento',
+    number: 57,
+    title: 'Turbilhão — Emagrecimento',
+    category: 'Saúde Física & Vitalidade',
+    imageUrl: '/graficos/60.png',
+    presentation:
+      'Turbilhão em rotação horária contendo no núcleo as sequências numéricas 4812412, 4456 6654 e 68476739287 direcionadas ao equilíbrio metabólico.',
+    usageAspects:
+      'Emissão vibracional para harmonizar o metabolismo, reduzir ansiedade alimentar e apoiar a manutenção do peso saudável em conjunto com orientação nutricional e médica. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'turbilhão emagrecimento',
+      'emagrecimento',
+      'peso saudável',
+      'metabolismo',
+      'saúde física',
+    ],
+  },
+  {
+    id: 'graf-60-figura-humana-masc-fem',
+    number: 60,
+    title: 'Gráfico Figura Humana Masc. e Fem. — Corpo Humano',
+    category: 'Saúde Física & Vitalidade',
+    imageUrl: '/graficos/63.png',
+    presentation:
+      'Dupla silhueta anatômica (masculina e feminina) com os 7 chakras alinhados e dois círculos polares centrais para ancoragem do testemunho.',
+    usageAspects:
+      'Prancha de tele-radiestesia e harmonização anatômica localizada: posiciona-se o testemunho no círculo polar e utiliza-se o pêndulo ou cristal sobre o órgão, membro ou chakra correspondente na silhueta. Alinhar ao Norte (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'figura humana',
+      'corpo humano',
+      'tele-radiestesia',
+      'tratamento à distância',
+      'anatomia energética',
+      'chakras',
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // 5. HARMONIZAÇÃO & CHAKRAS
@@ -965,6 +1140,63 @@ export const BUILTIN_PRINTABLE_GRAPHICS: PrintableGraphic[] = [
       'prosperidade financeira',
       'relacionamento',
       'equilíbrio yin yang',
+    ],
+  },
+  {
+    id: 'graf-53-revitalizador-chakras',
+    number: 53,
+    title: 'Revitalizador e Chakras',
+    category: 'Harmonização & Chakras',
+    imageUrl: '/graficos/55.png',
+    presentation:
+      'Mandala radiônica circular com espiral central irradiando 7 pás dinâmicas, delimitada por anéis concêntricos e dividida nos 7 setores dos chakras (Coronário, Frontal, Laríngeo, Cardíaco, Plexo, Sacro e Básico).',
+    usageAspects:
+      'Permite diagnosticar no pêndulo qual chakra necessita de recarga e emitir energia revitalizante direcionada posicionando o testemunho no centro e o cristal correspondente sobre o setor do chakra hipoativo. Alinhar o setor Frontal ao Norte (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'revitalizador e chakras',
+      'alinhamento de chakras',
+      'recarga energética',
+      'harmonização',
+      'chakras',
+    ],
+  },
+  {
+    id: 'graf-58-aura-humana-masculino',
+    number: 58,
+    title: 'Gráfico Aura Humana Corpo Masculino — Aura e Corpos Sutis',
+    category: 'Harmonização & Chakras',
+    imageUrl: '/graficos/61.png',
+    presentation:
+      'Silhueta humana masculina com os 7 chakras coloridos e envolta pelas 7 camadas concêntricas cromáticas dos corpos sutis (Físico, Etérico, Astral, Mental Inferior, Mental Superior, Búdico e Átmico).',
+    usageAspects:
+      'Ferramenta dupla de análise e emissão à distância para interagentes masculinos, permitindo aferir no pêndulo fendas na aura, desequilíbrios nos 7 corpos sutis e aplicar cromoterapia ou cristais sobre o ponto específico. Alinhar ao Norte (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'aura humana masculino',
+      'corpos sutis',
+      'chakras masculino',
+      'análise áurica',
+      'testemunho anatômico',
+    ],
+  },
+  {
+    id: 'graf-59-aura-humana-feminino',
+    number: 59,
+    title: 'Gráfico Aura Humana Corpo Feminino — Aura e Corpos Sutis',
+    category: 'Harmonização & Chakras',
+    imageUrl: '/graficos/62.png',
+    presentation:
+      'Silhueta humana feminina com os 7 chakras coloridos e envolta pelas 7 camadas concêntricas cromáticas dos corpos sutis (Físico, Etérico, Astral, Mental Inferior, Mental Superior, Búdico e Átmico).',
+    usageAspects:
+      'Ferramenta dupla de análise e emissão à distância para interagentes femininas, permitindo aferir fendas na aura, desequilíbrios nos 7 corpos sutis e emitir harmonização localizada nos chakras e campos energéticos. Alinhar ao Norte (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'aura humana feminino',
+      'corpos sutis',
+      'chakras feminino',
+      'análise áurica',
+      'testemunho anatômico',
     ],
   },
 
@@ -1116,6 +1348,26 @@ export const BUILTIN_PRINTABLE_GRAPHICS: PrintableGraphic[] = [
       'fartura',
     ],
   },
+  {
+    id: 'graf-55-sorte-e-sucesso',
+    number: 55,
+    title: 'Sorte e Sucesso',
+    category: 'Prosperidade & Materialização',
+    imageUrl: '/assets/aistudio/58_bf409223.png',
+    presentation:
+      'Círculos concêntricos envolvendo losangos entrelaçados, quadrado estrutural e núcleo com losango bipolar dentro de duplo círculo.',
+    usageAspects:
+      'Harmoniza oportunidades, atrai sincronicidades favoráveis, favorece entrevistas, novos empreendimentos, concursos, causas e abertura de caminhos profissionais e financeiros. Alinhar ao Norte Magnético (357°).',
+    requiresNorthAlignment: true,
+    purposeTags: [
+      'sorte e sucesso',
+      'prosperidade',
+      'abertura de caminhos',
+      'oportunidades',
+      'emprego',
+      'negócios',
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // 7. RELACIONAMENTOS & AFEIÇÃO
@@ -1246,12 +1498,13 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
     graphicIds: [
       'graf-02-decagono-duplo',
       'graf-34-ioshua',
+      'graf-54-queima-de-karma',
       'graf-24-placa-labirinto-damiens',
       'graf-03-desembaracador-relacionamentos',
       'graf-16-scap',
     ],
     antiCatarseNote:
-      'Valorize os testemunhos a grafite no Decágono Duplo por 15–20 min, alinhe Ioshua e Labirinto D’Amiens ao Norte Magnético (357°) e inicie sempre pela limpeza antes de emitir para novos ciclos.',
+      'Valorize os testemunhos a grafite no Decágono Duplo por 15–20 min, alinhe Ioshua, Queima de Karma e Labirinto D’Amiens ao Norte Magnético (357°) e inicie sempre pela limpeza antes de emitir para novos ciclos.',
     testimonyGuidance:
       'Nome completo e data de nascimento dos envolvidos + intenção: "Divórcio energético pacífico, corte de votos antigos e liberação de vínculos em luz".',
   },
@@ -1275,17 +1528,21 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'miasmas',
       'larvas',
       'limpeza espiritual',
+      'escudo magico',
+      'heiki',
     ],
     graphicIds: [
       'graf-01-desimpregnador',
       'graf-32-anti-magia',
+      'graf-49-escudo-magico',
+      'graf-51-heiki',
       'graf-43-iave',
       'graf-35-quadrado-magico',
       'graf-27-nove-circulos',
       'graf-28-onze-circulos',
     ],
     antiCatarseNote:
-      'Protocolo obrigatório de Etapa 1 (24h–72h) quando Bovis < 6.500 Å ou aura aberta. Alinhe Anti Magia, Iavê e Quadrado Mágico ao Norte Magnético (357°).',
+      'Protocolo obrigatório de Etapa 1 (24h–72h) quando Bovis < 6.500 Å ou aura aberta. Alinhe Anti Magia, Escudo Mágico, Heiki, Iavê e Quadrado Mágico ao Norte Magnético (357°).',
     testimonyGuidance:
       'Nome completo + data de nascimento a grafite valorizado no Decágono Duplo + intenção: "Assepsia áurica integral, neutralização de magias e blindagem luminosa".',
   },
@@ -1307,17 +1564,22 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'vendas',
       'clientes',
       'destravamento financeiro',
+      'sorte e sucesso',
+      'acelerador',
     ],
     graphicIds: [
       'graf-02-decagono-duplo',
       'graf-10-desembaracador-material',
       'graf-04-turbilhao-prosperador',
+      'graf-55-sorte-e-sucesso',
+      'graf-48-acelerador',
+      'graf-56-turbilhao-matriz-classica',
       'graf-19-shrim-fortuna',
       'graf-30-turbilhao-jupiter',
       'graf-31-turbilhao-sol',
     ],
     antiCatarseNote:
-      'Prepare o testemunho no Decágono Duplo (15–20 min), destrave antes no Desembaraçador Material e alinhe os Turbilhões e Shrim ao Norte (357°). Não use Turbilhão junto com Harmonia na mesma etapa.',
+      'Prepare o testemunho no Decágono Duplo (15–20 min), destrave antes no Desembaraçador Material e alinhe os Turbilhões, Sorte e Sucesso, Acelerador e Shrim ao Norte (357°). Não use Turbilhão junto com Harmonia na mesma etapa.',
     testimonyGuidance:
       'Nome completo + data de nascimento + meta no tempo presente (ex.: "Fluxo financeiro abundante, prosperidade legítima e novos clientes").',
   },
@@ -1341,15 +1603,20 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'emprego',
       'trabalho',
       'carreira',
+      'sorte e sucesso',
+      'acelerador',
     ],
     graphicIds: [
       'graf-10-desembaracador-material',
       'graf-40-espiral-cosmica',
+      'graf-55-sorte-e-sucesso',
+      'graf-48-acelerador',
+      'graf-56-turbilhao-matriz-classica',
       'graf-30-turbilhao-jupiter',
       'graf-38-cruz-atlante',
     ],
     antiCatarseNote:
-      'Escreva o endereço completo do imóvel ou CNPJ/objeto do contrato em testemunho artificial valorizado no Decágono Duplo. Alinhe Júpiter e Cruz Atlante ao Norte (357°).',
+      'Escreva o endereço completo do imóvel ou CNPJ/objeto do contrato em testemunho artificial valorizado no Decágono Duplo. Alinhe Sorte e Sucesso, Acelerador, Júpiter e Cruz Atlante ao Norte (357°).',
     testimonyGuidance:
       'Endereço do imóvel ou nome da empresa/pessoa + objetivo claro: "Desembaraço, venda justa e conclusão harmônica de contrato".',
   },
@@ -1372,14 +1639,16 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'acordo',
       'audiencia',
       'advogado',
+      'sorte e sucesso',
     ],
     graphicIds: [
       'graf-37-justica-divina',
       'graf-10-desembaracador-material',
+      'graf-55-sorte-e-sucesso',
       'graf-30-turbilhao-jupiter',
     ],
     antiCatarseNote:
-      'Conduta ética: emita exclusivamente para clareza, verdade e resolução justa para todas as partes. Alinhe Justiça Divina e Turbilhão com Júpiter ao Norte Magnético (357°).',
+      'Conduta ética: emita exclusivamente para clareza, verdade e resolução justa para todas as partes. Alinhe Justiça Divina, Sorte e Sucesso e Turbilhão com Júpiter ao Norte Magnético (357°).',
     testimonyGuidance:
       'Nome completo + número do processo/assunto resumido a grafite: "Resolução justa, rápida e harmônica conforme a Justiça Divina".',
   },
@@ -1407,16 +1676,17 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'graf-08-diafragma-1',
       'graf-15-triturador',
       'graf-05-trigono',
+      'graf-52-magnetismo-vital-curativo',
     ],
     antiCatarseNote:
-      'Alinhe Anti Dor e Trígono ao Norte (357°). Use o Diafragma 1 para descongestionar picos agudos e complemente com água dinamizada no Anti Dor (15 min). Nunca substitui avaliação médica.',
+      'Alinhe Anti Dor, Magnetismo Vital e Curativo e Trígono ao Norte (357°). Use o Diafragma 1 para descongestionar picos agudos e complemente com água dinamizada no Anti Dor (15 min). Nunca substitui avaliação médica.',
     testimonyGuidance:
       'Nome completo + data de nascimento + região específica a grafite (ex.: "Alívio vibracional e desinflamação em coluna lombar").',
   },
   {
     id: 'proto-regeneracao-vitalidade',
     title: 'Regeneração Celular & Vitalidade',
-    categorySummary: 'Recuperação orgânica, pós-operatório, imunidade, fadiga e elevação de Bovis',
+    categorySummary: 'Recuperação orgânica, pós-operatório, imunidade, fadiga, metabolismo e elevação de Bovis',
     keywords: [
       'regeneracao',
       'regeneracao celular',
@@ -1431,18 +1701,27 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'glandulas',
       'bovis',
       'celulas',
+      'magnetismo vital',
+      'magnetismo curativo',
+      'metabolismo',
+      'emagrecimento',
+      'gordura corporal',
     ],
     graphicIds: [
       'graf-21-programador-fisico',
+      'graf-52-magnetismo-vital-curativo',
       'graf-36-vesica-piscis',
       'graf-07-alta-vitalidade',
       'graf-23-mesa-damiens',
+      'graf-50-turbilhao-gordura-corporal',
+      'graf-57-turbilhao-emagrecimento',
+      'graf-60-figura-humana-masc-fem',
       'graf-12-gerador-piramide',
       'graf-13-gerador-circulo',
       'graf-14-gerador-quadrado',
     ],
     antiCatarseNote:
-      'Protocolo de Etapa 2: se o paciente estiver abaixo de 5.000 Å, realize primeiro 24h de Desimpregnador. Alinhe Programador Físico, Mesa D’Amiens, Gerador Pirâmide e Quadrado ao Norte (357°).',
+      'Protocolo de Etapa 2: se o paciente estiver abaixo de 5.000 Å, realize primeiro 24h de Desimpregnador. Alinhe Programador Físico, Magnetismo Vital e Curativo, Mesa D’Amiens, Gerador Pirâmide e Quadrado ao Norte (357°).',
     testimonyGuidance:
       'Nome completo + data de nascimento + órgão ou sistema ANSAE: "Reprogramação celular perfeita e elevação da energia de saúde acima de 9.500 Å".',
   },
@@ -1479,7 +1758,7 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
   {
     id: 'proto-chakras-aura',
     title: 'Alinhamento de Chakras & Aura',
-    categorySummary: 'Reequilíbrio dos 7 chakras, recomposição áurica e reposição cromática',
+    categorySummary: 'Reequilíbrio dos 7 chakras, recomposição áurica, corpos sutis e tele-radiestesia',
     keywords: [
       'chakra',
       'chakras',
@@ -1488,19 +1767,26 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'charas',
       'aura',
       'campo aurico',
+      'corpos sutis',
       'alinhamento de chakras',
       'cromoterapia',
       'equilibrio energetico',
       'prana',
+      'revitalizador',
+      'figura humana',
     ],
     graphicIds: [
+      'graf-53-revitalizador-chakras',
+      'graf-58-aura-humana-masculino',
+      'graf-59-aura-humana-feminino',
+      'graf-60-figura-humana-masc-fem',
       'graf-09-diafragma-2',
       'graf-11-harmonia',
       'graf-42-flor-da-vida',
       'graf-22-irradiador-energetico',
     ],
     antiCatarseNote:
-      'Após limpeza prévia, Diafragma 2 e Harmonia fecham fendas áuricas e harmonizam os 7 centros simultaneamente; o Irradiador Energético deve ser alinhado ao Norte (357°).',
+      'Após limpeza prévia, utilize Revitalizador e Chakras (Frontal ao Norte 357°) ou as pranchas anatômicas Aura Humana / Figura Humana para aferição e emissão direcionada; Diafragma 2 e Harmonia selam o campo áurico.',
     testimonyGuidance:
       'Nome completo + data de nascimento + indicação dos chakras aferidos: "Alinhamento, rotação harmônica e selamento integral dos 7 chakras e aura".',
   },
@@ -1603,26 +1889,31 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'potencializacao',
       'acelerador',
       'agua energizada',
+      'turbilhao',
     ],
     graphicIds: [
       'graf-02-decagono-duplo',
+      'graf-48-acelerador',
       'graf-45-acelerador',
+      'graf-56-turbilhao-matriz-classica',
       'graf-05-trigono',
       'graf-42-flor-da-vida',
     ],
     antiCatarseNote:
-      'Valorize o testemunho no Decágono Duplo por 15–30 min antes de transferir qualquer fórmula. Utilize o Acelerador (Norte 357°) apenas quando Bovis >= 6.500 Å.',
+      'Valorize o testemunho no Decágono Duplo por 15–30 min antes de transferir qualquer fórmula. Utilize o Acelerador ou Turbilhão (Norte 357°) apenas quando Bovis >= 6.500 Å.',
     testimonyGuidance:
       'Nome completo + data de nascimento no Decágono Duplo + nome do floral/frequência a emitir.',
   },
   {
     id: 'proto-karma-feng-shui',
     title: 'Transmutação Cármica & Feng Shui Ambiental',
-    categorySummary: '72 Nomes de Deus, liberação de padrões ancestrais e harmonização das 8 áreas (Baguá)',
+    categorySummary: 'Queima de Karma, 72 Nomes de Deus, liberação ancestral e harmonização das 8 áreas (Baguá)',
     keywords: [
       'carma',
       'karma',
+      'queima de karma',
       'ancestral',
+      'ancestralidade',
       'espiritualidade',
       'feng shui',
       'bagua',
@@ -1632,6 +1923,7 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
       'missao de vida',
     ],
     graphicIds: [
+      'graf-54-queima-de-karma',
       'graf-39-72-nomes-de-deus',
       'graf-46-bagua',
       'graf-44-placa-cruz-ansata',
@@ -1640,7 +1932,7 @@ export const THERAPEUTIC_PROTOCOLS_INDEX: TherapeuticProtocolIndexItem[] = [
     antiCatarseNote:
       'Todas as placas deste bloco exigem alinhamento rigoroso ao Norte Magnético (357°) na montagem física.',
     testimonyGuidance:
-      'Nome completo + data de nascimento ou planta do ambiente: "Transmutação luminosa, ordem cósmica e alinhamento com a missão de vida".',
+      'Nome completo + data de nascimento ou planta do ambiente: "Transmutação luminosa, queima de karma, ordem cósmica e alinhamento com a missão de vida".',
   },
 ];
 

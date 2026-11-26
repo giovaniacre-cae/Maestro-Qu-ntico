@@ -31,6 +31,15 @@
   }
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes resonancePulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.25), 0 0 28px 0 rgba(245, 158, 11, 0.14);

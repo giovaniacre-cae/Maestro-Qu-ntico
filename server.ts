@@ -739,7 +739,7 @@ REGRAS OBRIGATÓRIAS DE REDAÇÃO:
           : '';
       const prompt = `
 Você é o Copiloto Clínico IA do sistema "Maestro Quântico v2.0" (Maestro Terapias Vibracionais, conduzido pelo terapeuta Giovani Caetano).
-Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com o paciente "${patientName || 'Paciente'}"${complaintLine} e extraia os insights estruturados em JSON estrito.
+Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com o paciente "${patientName || 'Paciente'}"${complaintLine} e extraia os insights estruturados e campos da Ficha de Anamnese em JSON estrito.
 
 TRANSCRIÇÃO DA SESSÃO / ANAMNESE:
 """
@@ -750,15 +750,22 @@ Retorne um JSON contendo estritamente as seguintes chaves:
 - "clinicalComplaints": Resumo detalhado dos sintomas físicos, dores localizadas, diagnósticos médicos citados e tempo de evolução.
 - "psychosomaticMapping": Correlação psicossomática profunda entre os sintomas físicos relatados e os conflitos emocionais, traumas, estresse ou padrões mentais identificados na fala do paciente.
 - "centralIntention": Intenção Central de Tratamento sintetizada no Padrão Maestro (ex.: "Harmonização do eixo neuroemocional, restauração da vitalidade física e prosperidade").
-- "suggestedFocus": Foco principal do atendimento (ex.: "Saúde Física", "Equilíbrio Emocional", "Limpeza Espiritual", "Prosperidade/Material", "Relacionamentos").
+- "suggestedFocus": Foco principal do atendimento (ex.: "Saúde Física", "Equilíbrio Emocional", "Limpeza Espiritual", "Prosperidade/Material", "Relacionamentos" ou "Saúde Animal / PETS").
 - "highlightedOrgansAndChakras": Array de strings com a lista de órgãos, sistemas ANSAE e chakras associados às queixas para destaque clínico.
+- "extractedFields": Objeto contendo:
+  - "birthDate": Data de nascimento no formato YYYY-MM-DD se mencionada, ou "".
+  - "mainComplaint": Queixa principal / intenção central do atendimento.
+  - "clinicalHistory": Sintomas físicos, dores localizadas e histórico clínico relatado.
+  - "emotionalSymptoms": Sintomas emocionais, mentais, ansiedade ou correlação psicossomática relatada.
+  - "medications": Medicações em uso, suplementos ou acompanhamento médico/veterinário mencionado, ou "".
+  - "lifestyleNotes": Observações de estilo de vida, sono, rotina ou notas clínicas do terapeuta.
 `;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          thinkingConfig: { thinkingBudget: 0 },
           systemInstruction:
             'Você é um copiloto clínico especialista em anamnese terapêutica e psicossomática. Responda em português brasileiro culto e acolhedor, seguindo estritamente o esquema JSON solicitado.',
           responseMimeType: 'application/json',
@@ -772,6 +779,17 @@ Retorne um JSON contendo estritamente as seguintes chaves:
               highlightedOrgansAndChakras: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
+              },
+              extractedFields: {
+                type: Type.OBJECT,
+                properties: {
+                  birthDate: { type: Type.STRING },
+                  mainComplaint: { type: Type.STRING },
+                  clinicalHistory: { type: Type.STRING },
+                  emotionalSymptoms: { type: Type.STRING },
+                  medications: { type: Type.STRING },
+                  lifestyleNotes: { type: Type.STRING },
+                },
               },
             },
             required: [

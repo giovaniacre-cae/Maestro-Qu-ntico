@@ -132,9 +132,17 @@ const SEARCH_SYNONYMS: Record<string, string[]> = {
   sono: ['insonia', 'harmonia', 'diafragma 1', 'ioshua', 'labirinto'],
   insonia: ['sono', 'harmonia', 'diafragma 1', 'ioshua', 'labirinto'],
   magia: ['anti magia', 'iave', 'desimpregnador', 'onze circulos', 'nove circulos'],
-  aura: ['campo aurico', 'diafragma 2', 'harmonia', 'flor da vida', 'irradiador'],
+  aura: ['campo aurico', 'aura humana', 'corpos sutis', 'figura humana', 'diafragma 2', 'harmonia', 'flor da vida', 'irradiador'],
   telurica: ['geobiologia', 'scap', 'luxor', 'cruz cosmica', 'mesa d amiens'],
   geobiologia: ['telurica', 'scap', 'luxor', 'cruz cosmica', 'escudo protetor'],
+  karma: ['queima de karma', 'carmas', '72 nomes', 'divorcio energetico', 'ancestralidade'],
+  carma: ['queima de karma', 'carmas', '72 nomes', 'divorcio energetico', 'ancestralidade'],
+  emagrecimento: ['turbilhao', 'gordura corporal', 'metabolismo', 'peso saudavel'],
+  gordura: ['gordura corporal', 'turbilhao', 'emagrecimento', 'metabolismo'],
+  sorte: ['sorte e sucesso', 'prosperidade', 'abertura de caminhos', 'oportunidades'],
+  sucesso: ['sorte e sucesso', 'prosperidade', 'negocios', 'acelerador'],
+  escudo: ['escudo magico', 'escudo protetor', 'heiki', 'protecao'],
+  heiki: ['heiki', 'protecao', 'selamento aurico', 'defesa espiritual'],
 };
 
 function hasEditDistanceAtMostOne(a: string, b: string): boolean {
@@ -198,6 +206,8 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'corte de votos',
       'votos antigos',
       'cortes energeticos',
+      'queima de karma',
+      'carmas',
       'decagono duplo',
       'ioshua',
       'labirinto d\'amiens',
@@ -206,9 +216,9 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Divórcio Energético & Corte de Votos',
     synergyAdvice:
-      'Valorize os testemunhos a grafite no Decágono Duplo (15–20 min) e utilize Ioshua (alinhado ao Norte 357°) junto ao Labirinto D’Amiens (Norte 357°) e Desembaraçador de Relacionamentos para dissolver vínculos e votos antigos com serenidade, encerrando com proteção no SCAP.',
+      'Valorize os testemunhos a grafite no Decágono Duplo (15–20 min) e utilize Ioshua, Queima de Karma (alinhados ao Norte 357°), Labirinto D’Amiens e Desembaraçador de Relacionamentos para dissolver vínculos e padrões cármicos com serenidade, encerrando com proteção no SCAP.',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo → Ioshua / Labirinto D’Amiens → Desembaraçador de Relacionamentos + SCAP.',
+      'Sequência sugerida: Decágono Duplo → Queima de Karma / Ioshua / Labirinto D’Amiens → Desembaraçador de Relacionamentos + SCAP.',
   },
   {
     id: 'prosperidade',
@@ -223,12 +233,15 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'fluxo de caixa',
       'vendas',
       'shrim',
+      'sorte e sucesso',
+      'acelerador',
+      'turbilhao',
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Prosperidade Financeira',
     synergyAdvice:
-      'Valorize o testemunho e a meta financeira a lápis grafite no Decágono Duplo por 15 a 20 minutos antes da emissão. Alinhe as placas direcionais (Turbilhão com Prosperador, Júpiter, Sol, Shrim e Cruz Atlante) ao Norte Magnético (357°). Evite associar Turbilhão com o gráfico Harmonia na mesma etapa.',
+      'Valorize o testemunho e a meta financeira a lápis grafite no Decágono Duplo por 15 a 20 minutos antes da emissão. Alinhe as placas direcionais (Turbilhão com Prosperador, Sorte e Sucesso, Acelerador, Júpiter, Sol e Shrim) ao Norte Magnético (357°). Evite associar Turbilhão com o gráfico Harmonia na mesma etapa.',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo (15–20 min) → Desimpregnador (se houver bloqueio) → Turbilhão com Prosperador / Shrim / Júpiter.',
+      'Sequência sugerida: Decágono Duplo (15–20 min) → Desimpregnador → Turbilhão com Prosperador / Sorte e Sucesso / Acelerador.',
   },
   {
     id: 'destravamento',
@@ -244,12 +257,14 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'espiral cosmica',
       'trigono',
       'acelerador',
+      'sorte e sucesso',
+      'turbilhao',
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Destravamento & Negócios',
     synergyAdvice:
-      'Para situações estagnadas, contratos emperrados ou recolocação profissional, prepare o testemunho no Decágono Duplo (15–20 min) e inicie com o Desembaraçador Material antes de acelerar com Turbilhão ou Acelerador. Cheque no pêndulo se há necessidade prévia de limpeza de inveja.',
+      'Para situações estagnadas, contratos emperrados ou recolocação profissional, prepare o testemunho no Decágono Duplo (15–20 min) e inicie com o Desembaraçador Material antes de acelerar com Sorte e Sucesso, Turbilhão ou Acelerador. Cheque no pêndulo se há necessidade prévia de limpeza de inveja.',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo → Desembaraçador Material → Espiral Cósmica / Turbilhão com Sol.',
+      'Sequência sugerida: Decágono Duplo → Desembaraçador Material → Sorte e Sucesso / Acelerador / Espiral Cósmica.',
   },
   {
     id: 'limpeza',
@@ -264,12 +279,14 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'cortes energeticos',
       'votos antigos',
       'purificacao',
+      'queima de karma',
+      'heiki',
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Limpeza & Desimpregnação (Anti-Catarse)',
     synergyAdvice:
-      'Sempre valorize o testemunho a grafite no Decágono Duplo por 15 a 20 minutos e priorize o Desimpregnador ou Triturador nas primeiras 24h a 72h antes de qualquer placa estimulante. Para Mesa D’Amiens, Labirinto D’Amiens e Ioshua, alinhe o eixo superior ao Norte Magnético (357°).',
+      'Sempre valorize o testemunho a grafite no Decágono Duplo por 15 a 20 minutos e priorize o Desimpregnador, Triturador ou Queima de Karma nas primeiras 24h a 72h antes de qualquer placa estimulante. Para Mesa D’Amiens, Labirinto D’Amiens, Queima de Karma e Ioshua, alinhe o eixo superior ao Norte Magnético (357°).',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo → Desimpregnador / Triturador → Diafragma 2 para recomposição áurica.',
+      'Sequência sugerida: Decágono Duplo → Desimpregnador / Triturador / Queima de Karma → Diafragma 2 para recomposição áurica.',
   },
   {
     id: 'protecao',
@@ -278,6 +295,8 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'protecao',
       'magia',
       'anti magia',
+      'escudo magico',
+      'heiki',
       'ataque psiquico',
       'obsessores',
       'ondas eletromagneticas',
@@ -288,9 +307,9 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Proteção & Defesa Espiritual',
     synergyAdvice:
-      'Em quadros de ataque psíquico, processos ou sobrecarga eletromagnética/telúrica, valorize o testemunho no Decágono Duplo (15–20 min) e confira o alinhamento ao Norte Magnético (357°) nas placas direcionais (SCAP, Anti Magia, Iavê, Ioshua, Luxor, Cruz Cósmica, Quadrado Mágico e Justiça Divina).',
+      'Em quadros de ataque psíquico, processos ou sobrecarga eletromagnética/telúrica, valorize o testemunho no Decágono Duplo (15–20 min) e confira o alinhamento ao Norte Magnético (357°) nas placas direcionais (Escudo Mágico, Heiki, SCAP, Anti Magia, Iavê, Ioshua, Luxor, Cruz Cósmica, Quadrado Mágico e Justiça Divina).',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo → Onze Círculos / Anti Magia / Iavê → SCAP Cabalístico para blindagem contínua.',
+      'Sequência sugerida: Decágono Duplo → Escudo Mágico / Heiki / Anti Magia / Onze Círculos → SCAP Cabalístico para blindagem contínua.',
   },
   {
     id: 'saude',
@@ -305,13 +324,21 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'depressao',
       'apatia',
       'regeneracao celular',
+      'magnetismo vital',
+      'magnetismo curativo',
+      'metabolismo',
+      'emagrecimento',
+      'gordura corporal',
+      'figura humana',
+      'revitalizador e chakras',
+      'aura humana',
       'pets',
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Saúde, Alívio de Dores & Vitalidade',
     synergyAdvice:
-      'Em pacientes com Bovis muito baixo (< 5.000 Å), faça assepsia prévia no Desimpregnador antes de aplicar Alta Vitalidade, Geradores ou Programador Físico (prevenção de catarse). Alinhe Anti Dor, Programador Físico, Cruz Ansata e Gerador Pirâmide/Quadrado ao Norte (357°) e utilize água dinamizada por 15–20 min.',
+      'Em pacientes com Bovis muito baixo (< 5.000 Å), faça assepsia prévia no Desimpregnador antes de aplicar Magnetismo Vital e Curativo, Alta Vitalidade, Geradores ou Programador Físico (prevenção de catarse). Alinhe Anti Dor, Magnetismo Vital, Programador Físico, Cruz Ansata e Figura Humana ao Norte (357°).',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo → Anti Dor / Programador Físico → Alta Vitalidade / Flor da Vida.',
+      'Sequência sugerida: Decágono Duplo → Anti Dor / Magnetismo Vital e Curativo / Programador Físico → Alta Vitalidade / Revitalizador e Chakras.',
   },
   {
     id: 'clareza',
@@ -326,12 +353,14 @@ const FREQUENT_PURPOSES: FrequentPurposeShortcut[] = [
       'vesica piscis',
       'diafragma',
       'labirinto',
+      'revitalizador e chakras',
+      'aura humana',
     ],
     synergyTitle: 'Dica Clínica de Sinergia — Clareza Mental & Controle da Ansiedade',
     synergyAdvice:
-      'Para crises de ansiedade, insônia ou excesso de ruminação mental, utilize o Diafragma 1 para descongestionar (30 min a 24h) seguido pelo Diafragma 2 ou Labirinto D’Amiens (alinhado ao Norte 357°). Evite emissões estimulantes de Turbilhão ou Energizador à noite em interagentes agitados.',
+      'Para crises de ansiedade, insônia ou excesso de ruminação mental, utilize o Diafragma 1 para descongestionar (30 min a 24h) seguido pelo Diafragma 2, Revitalizador e Chakras ou Labirinto D’Amiens (alinhado ao Norte 357°). Evite emissões estimulantes de Turbilhão ou Energizador à noite em interagentes agitados.',
     recommendedSequence:
-      'Sequência sugerida: Decágono Duplo → Diafragma 1 → Diafragma 2 / Vesica Piscis / Labirinto D’Amiens.',
+      'Sequência sugerida: Decágono Duplo → Diafragma 1 → Diafragma 2 / Revitalizador e Chakras / Labirinto D’Amiens.',
   },
   {
     id: 'relacionamentos',
@@ -1184,7 +1213,7 @@ export const GraficosRadionicosTab: React.FC<GraficosRadionicosTabProps> = ({
         showToast(`Gráfico "${cleanTitle}" atualizado com sucesso.`);
       } else {
         const nextNumber =
-          allGraphics.reduce((max, g) => Math.max(max, Number(g.number) || 0), 47) + 1;
+          allGraphics.reduce((max, g) => Math.max(max, Number(g.number) || 0), 60) + 1;
         const newGraphic: PrintableGraphic = {
           id: `graf-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           number: nextNumber,

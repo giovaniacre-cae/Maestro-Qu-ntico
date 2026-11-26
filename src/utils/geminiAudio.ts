@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { CopilotAnalysisResult, InteragentType } from '../types/quantum';
 import { FollowUpCategory } from './storage';
 
-declare const process: { env?: Record<string, string | undefined> } | undefined;
+declare const process: { env: { GEMINI_API_KEY?: string } };
 
 export interface ExtractedAnamnesisFields {
   patientName?: string;
@@ -18,6 +18,7 @@ export interface GeminiAudioExtractionResult {
   transcription: string;
   extractedFields: ExtractedAnamnesisFields;
   copilotAnalysis: CopilotAnalysisResult;
+  usedTextFallback?: boolean;
 }
 
 export interface ExtractAudioOptions {
@@ -141,12 +142,12 @@ export function normalizeBirthDateInput(rawDate?: string): string {
 function getClientGeminiApiKey(): string {
   let envKey = '';
   try {
-    envKey = process?.env?.GEMINI_API_KEY || '';
+    envKey = process.env.GEMINI_API_KEY || '';
   } catch {
     envKey = '';
   }
   const viteKey =
-    (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_GEMINI_API_KEY || '';
+    (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
   const chosen = (envKey || viteKey || '').trim();
   if (!chosen || chosen === 'MY_GEMINI_API_KEY') {
     return '';
@@ -158,6 +159,70 @@ function createDirectGeminiClient(): GoogleGenAI | null {
   const apiKey = getClientGeminiApiKey();
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
+}
+
+function isAbortError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
+async function generateJsonWithGeminiFallback(
+  ai: GoogleGenAI,
+  contents: unknown,
+  signal?: AbortSignal
+): Promise<string> {
+  const callModel = async (
+    model: string,
+    useZeroThinkingBudget: boolean
+  ): Promise<string> => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: contents as any,
+      config: {
+        ...(useZeroThinkingBudget
+          ? { thinkingConfig: { thinkingBudget: 0 } }
+          : {}),
+        responseMimeType: 'application/json',
+        abortSignal: signal,
+      },
+    });
+    return cleanModelJsonText(response.text);
+  };
+
+  try {
+    return await callModel('gemini-3.8-flash', true);
+  } catch (primaryErr) {
+    if (isAbortError(primaryErr, signal)) {
+      throw primaryErr;
+    }
+    const primaryMsg =
+      primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+
+    // If thinkingBudget is rejected on this model/endpoint, retry gemini-3.8-flash without thinkingConfig
+    if (/thinking/i.test(primaryMsg)) {
+      try {
+        return await callModel('gemini-3.8-flash', false);
+      } catch (retryErr) {
+        if (isAbortError(retryErr, signal)) {
+          throw retryErr;
+        }
+      }
+    }
+
+    const shouldTryFallback =
+      /503|404|UNAVAILABLE|NOT_FOUND|high demand|overloaded|thinking/i.test(primaryMsg);
+    if (!shouldTryFallback) {
+      throw primaryErr;
+    }
+    try {
+      return await callModel('gemini-4-hydrogen', false);
+    } catch (fallbackErr) {
+      if (isAbortError(fallbackErr, signal)) {
+        throw fallbackErr;
+      }
+      return await callModel('gemini-3.1-flash-lite', false);
+    }
+  }
 }
 
 function getApiBase(): string {
@@ -176,6 +241,11 @@ async function parseJsonOrThrowDetailedError<T>(res: Response, endpointLabel: st
   try {
     parsed = JSON.parse(rawText) as T & { error?: unknown };
   } catch {
+    if (res.status === 404) {
+      throw new Error(
+        `Rota ${endpointLabel} indisponível neste ambiente estático (HTTP 404). Verifique se GEMINI_API_KEY / VITE_GEMINI_API_KEY está configurada nas variáveis do projeto para execução direta no navegador.`
+      );
+    }
     const snippet = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
     throw new Error(
       `HTTP ${res.status} em ${endpointLabel}${snippet ? `: ${snippet}` : ''}`
@@ -207,7 +277,8 @@ function cleanStr(value: unknown): string {
 
 function mapTranscribedPayload(
   data: Record<string, unknown>,
-  partialTranscript?: string
+  partialTranscript?: string,
+  usedTextFallback = false
 ): GeminiAudioExtractionResult {
   const rawFields =
     data.extractedFields && typeof data.extractedFields === 'object'
@@ -259,7 +330,91 @@ function mapTranscribedPayload(
     transcription,
     extractedFields,
     copilotAnalysis,
+    usedTextFallback,
   };
+}
+
+export async function extractAnamnesisFromTextWithGemini(options: {
+  transcript: string;
+  patientName?: string;
+  mainComplaint?: string;
+  interagentType?: InteragentType;
+  signal?: AbortSignal;
+}): Promise<GeminiAudioExtractionResult> {
+  const { transcript, patientName, mainComplaint, interagentType, signal } = options;
+  const cleanText = transcript.trim();
+  if (!cleanText) {
+    throw new Error('Transcrição vazia ou inválida para extração.');
+  }
+
+  const cleanName =
+    typeof patientName === 'string' && patientName.trim() ? patientName.trim() : 'Paciente';
+  const hasExplicitPatientName = Boolean(
+    typeof patientName === 'string' && patientName.trim()
+  );
+  const cleanComplaint =
+    typeof mainComplaint === 'string' && mainComplaint.trim() ? mainComplaint.trim() : '';
+  const isPet = interagentType === 'pet';
+
+  const directAi = createDirectGeminiClient();
+  if (directAi) {
+    const complaintContext = cleanComplaint
+      ? `\nQueixa/Foco Principal já informado pelo terapeuta: "${cleanComplaint}".`
+      : '';
+    const nameInstruction = hasExplicitPatientName
+      ? `O nome do interagente já está definido no topo como "${cleanName}" (retorne "" em patientName para não sobrescrever).`
+      : `Extraia o nome do paciente/animal se citado no relato, ou "".`;
+
+    const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
+Analise a transcrição abaixo da escuta ativa de uma consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${complaintContext}
+${nameInstruction}
+
+TRANSCRIÇÃO AO VIVO DA SESSÃO:
+"""
+${cleanText}
+"""
+
+Extraia todos os campos da Ficha de Anamnese mencionados no relato (use "" quando não citado) e retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
+{
+  "transcription": "Texto revisado e pontuado da transcrição da sessão em português.",
+  "extractedFields": {
+    "patientName": "",
+    "birthDate": "Data de nascimento no formato YYYY-MM-DD se mencionada, ou ''",
+    "mainComplaint": "Queixa principal / intenção central do atendimento sintetizada para o campo Foco do Atendimento",
+    "clinicalHistory": "Sintomas físicos, dores localizadas, diagnósticos clínicos e histórico físico relatado",
+    "emotionalSymptoms": "Sintomas emocionais, mentais, traumas, ansiedade, luto ou correlação psicossomática relatada",
+    "medications": "Medicações em uso, suplementos ou acompanhamento médico/veterinário mencionado, ou ''",
+    "lifestyleNotes": "Observações de estilo de vida, sono, rotina, ambiente doméstico ou notas clínicas do terapeuta",
+    "suggestedFocus": "Escolha o foco principal mais compatível entre: Saúde Física, Equilíbrio Emocional, Limpeza Espiritual, Prosperidade/Material, Relacionamentos ou Saúde Animal / PETS.",
+    "highlightedOrgansAndChakras": ["Lista de órgãos, sistemas ANSAE e chakras associados às queixas"]
+  }
+}`;
+
+    const jsonText = await generateJsonWithGeminiFallback(directAi, prompt, signal);
+    if (!jsonText) {
+      throw new Error('O Gemini retornou uma resposta vazia ao analisar a transcrição da anamnese.');
+    }
+
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    return mapTranscribedPayload(parsed, cleanText, true);
+  }
+
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/api/anamnese/copilot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+    body: JSON.stringify({
+      transcript: cleanText,
+      patientName,
+      mainComplaint,
+    }),
+  });
+  const copilotData = await parseJsonOrThrowDetailedError<Record<string, unknown>>(
+    res,
+    '/api/anamnese/copilot'
+  );
+  return mapTranscribedPayload(copilotData, cleanText, true);
 }
 
 export async function extractAnamnesisFromAudioBlob(
@@ -284,11 +439,37 @@ export async function extractAnamnesisFromAudioBlob(
     ? 'mp3'
     : 'webm';
 
-  // 1. Direct browser execution via @google/genai when API key is present in client bundle
+  const runTextResilienceIfAvailable = async (
+    audioErr: unknown
+  ): Promise<GeminiAudioExtractionResult> => {
+    if (isAbortError(audioErr, signal)) {
+      throw audioErr;
+    }
+    const cleanFallbackText = (partialTranscript || '').trim();
+    if (!cleanFallbackText) {
+      throw audioErr;
+    }
+    console.warn(
+      'Via multimodal de áudio falhou; acionando Via de Resiliência Automática (Texto):',
+      audioErr
+    );
+    return extractAnamnesisFromTextWithGemini({
+      transcript: cleanFallbackText,
+      patientName,
+      mainComplaint,
+      interagentType,
+      signal,
+    });
+  };
+
+  // 1. Direct browser execution via @google/genai (Via Principal: Áudio Multimodal)
   const directAi = createDirectGeminiClient();
   if (directAi) {
     const cleanName =
       typeof patientName === 'string' && patientName.trim() ? patientName.trim() : 'Paciente';
+    const hasExplicitPatientName = Boolean(
+      typeof patientName === 'string' && patientName.trim()
+    );
     const cleanComplaint =
       typeof mainComplaint === 'string' && mainComplaint.trim() ? mainComplaint.trim() : '';
     const isPet = interagentType === 'pet';
@@ -299,9 +480,12 @@ export async function extractAnamnesisFromAudioBlob(
       typeof partialTranscript === 'string' && partialTranscript.trim()
         ? `\nRascunho parcial em tempo real (apoio para nomes próprios): "${partialTranscript.trim()}"`
         : '';
+    const nameInstruction = hasExplicitPatientName
+      ? `\nO nome do interagente já está preenchido no topo como "${cleanName}" (retorne "" em patientName para preservá-lo).`
+      : '';
 
     const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
-Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${complaintHint}${partialHint}
+Ouça atentamente a gravação de áudio da consulta presencial com ${isPet ? `o tutor do animal "${cleanName}"` : `o consulente "${cleanName}"`}.${complaintHint}${partialHint}${nameInstruction}
 
 Execute duas ações em uma única resposta JSON:
 1. Transcreva literalmente e com fidelidade em português brasileiro tudo o que foi falado na gravação.
@@ -323,83 +507,85 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura exata:
   }
 }`;
 
-    const response = await directAi.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [
-        {
-          inlineData: {
-            data: audioBase64,
-            mimeType,
+    try {
+      const jsonText = await generateJsonWithGeminiFallback(
+        directAi,
+        [
+          {
+            inlineData: {
+              data: audioBase64,
+              mimeType,
+            },
           },
-        },
-        { text: prompt },
-      ],
-      config: {
-        thinkingConfig: { thinkingBudget: 0 },
-        responseMimeType: 'application/json',
-        abortSignal: signal,
-      },
+          { text: prompt },
+        ],
+        signal
+      );
+      if (!jsonText) {
+        throw new Error('O Gemini retornou uma resposta vazia ao transcrever o áudio.');
+      }
+
+      const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+      return mapTranscribedPayload(parsed, partialTranscript, false);
+    } catch (audioErr) {
+      return runTextResilienceIfAvailable(audioErr);
+    }
+  }
+
+  // 2. Backend fallback when running full-stack with server-side GEMINI_API_KEY
+  try {
+    const apiBase = getApiBase();
+    let uploadId: string | undefined;
+
+    if (audioBase64.length > SINGLE_REQUEST_BASE64_LIMIT) {
+      const generatedId = `aud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const totalChunks = Math.ceil(audioBase64.length / CHUNK_BASE64_SIZE);
+
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_BASE64_SIZE;
+        const chunkData = audioBase64.slice(start, start + CHUNK_BASE64_SIZE);
+        const chunkRes = await fetch(`${apiBase}/api/anamnese/transcribe-chunk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal,
+          body: JSON.stringify({
+            uploadId: generatedId,
+            chunkIndex,
+            totalChunks,
+            chunkData,
+          }),
+        });
+        await parseJsonOrThrowDetailedError<{ ok: boolean }>(
+          chunkRes,
+          '/api/anamnese/transcribe-chunk'
+        );
+      }
+      uploadId = generatedId;
+    }
+
+    const res = await fetch(`${apiBase}/api/anamnese/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        ...(uploadId ? { uploadId } : { audioBase64 }),
+        mimeType,
+        fileName: `consulta.${ext}`,
+        patientName,
+        mainComplaint,
+        partialTranscript,
+        interagentType,
+      }),
     });
 
-    const jsonText = cleanModelJsonText(response.text);
-    if (!jsonText) {
-      throw new Error('O Gemini retornou uma resposta vazia ao transcrever o áudio.');
-    }
-
-    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-    return mapTranscribedPayload(parsed, partialTranscript);
+    const data = await parseJsonOrThrowDetailedError<Record<string, unknown>>(
+      res,
+      '/api/anamnese/transcribe'
+    );
+    return mapTranscribedPayload(data, partialTranscript, false);
+  } catch (serverAudioErr) {
+    return runTextResilienceIfAvailable(serverAudioErr);
   }
-
-  // 2. Fallback to backend Express proxy when running full-stack with server-side GEMINI_API_KEY
-  const apiBase = getApiBase();
-  let uploadId: string | undefined;
-
-  if (audioBase64.length > SINGLE_REQUEST_BASE64_LIMIT) {
-    const generatedId = `aud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const totalChunks = Math.ceil(audioBase64.length / CHUNK_BASE64_SIZE);
-
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      const start = chunkIndex * CHUNK_BASE64_SIZE;
-      const chunkData = audioBase64.slice(start, start + CHUNK_BASE64_SIZE);
-      const chunkRes = await fetch(`${apiBase}/api/anamnese/transcribe-chunk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal,
-        body: JSON.stringify({
-          uploadId: generatedId,
-          chunkIndex,
-          totalChunks,
-          chunkData,
-        }),
-      });
-      await parseJsonOrThrowDetailedError<{ ok: boolean }>(
-        chunkRes,
-        '/api/anamnese/transcribe-chunk'
-      );
-    }
-    uploadId = generatedId;
-  }
-
-  const res = await fetch(`${apiBase}/api/anamnese/transcribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      ...(uploadId ? { uploadId } : { audioBase64 }),
-      mimeType,
-      fileName: `consulta.${ext}`,
-      patientName,
-      mainComplaint,
-      partialTranscript,
-      interagentType,
-    }),
-  });
-
-  const data = await parseJsonOrThrowDetailedError<Record<string, unknown>>(
-    res,
-    '/api/anamnese/transcribe'
-  );
-  return mapTranscribedPayload(data, partialTranscript);
 }
 
 export async function analyzeAnamnesisTextWithGemini(options: {
@@ -408,74 +594,8 @@ export async function analyzeAnamnesisTextWithGemini(options: {
   mainComplaint?: string;
   signal?: AbortSignal;
 }): Promise<CopilotAnalysisResult> {
-  const { transcript, patientName, mainComplaint, signal } = options;
-  const cleanText = transcript.trim();
-  if (!cleanText) {
-    throw new Error('Transcrição vazia ou inválida para análise.');
-  }
-
-  const directAi = createDirectGeminiClient();
-  if (directAi) {
-    const cleanComplaint =
-      typeof mainComplaint === 'string' && mainComplaint.trim() ? mainComplaint.trim() : '';
-    const complaintContext = cleanComplaint
-      ? `\nQueixa/Foco Principal já informado: "${cleanComplaint}".`
-      : '';
-    const prompt = `Você é o Copiloto Clínico IA do sistema "Maestro Quântico" (Maestro Terapias Vibracionais).
-Analise a transcrição abaixo da escuta ativa de um atendimento terapêutico presencial com "${patientName || 'Paciente'}"${complaintContext} e extraia os insights estruturados em JSON estrito.
-
-TRANSCRIÇÃO DA SESSÃO:
-"""
-${cleanText}
-"""
-
-Retorne EXCLUSIVAMENTE um JSON válido com estas chaves:
-{
-  "clinicalComplaints": "Resumo detalhado dos sintomas físicos, dores localizadas e diagnósticos citados.",
-  "psychosomaticMapping": "Correlação psicossomática profunda entre os sintomas físicos e os conflitos emocionais ou padrões mentais.",
-  "centralIntention": "Intenção Central de Tratamento sintetizada no Padrão Maestro.",
-  "suggestedFocus": "Foco principal do atendimento (ex.: Saúde Física, Equilíbrio Emocional, Limpeza Espiritual, Prosperidade/Material, Relacionamentos ou Saúde Animal / PETS).",
-  "highlightedOrgansAndChakras": ["Lista de órgãos, sistemas ANSAE e chakras associados às queixas"]
-}`;
-
-    const response = await directAi.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 0 },
-        responseMimeType: 'application/json',
-        abortSignal: signal,
-      },
-    });
-
-    const jsonText = cleanModelJsonText(response.text);
-    if (!jsonText) {
-      throw new Error('O Gemini retornou uma resposta vazia ao analisar o texto da anamnese.');
-    }
-    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-    return {
-      clinicalComplaints: cleanStr(parsed.clinicalComplaints),
-      psychosomaticMapping: cleanStr(parsed.psychosomaticMapping),
-      centralIntention: cleanStr(parsed.centralIntention),
-      suggestedFocus: cleanStr(parsed.suggestedFocus) || 'Harmonização Integral',
-      highlightedOrgansAndChakras: Array.isArray(parsed.highlightedOrgansAndChakras)
-        ? parsed.highlightedOrgansAndChakras.map((i) => cleanStr(i)).filter(Boolean)
-        : [],
-    };
-  }
-
-  const apiBase = getApiBase();
-  const res = await fetch(`${apiBase}/api/anamnese/copilot`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      transcript: cleanText,
-      patientName,
-      mainComplaint,
-    }),
-  });
-  return parseJsonOrThrowDetailedError<CopilotAnalysisResult>(res, '/api/anamnese/copilot');
+  const result = await extractAnamnesisFromTextWithGemini(options);
+  return result.copilotAnalysis;
 }
 
 export async function analyzeFollowUpAudioWithGemini(
@@ -540,9 +660,9 @@ Execute duas etapas e retorne EXCLUSIVAMENTE um JSON válido com estas três cha
   "patientFeedbackMessage": "Mensagem acolhedora, tranquilizadora e humanizada pronta para enviar ao paciente via WhatsApp (sem asteriscos ou markdown)."
 }`;
 
-    const response = await directAi.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [
+    const jsonText = await generateJsonWithGeminiFallback(
+      directAi,
+      [
         {
           inlineData: {
             data: audioBase64,
@@ -551,14 +671,8 @@ Execute duas etapas e retorne EXCLUSIVAMENTE um JSON válido com estas três cha
         },
         { text: prompt },
       ],
-      config: {
-        thinkingConfig: { thinkingBudget: 0 },
-        responseMimeType: 'application/json',
-        abortSignal: signal,
-      },
-    });
-
-    const jsonText = cleanModelJsonText(response.text);
+      signal
+    );
     if (!jsonText) {
       throw new Error('O Gemini retornou uma resposta vazia ao transcrever o áudio do diário.');
     }
@@ -646,17 +760,7 @@ Retorne EXCLUSIVAMENTE um JSON válido com estas duas chaves:
   "patientFeedbackMessage": "Devolutiva acolhedora, tranquilizadora e humanizada pronta para enviar ao paciente por WhatsApp (sem asteriscos)."
 }`;
 
-    const response = await directAi.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 0 },
-        responseMimeType: 'application/json',
-        abortSignal: signal,
-      },
-    });
-
-    const jsonText = cleanModelJsonText(response.text);
+    const jsonText = await generateJsonWithGeminiFallback(directAi, prompt, signal);
     if (!jsonText) {
       throw new Error('O Gemini retornou uma resposta vazia ao analisar o relato.');
     }

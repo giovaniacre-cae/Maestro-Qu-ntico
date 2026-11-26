@@ -26,8 +26,9 @@ import {
 } from '../types/quantum';
 import { formatInteragentDisplayLabel, isPetInteragent } from '../utils/antiCatharsis';
 import {
-  analyzeAnamnesisTextWithGemini,
   extractAnamnesisFromAudioBlob,
+  extractAnamnesisFromTextWithGemini,
+  GeminiAudioExtractionResult,
 } from '../utils/geminiAudio';
 
 interface AnamneseFormProps {
@@ -137,6 +138,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
   const isPausedRef = useRef<boolean>(false);
   const anamnesisRef = useRef<PatientAnamnesis>(anamnesis);
   const transcriptRef = useRef<string>(transcript);
+  const interimTranscriptRef = useRef<string>('');
   const recordedAudioUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -285,6 +287,19 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     };
   }, []);
 
+  const flushInterimTranscript = (): string => {
+    const pending = interimTranscriptRef.current.trim();
+    interimTranscriptRef.current = '';
+    setInterimTranscript('');
+    if (!pending) return transcriptRef.current;
+
+    const merged = (transcriptRef.current ? `${transcriptRef.current.trim()} ` : '') + pending;
+    transcriptRef.current = merged;
+    setTranscript(merged);
+    onChange({ ...anamnesisRef.current, sessionTranscript: merged });
+    return merged;
+  };
+
   const startLiveSpeechRecognition = () => {
     const SpeechAPI =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -294,6 +309,16 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
         'Microfone conectado e gravando áudio real. A transcrição completa será gerada pela IA ao finalizar a consulta.'
       );
       return;
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch {
+        // Ignore cleanup errors
+      }
+      recognitionRef.current = null;
     }
 
     try {
@@ -313,7 +338,10 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
             interimStr += piece;
           }
         }
-        setInterimTranscript(interimStr.trim());
+        const cleanInterim = interimStr.trim();
+        interimTranscriptRef.current = cleanInterim;
+        setInterimTranscript(cleanInterim);
+
         if (finalStr.trim()) {
           setTranscript((prev) => {
             const next = (prev ? `${prev.trim()} ` : '') + finalStr.trim();
@@ -333,13 +361,16 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       };
 
       recognition.onend = () => {
-        setInterimTranscript('');
+        flushInterimTranscript();
         if (isRecordingRef.current && !isPausedRef.current) {
-          try {
-            recognition.start();
-          } catch {
-            // Ignore restart race when stopping
-          }
+          window.setTimeout(() => {
+            if (!isRecordingRef.current || isPausedRef.current) return;
+            try {
+              recognition.start();
+            } catch {
+              // Ignore restart race when stopping
+            }
+          }, 150);
         }
       };
 
@@ -370,7 +401,17 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
     } catch (err) {
       setCopilotError(describeMicrophoneError(err));
       return;
@@ -384,6 +425,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     setRecordedAudioUrl(null);
     setRecordedAudioBlob(null);
     setDurationSeconds(0);
+    interimTranscriptRef.current = '';
     setInterimTranscript('');
 
     mediaStreamRef.current = stream;
@@ -411,7 +453,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       console.warn('Não foi possível inicializar o medidor VU:', audioCtxErr);
     }
 
-    // 2. Setup MediaRecorder (webm/opus or mp4 fallback for Safari/iOS)
+    // 2. Setup MediaRecorder (webm/opus or mp4 fallback for Safari/iOS, 24 kbps voice-optimized)
     try {
       if (typeof MediaRecorder === 'undefined') {
         throw new Error('MediaRecorder não suportado neste navegador.');
@@ -449,7 +491,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
   const pauseRecording = () => {
     isPausedRef.current = true;
     setIsPaused(true);
-    setInterimTranscript('');
+    flushInterimTranscript();
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       try {
@@ -495,8 +537,10 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       try {
         recognitionRef.current.start();
       } catch {
-        // Ignore restart errors
+        startLiveSpeechRecognition();
       }
+    } else {
+      startLiveSpeechRecognition();
     }
   };
 
@@ -527,6 +571,61 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     });
   };
 
+  const applyExtractionResultToForm = (
+    result: GeminiAudioExtractionResult,
+    fallbackText: string
+  ) => {
+    const resolvedTranscript = (result.transcription || fallbackText || '').trim();
+    if (resolvedTranscript) {
+      setTranscript(resolvedTranscript);
+      transcriptRef.current = resolvedTranscript;
+    }
+    setCopilotAnalysis(result.copilotAnalysis);
+
+    const latestAnamnesis = anamnesisRef.current;
+    const fields = result.extractedFields;
+    const nextFullName = latestAnamnesis.fullName.trim()
+      ? latestAnamnesis.fullName
+      : fields.patientName?.trim() || '';
+    const nextBirthDate = latestAnamnesis.birthDate.trim()
+      ? latestAnamnesis.birthDate
+      : fields.birthDate?.trim() || '';
+    const nextTherapeuticFocus = latestAnamnesis.therapeuticFocus.trim()
+      ? latestAnamnesis.therapeuticFocus
+      : fields.mainComplaint?.trim() || result.copilotAnalysis.centralIntention || '';
+    const nextPhysicalSymptoms = fields.clinicalHistory?.trim()
+      ? fields.clinicalHistory.trim()
+      : result.copilotAnalysis.clinicalComplaints || latestAnamnesis.physicalSymptoms;
+    const nextEmotionalHistory = fields.emotionalSymptoms?.trim()
+      ? fields.emotionalSymptoms.trim()
+      : result.copilotAnalysis.psychosomaticMapping || latestAnamnesis.emotionalHistory;
+    const nextMedicalTreatments = fields.medications?.trim()
+      ? fields.medications.trim()
+      : latestAnamnesis.medicalTreatments;
+    const nextClinicalNotes = fields.lifestyleNotes?.trim()
+      ? fields.lifestyleNotes.trim()
+      : latestAnamnesis.clinicalNotes;
+
+    onChange({
+      ...latestAnamnesis,
+      fullName: nextFullName,
+      birthDate: nextBirthDate,
+      therapeuticFocus: nextTherapeuticFocus,
+      physicalSymptoms: nextPhysicalSymptoms,
+      emotionalHistory: nextEmotionalHistory,
+      medicalTreatments: nextMedicalTreatments,
+      clinicalNotes: nextClinicalNotes,
+      sessionTranscript: resolvedTranscript,
+      copilotAnalysis: result.copilotAnalysis,
+    });
+
+    setSuccessNotice(
+      result.usedTextFallback
+        ? 'Dados extraídos pela via de resiliência (transcrição ao vivo) e preenchidos na Anamnese.'
+        : 'Dados extraídos da gravação e preenchidos na Anamnese.'
+    );
+  };
+
   const processCapturedDataWithAI = async (blobToProcess: Blob | null, textFallback: string) => {
     setIsAnalyzing(true);
     setCopilotError(null);
@@ -537,96 +636,41 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     const timeoutId = window.setTimeout(() => controller.abort(), 50000);
 
     try {
+      const cleanText = textFallback.trim();
+
       if (blobToProcess && blobToProcess.size > 0 && blobToProcess.size <= MAX_RECORDING_BYTES) {
         const result = await extractAnamnesisFromAudioBlob({
           recordedBlob: blobToProcess,
           patientName: anamnesisRef.current.fullName,
           mainComplaint: anamnesisRef.current.therapeuticFocus,
-          partialTranscript: textFallback,
+          partialTranscript: cleanText,
           interagentType: anamnesisRef.current.interagentType,
           signal: controller.signal,
         });
-
-        const resolvedTranscript = (result.transcription || textFallback || '').trim();
-        if (resolvedTranscript) {
-          setTranscript(resolvedTranscript);
-          transcriptRef.current = resolvedTranscript;
-        }
-        setCopilotAnalysis(result.copilotAnalysis);
-
-        const latestAnamnesis = anamnesisRef.current;
-        const fields = result.extractedFields;
-        const nextFullName = latestAnamnesis.fullName.trim()
-          ? latestAnamnesis.fullName
-          : fields.patientName?.trim() || '';
-        const nextBirthDate = latestAnamnesis.birthDate.trim()
-          ? latestAnamnesis.birthDate
-          : fields.birthDate?.trim() || '';
-        const nextTherapeuticFocus = latestAnamnesis.therapeuticFocus.trim()
-          ? latestAnamnesis.therapeuticFocus
-          : fields.mainComplaint?.trim() || result.copilotAnalysis.centralIntention || '';
-        const nextPhysicalSymptoms = fields.clinicalHistory?.trim()
-          ? fields.clinicalHistory.trim()
-          : result.copilotAnalysis.clinicalComplaints || latestAnamnesis.physicalSymptoms;
-        const nextEmotionalHistory = fields.emotionalSymptoms?.trim()
-          ? fields.emotionalSymptoms.trim()
-          : result.copilotAnalysis.psychosomaticMapping || latestAnamnesis.emotionalHistory;
-        const nextMedicalTreatments = fields.medications?.trim()
-          ? fields.medications.trim()
-          : latestAnamnesis.medicalTreatments;
-        const nextClinicalNotes = fields.lifestyleNotes?.trim()
-          ? fields.lifestyleNotes.trim()
-          : latestAnamnesis.clinicalNotes;
-
-        onChange({
-          ...latestAnamnesis,
-          fullName: nextFullName,
-          birthDate: nextBirthDate,
-          therapeuticFocus: nextTherapeuticFocus,
-          physicalSymptoms: nextPhysicalSymptoms,
-          emotionalHistory: nextEmotionalHistory,
-          medicalTreatments: nextMedicalTreatments,
-          clinicalNotes: nextClinicalNotes,
-          sessionTranscript: resolvedTranscript,
-          copilotAnalysis: result.copilotAnalysis,
-        });
-        setSuccessNotice('Dados extraídos da gravação e preenchidos na Anamnese');
+        applyExtractionResultToForm(result, cleanText);
         return;
       }
 
-      if (blobToProcess && blobToProcess.size > MAX_RECORDING_BYTES && !textFallback.trim()) {
+      if (blobToProcess && blobToProcess.size > MAX_RECORDING_BYTES && !cleanText) {
         throw new Error(
           'O áudio gravado excedeu 15 MB e não há transcrição parcial de apoio. Cole o resumo na caixa abaixo.'
         );
       }
 
-      const cleanText = textFallback.trim();
       if (!cleanText) {
         throw new Error(
           'Nenhum áudio captado ou texto digitado para analisar. Verifique seu microfone ou digite a anamnese abaixo.'
         );
       }
 
-      const data = await analyzeAnamnesisTextWithGemini({
+      const result = await extractAnamnesisFromTextWithGemini({
         transcript: cleanText,
         patientName: anamnesisRef.current.fullName,
         mainComplaint: anamnesisRef.current.therapeuticFocus,
+        interagentType: anamnesisRef.current.interagentType,
         signal: controller.signal,
       });
-      setCopilotAnalysis(data);
-
-      const latestAnamnesis = anamnesisRef.current;
-      onChange({
-        ...latestAnamnesis,
-        sessionTranscript: cleanText,
-        copilotAnalysis: data,
-        physicalSymptoms: data.clinicalComplaints || latestAnamnesis.physicalSymptoms,
-        emotionalHistory: data.psychosomaticMapping || latestAnamnesis.emotionalHistory,
-        therapeuticFocus: latestAnamnesis.therapeuticFocus.trim()
-          ? latestAnamnesis.therapeuticFocus
-          : data.centralIntention || '',
-      });
-      setSuccessNotice('Dados extraídos da gravação e preenchidos na Anamnese');
+      applyExtractionResultToForm(result, cleanText);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         setCopilotError(AUDIO_CONNECTION_FALLBACK_MSG);
@@ -647,7 +691,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
     isPausedRef.current = false;
     setIsRecording(false);
     setIsPaused(false);
-    setInterimTranscript('');
+    const mergedTranscript = flushInterimTranscript();
 
     let capturedBlob = recordedAudioBlob;
     if (wasRecording) {
@@ -666,7 +710,7 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
       }
     }
 
-    await processCapturedDataWithAI(capturedBlob, transcriptRef.current);
+    await processCapturedDataWithAI(capturedBlob, mergedTranscript);
   };
 
   const applySuggestions = () => {
@@ -1279,20 +1323,33 @@ export const AnamneseForm: React.FC<AnamneseFormProps> = ({
 
           {/* Transcription Textarea */}
           <div className="space-y-1.5">
-            <label htmlFor="sessionTranscript" className="block text-xs font-semibold text-[#0F172A]">
-              Transcrição ao Vivo da Sessão (Editável ou Colada Manualmente)
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label htmlFor="sessionTranscript" className="block text-xs font-semibold text-[#0F172A]">
+                Transcrição ao Vivo da Sessão (Editável ou Colada Manualmente)
+              </label>
+              {isRecording && !isPaused && (
+                <span className="text-[11px] font-medium text-[#B45309]">
+                  Reconhecimento contínuo pt-BR ativo
+                </span>
+              )}
+            </div>
             <textarea
               id="sessionTranscript"
               rows={5}
               value={transcript}
               onChange={(e) => {
                 setTranscript(e.target.value);
+                transcriptRef.current = e.target.value;
                 onChange({ ...anamnesis, sessionTranscript: e.target.value });
               }}
               placeholder="A transcrição da fala aparecerá aqui automaticamente conforme o paciente relata seus sintomas e emoções, ou você pode colar/editar o texto diretamente..."
               className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg text-[#0F172A] font-sans focus:outline-none focus:border-[#D97706]"
             />
+            {interimTranscript && (
+              <p className="text-xs italic text-[#B45309] bg-[#FFFBEB] border border-[#D97706]/30 rounded-md px-3 py-1.5">
+                Captando fala em tempo real: &ldquo;{interimTranscript}&rdquo;
+              </p>
+            )}
           </div>
 
           {/* Copilot Insights Card */}

@@ -1643,7 +1643,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] text-[#0F172A] flex flex-col">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#FAF8F5] text-[#0F172A] flex flex-col">
       <TopNav
         activeScreen={activeScreen}
         onNavigate={setActiveScreen}

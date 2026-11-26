@@ -11,11 +11,14 @@ export default defineConfig(({mode}) => {
     process.env.GEMINI_API_KEY ||
     env.VITE_GEMINI_API_KEY ||
     process.env.VITE_GEMINI_API_KEY ||
+    env.API_KEY ||
+    process.env.API_KEY ||
     '';
   return {
     base: './',
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
+      'process.env.API_KEY': JSON.stringify(geminiKey),
     },
     plugins: [
       react(),
