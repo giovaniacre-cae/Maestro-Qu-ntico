@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Compass, PawPrint, Plus, Search, Sparkles, Trash2, X, ZoomIn, ZoomOut, Image as ImageIcon, Sliders, Upload, RotateCcw, Pencil, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Compass, PawPrint, Plus, Search, Sparkles, Trash2, X, ZoomIn, ZoomOut, Image as ImageIcon, Sliders, Upload, RotateCcw, Pencil, Loader2, Columns2, Rows2, Maximize2, ArrowRight, CheckCircle2 } from 'lucide-react';
 import {
   BiometerDefinition,
   HAWKINS_SCALE_TABLE,
@@ -356,11 +356,36 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   const [editName, setEditName] = useState<string>('');
   const [editItemsText, setEditItemsText] = useState<string>('');
 
-  // High-Definition PNG Viewer & Zoom state
-  const [viewMode, setViewMode] = useState<'png' | 'dial'>('png');
+  // High-Definition PNG Viewer, Half-Scan & Zoom state
+  const [displayMode, setDisplayMode] = useState<'png' | 'dial'>('png');
+  const [viewMode, setViewMode] = useState<'full' | 'half-1' | 'half-2'>('full');
+  const [splitOrientation, setSplitOrientation] = useState<'lr' | 'tb'>('lr');
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [activeImageSrc, setActiveImageSrc] = useState<string | undefined>(undefined);
   const [imageLoadStatus, setImageLoadStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const pngStageRef = useRef<HTMLDivElement | null>(null);
+  const [stageWidth, setStageWidth] = useState<number>(360);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setViewMode('full');
+    setZoomLevel(1);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const el = pngStageRef.current;
+    if (!el) return;
+    const updateWidth = () => {
+      const w = el.clientWidth;
+      if (w > 0) setStageWidth(w);
+    };
+    updateWidth();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isOpen, displayMode, selectedId]);
 
   useEffect(() => {
     if (selectedId === 'bio-23' && typeof currentHawkinsHz === 'number') {
@@ -384,7 +409,69 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
   useEffect(() => {
     setActiveImageSrc(resolvedActiveImageUrl);
     setImageLoadStatus(resolvedActiveImageUrl ? 'loading' : 'error');
+    setNaturalSize(null);
+    setViewMode('full');
+    setZoomLevel(1);
   }, [resolvedActiveImageUrl, activeBiometer.id]);
+
+  const isCircularImage = useMemo(() => {
+    if (!naturalSize || naturalSize.width <= 0 || naturalSize.height <= 0) return false;
+    const ratio = naturalSize.width / naturalSize.height;
+    return ratio >= 0.8 && ratio <= 1.25;
+  }, [naturalSize]);
+
+  const halfScanMetrics = useMemo(() => {
+    const aspect =
+      naturalSize && naturalSize.width > 0 && naturalSize.height > 0
+        ? naturalSize.width / naturalSize.height
+        : 1;
+    const availableW = Math.max(220, stageWidth - 16);
+    const scale = 1.85;
+
+    if (splitOrientation === 'lr') {
+      const maxFrameH = stageWidth >= 520 ? 620 : 540;
+      const baseW = Math.min(availableW, (maxFrameH / scale) * aspect);
+      const baseH = baseW / aspect;
+      return {
+        scale,
+        baseW,
+        baseH,
+        frameW: baseW,
+        frameH: baseH * scale,
+        tx: viewMode === 'half-1' ? '41%' : viewMode === 'half-2' ? '-41%' : '0%',
+        ty: '0%',
+      };
+    }
+
+    const maxBaseH = stageWidth >= 520 ? 370 : 280;
+    const idealBaseW = availableW / scale;
+    const minReadableBaseW = Math.min(240, availableW);
+    const baseW = Math.max(minReadableBaseW, Math.min(idealBaseW, maxBaseH * aspect));
+    const baseH = baseW / aspect;
+    return {
+      scale,
+      baseW,
+      baseH,
+      frameW: baseW * scale,
+      frameH: baseH,
+      tx: '0%',
+      ty: viewMode === 'half-1' ? '41%' : viewMode === 'half-2' ? '-41%' : '0%',
+    };
+  }, [naturalSize, stageWidth, splitOrientation, viewMode]);
+
+  const handleCycleViewMode = () => {
+    setZoomLevel(1);
+    setViewMode((prev) => {
+      if (prev === 'full') return 'half-1';
+      if (prev === 'half-1') return 'half-2';
+      return 'full';
+    });
+  };
+
+  const handleSelectViewMode = (mode: 'full' | 'half-1' | 'half-2') => {
+    setZoomLevel(1);
+    setViewMode(mode);
+  };
 
   const items = activeBiometer.items;
 
@@ -426,9 +513,10 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
     setCustomComplement('');
     setShowCustomCreator(false);
     setShowEditor(false);
+    setViewMode('full');
     setZoomLevel(1);
     if (bio.imageUrl) {
-      setViewMode('png');
+      setDisplayMode('png');
     }
     setRecordedNotice(null);
     setExtractionNotice(null);
@@ -857,7 +945,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
           </aside>
 
           {/* Right Stage */}
-          <div className="lg:col-span-8 min-h-0 p-6 overflow-y-auto space-y-6">
+          <div className="lg:col-span-8 min-h-0 p-3 sm:p-6 overflow-y-auto space-y-5 sm:space-y-6">
             {showCustomCreator ? (
               <form
                 onSubmit={handleCreateCustom}
@@ -1091,7 +1179,7 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
               </form>
             ) : (
               <>
-                <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-4 shadow-sm">
+                <div className="bg-white border border-[#E2E8F0] rounded-xl p-3.5 sm:p-6 space-y-4 shadow-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1122,14 +1210,14 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                       </h3>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {activeBiometer.imageUrl && (
                         <div className="inline-flex bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg p-0.5">
                           <button
                             type="button"
-                            onClick={() => setViewMode('png')}
+                            onClick={() => setDisplayMode('png')}
                             className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                              viewMode === 'png'
+                              displayMode === 'png'
                                 ? 'bg-[#0F172A] text-white'
                                 : 'text-[#64748B] hover:text-[#0F172A]'
                             }`}
@@ -1139,9 +1227,9 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setViewMode('dial')}
+                            onClick={() => setDisplayMode('dial')}
                             className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                              viewMode === 'dial'
+                              displayMode === 'dial'
                                 ? 'bg-[#0F172A] text-white'
                                 : 'text-[#64748B] hover:text-[#0F172A]'
                             }`}
@@ -1152,23 +1240,33 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                         </div>
                       )}
 
-                      {viewMode === 'png' && activeBiometer.imageUrl && (
+                      {displayMode === 'png' && activeBiometer.imageUrl && (
                         <div className="inline-flex items-center bg-[#FAF8F5] border border-[#CBD5E1] rounded-lg p-0.5">
                           <button
                             type="button"
-                            onClick={() => setZoomLevel(Math.max(1, zoomLevel - 0.5))}
+                            onClick={() => {
+                              if (viewMode !== 'full') {
+                                handleSelectViewMode('full');
+                              } else {
+                                setZoomLevel(Math.max(1, zoomLevel - 0.5));
+                              }
+                            }}
                             className="p-1.5 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
                             title="Reduzir Zoom (100%)"
                           >
                             <ZoomOut className="w-4 h-4" />
                           </button>
                           <span className="px-2 text-xs font-mono font-semibold text-[#0F172A]">
-                            {Math.round(zoomLevel * 100)}%
+                            {viewMode !== 'full' ? '185%' : `${Math.round(zoomLevel * 100)}%`}
                           </span>
                           <button
                             type="button"
-                            onClick={() => setZoomLevel(Math.min(2, zoomLevel + 0.5))}
-                            className="p-1.5 text-[#64748B] hover:text-[#0F172A] cursor-pointer"
+                            onClick={() => {
+                              if (viewMode !== 'full') return;
+                              setZoomLevel(Math.min(2, zoomLevel + 0.5));
+                            }}
+                            disabled={viewMode !== 'full'}
+                            className="p-1.5 text-[#64748B] hover:text-[#0F172A] cursor-pointer disabled:opacity-40"
                             title="Aumentar Zoom (até 200%)"
                           >
                             <ZoomIn className="w-4 h-4" />
@@ -1220,69 +1318,255 @@ export const BiometrosModal: React.FC<BiometrosModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Main Display: HD PNG Image or SVG Semicircular Dial */}
-                  {viewMode === 'png' && activeBiometer.imageUrl ? (
-                    <div className="relative w-full overflow-auto bg-[#FAF8F5] border border-[#E2E8F0] rounded-xl p-4 flex flex-col items-center justify-center min-h-[320px] max-h-[520px]">
-                      {imageLoadStatus === 'loading' && (
-                        <div className="flex items-center gap-2 text-xs text-[#64748B] py-4">
-                          <Loader2 className="w-4 h-4 animate-spin text-[#B45309]" />
-                          Carregando imagem do biômetro...
+                  {/* Half-Scan Mode Controls (Pills + Orientation) */}
+                  {displayMode === 'png' && activeBiometer.imageUrl && imageLoadStatus === 'loaded' && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-[#FAF8F5] border border-[#E2E8F0] rounded-xl p-2.5 sm:px-3.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div
+                          role="group"
+                          aria-label="Modo de visualização da prancha"
+                          className="inline-flex items-center bg-white border border-[#CBD5E1] rounded-lg p-0.5"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSelectViewMode('full')}
+                            className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                              viewMode === 'full'
+                                ? 'bg-[#0F172A] text-white'
+                                : 'text-[#64748B] hover:text-[#0F172A]'
+                            }`}
+                          >
+                            Inteiro
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectViewMode('half-1')}
+                            className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                              viewMode === 'half-1'
+                                ? 'bg-[#B45309] text-white'
+                                : 'text-[#64748B] hover:text-[#0F172A]'
+                            }`}
+                          >
+                            Metade 1
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectViewMode('half-2')}
+                            className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                              viewMode === 'half-2'
+                                ? 'bg-[#B45309] text-white'
+                                : 'text-[#64748B] hover:text-[#0F172A]'
+                            }`}
+                          >
+                            Metade 2
+                          </button>
                         </div>
-                      )}
-                      {imageLoadStatus === 'error' ? (
-                        <div className="text-center space-y-3 py-8">
-                          <p className="text-xs font-medium text-[#64748B]">
-                            Não foi possível carregar a imagem HD deste biômetro ({activeBiometer.imageUrl}).
-                          </p>
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const retrySrc = resolveBiometerImageUrl(activeBiometer.imageUrl);
-                                if (retrySrc) {
-                                  setImageLoadStatus('loading');
-                                  setActiveImageSrc(`${retrySrc}${retrySrc.includes('?') ? '&' : '?'}t=${Date.now()}`);
+
+                        {isCircularImage && viewMode === 'full' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-[11px] font-semibold text-[#92400E]">
+                            Circular 1:1
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        role="group"
+                        aria-label="Orientação do corte em metades"
+                        className="inline-flex items-center gap-1 bg-white border border-[#CBD5E1] rounded-lg p-0.5 self-start sm:self-auto"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSplitOrientation('lr')}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                            splitOrientation === 'lr'
+                              ? 'bg-[#FEF3C7] text-[#92400E]'
+                              : 'text-[#64748B] hover:text-[#0F172A]'
+                          }`}
+                        >
+                          <Columns2 className="w-3.5 h-3.5 shrink-0" />
+                          Corte: Esquerda / Direita
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSplitOrientation('tb')}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                            splitOrientation === 'tb'
+                              ? 'bg-[#FEF3C7] text-[#92400E]'
+                              : 'text-[#64748B] hover:text-[#0F172A]'
+                          }`}
+                        >
+                          <Rows2 className="w-3.5 h-3.5 shrink-0" />
+                          Corte: Superior / Inferior
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Main Display: HD PNG Image or SVG Semicircular Dial */}
+                  {displayMode === 'png' && activeBiometer.imageUrl ? (
+                    <div className="space-y-3">
+                      <div
+                        ref={pngStageRef}
+                        className={`relative w-full bg-[#FAF8F5] border border-[#E2E8F0] rounded-xl p-2 sm:p-4 flex flex-col items-center justify-center ${
+                          viewMode !== 'full'
+                            ? splitOrientation === 'tb'
+                              ? 'overflow-x-auto overflow-y-hidden'
+                              : 'overflow-hidden'
+                            : zoomLevel > 1
+                            ? 'overflow-auto min-h-[320px] max-h-[520px]'
+                            : 'overflow-hidden min-h-[300px] max-h-[520px]'
+                        }`}
+                      >
+                        {viewMode !== 'full' && imageLoadStatus === 'loaded' && (
+                          <div className="mb-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-white/95 border border-[#D97706]/30 text-[11px] font-semibold text-[#92400E] shadow-xs">
+                            <span>
+                              {viewMode === 'half-1'
+                                ? splitOrientation === 'lr'
+                                  ? 'Varredura Ampliada · Metade 1/2 (Esquerda)'
+                                  : 'Varredura Ampliada · Metade 1/2 (Superior)'
+                                : splitOrientation === 'lr'
+                                ? 'Varredura Ampliada · Metade 2/2 (Direita)'
+                                : 'Varredura Ampliada · Metade 2/2 (Inferior)'}
+                            </span>
+                            <span className="font-mono text-[10px] text-[#64748B]">185% · +10% margem central</span>
+                          </div>
+                        )}
+
+                        {imageLoadStatus === 'loading' && (
+                          <div className="flex items-center gap-2 text-xs text-[#64748B] py-4">
+                            <Loader2 className="w-4 h-4 animate-spin text-[#B45309]" />
+                            Carregando imagem do biômetro...
+                          </div>
+                        )}
+                        {imageLoadStatus === 'error' ? (
+                          <div className="text-center space-y-3 py-8">
+                            <p className="text-xs font-medium text-[#64748B]">
+                              Não foi possível carregar a imagem HD deste biômetro ({activeBiometer.imageUrl}).
+                            </p>
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const retrySrc = resolveBiometerImageUrl(activeBiometer.imageUrl);
+                                  if (retrySrc) {
+                                    setImageLoadStatus('loading');
+                                    setActiveImageSrc(`${retrySrc}${retrySrc.includes('?') ? '&' : '?'}t=${Date.now()}`);
+                                  }
+                                }}
+                                className="px-3 py-1.5 text-xs font-semibold bg-[#0F172A] text-white rounded-lg cursor-pointer"
+                              >
+                                Tentar Novamente
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDisplayMode('dial')}
+                                className="px-3 py-1.5 text-xs font-semibold border border-[#CBD5E1] bg-white text-[#0F172A] rounded-lg cursor-pointer"
+                              >
+                                Abrir Dial SVG
+                              </button>
+                            </div>
+                          </div>
+                        ) : viewMode === 'full' ? (
+                          <div
+                            style={{
+                              transform: `scale(${zoomLevel})`,
+                              transformOrigin: zoomLevel > 1 ? 'top center' : 'center center',
+                              transition: 'transform 300ms ease-out',
+                            }}
+                            className="w-full flex items-center justify-center"
+                          >
+                            <img
+                              key={activeBiometer.id}
+                              src={activeImageSrc || resolvedActiveImageUrl}
+                              alt={activeBiometer.name}
+                              onLoad={(e) => {
+                                setImageLoadStatus('loaded');
+                                const img = e.currentTarget;
+                                if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                                  setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
                                 }
                               }}
-                              className="px-3 py-1.5 text-xs font-semibold bg-[#0F172A] text-white rounded-lg cursor-pointer"
-                            >
-                              Tentar Novamente
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setViewMode('dial')}
-                              className="px-3 py-1.5 text-xs font-semibold border border-[#CBD5E1] bg-white text-[#0F172A] rounded-lg cursor-pointer"
-                            >
-                              Abrir Dial SVG
-                            </button>
+                              onError={() => {
+                                const rawUrl = activeBiometer.imageUrl || '';
+                                const rootFallback = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+                                if (activeImageSrc && activeImageSrc !== rootFallback && !activeImageSrc.includes('t=')) {
+                                  setActiveImageSrc(rootFallback);
+                                } else {
+                                  setImageLoadStatus('error');
+                                }
+                              }}
+                              className="block max-h-[460px] max-w-full w-auto h-auto object-contain drop-shadow-md rounded-lg"
+                            />
                           </div>
-                        </div>
-                      ) : (
-                        <div
-                          style={{
-                            transform: `scale(${zoomLevel})`,
-                            transformOrigin: 'center center',
-                            transition: 'transform 200ms ease-in-out',
-                          }}
-                          className="w-full flex items-center justify-center"
-                        >
-                          <img
-                            key={activeBiometer.id}
-                            src={activeImageSrc || resolvedActiveImageUrl}
-                            alt={activeBiometer.name}
-                            onLoad={() => setImageLoadStatus('loaded')}
-                            onError={() => {
-                              const rawUrl = activeBiometer.imageUrl || '';
-                              const rootFallback = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
-                              if (activeImageSrc && activeImageSrc !== rootFallback && !activeImageSrc.includes('t=')) {
-                                setActiveImageSrc(rootFallback);
-                              } else {
-                                setImageLoadStatus('error');
-                              }
+                        ) : (
+                          <div
+                            style={{
+                              width: `${halfScanMetrics.frameW}px`,
+                              height: `${halfScanMetrics.frameH}px`,
                             }}
-                            className="block max-h-[460px] max-w-full w-auto h-auto object-contain drop-shadow-md rounded-lg"
-                          />
-                        </div>
+                            className="relative overflow-hidden rounded-lg bg-white border border-[#E2E8F0] shadow-inner flex items-center justify-center shrink-0 mx-auto"
+                          >
+                            <div
+                              style={{
+                                width: `${halfScanMetrics.baseW}px`,
+                                height: `${halfScanMetrics.baseH}px`,
+                                transform: `translate(${halfScanMetrics.tx}, ${halfScanMetrics.ty}) scale(${halfScanMetrics.scale})`,
+                                transformOrigin: 'center center',
+                              }}
+                              className="transition-transform duration-300 ease-out flex items-center justify-center shrink-0"
+                            >
+                              <img
+                                key={`${activeBiometer.id}-half`}
+                                src={activeImageSrc || resolvedActiveImageUrl}
+                                alt={activeBiometer.name}
+                                onLoad={(e) => {
+                                  setImageLoadStatus('loaded');
+                                  const img = e.currentTarget;
+                                  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                                    setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+                                  }
+                                }}
+                                className="w-full h-full object-contain select-none"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Quick-Cycle Action Button Directly Below Board */}
+                      {imageLoadStatus === 'loaded' && (
+                        <button
+                          type="button"
+                          onClick={handleCycleViewMode}
+                          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold rounded-xl border transition-all duration-200 cursor-pointer ${
+                            viewMode === 'full'
+                              ? isCircularImage
+                                ? 'bg-[#B45309] text-white border-[#B45309] ring-2 ring-[#F59E0B]/35 shadow-sm hover:bg-[#92400E]'
+                                : 'bg-[#0F172A] text-white border-[#0F172A] hover:bg-[#1E293B]'
+                              : viewMode === 'half-1'
+                              ? 'bg-[#B45309] text-white border-[#B45309] shadow-sm hover:bg-[#92400E]'
+                              : 'bg-[#0F172A] text-white border-[#0F172A] hover:bg-[#1E293B]'
+                          }`}
+                        >
+                          {viewMode === 'full' && (
+                            <>
+                              <Maximize2 className="w-4 h-4 shrink-0" />
+                              <span>Ampliar Metade 1/2 para Pendular</span>
+                            </>
+                          )}
+                          {viewMode === 'half-1' && (
+                            <>
+                              <span>Próxima Metade (2/2)</span>
+                              <ArrowRight className="w-4 h-4 shrink-0" />
+                            </>
+                          )}
+                          {viewMode === 'half-2' && (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-[#F59E0B] shrink-0" />
+                              <span>Concluir Varredura (Visão Completa)</span>
+                            </>
+                          )}
+                        </button>
                       )}
                     </div>
                   ) : (
